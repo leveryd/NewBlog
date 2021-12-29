@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 5.2.0">
+
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@5.15.4/css/all.min.css" integrity="sha256-mUZM63G8m73Mcidfrv5E+Y61y7a12O5mW4ezU3bxqW4=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"yoursite.com","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.8.2","exturl":false,"sidebar":{"position":"left","display":"post","padding":18,"offset":12},"copycode":false,"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"prism":false,"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js"></script>
+<meta name="description" content="问题背景在x86系列的cpu上开启分页机制后，指令涉及到”内存读写”操作时，用到的”内存地址”都是”虚拟地址”。”mmu硬件”会按照”分段”、”分页”的计算规则，将”虚拟地址”转换成”物理地址”。最终指令可以对”物理地址”读写数据。 上面这段关于内存的”理论知识”，我觉得如果可以实践看一看，就能多一些”感觉”。 本文记录我对下面两个结论的调试和验证过程，也是我对极客时间的操作系统实战 45 讲课程">
+<meta property="og:type" content="article">
+<meta property="og:title" content="验证缺页中断机制">
+<meta property="og:url" content="http://yoursite.com/2021-12-26-%E9%AA%8C%E8%AF%81%E7%BC%BA%E9%A1%B5%E4%B8%AD%E6%96%AD%E6%9C%BA%E5%88%B6/index.html">
+<meta property="og:site_name" content="leveryd的个人博客">
+<meta property="og:description" content="问题背景在x86系列的cpu上开启分页机制后，指令涉及到”内存读写”操作时，用到的”内存地址”都是”虚拟地址”。”mmu硬件”会按照”分段”、”分页”的计算规则，将”虚拟地址”转换成”物理地址”。最终指令可以对”物理地址”读写数据。 上面这段关于内存的”理论知识”，我觉得如果可以实践看一看，就能多一些”感觉”。 本文记录我对下面两个结论的调试和验证过程，也是我对极客时间的操作系统实战 45 讲课程">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://user-images.githubusercontent.com/1846319/144075113-24fdf0f1-74ac-4223-9a09-d6c71ed0993a.png">
+<meta property="article:published_time" content="2021-12-26T07:33:56.978Z">
+<meta property="article:modified_time" content="2021-12-26T07:33:56.978Z">
+<meta property="article:author" content="leveryd">
+<meta property="article:tag" content="操作系统">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://user-images.githubusercontent.com/1846319/144075113-24fdf0f1-74ac-4223-9a09-d6c71ed0993a.png">
+
+
+<link rel="canonical" href="http://yoursite.com/2021-12-26-%E9%AA%8C%E8%AF%81%E7%BC%BA%E9%A1%B5%E4%B8%AD%E6%96%AD%E6%9C%BA%E5%88%B6/">
+
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"http://yoursite.com/2021-12-26-%E9%AA%8C%E8%AF%81%E7%BC%BA%E9%A1%B5%E4%B8%AD%E6%96%AD%E6%9C%BA%E5%88%B6/","path":"2021-12-26-验证缺页中断机制/","title":"验证缺页中断机制"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>验证缺页中断机制 | leveryd的个人博客</title>
+  
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">leveryd的个人博客</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+
+
+
+</div>
+        
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#%E9%97%AE%E9%A2%98%E8%83%8C%E6%99%AF"><span class="nav-number">1.</span> <span class="nav-text">问题背景</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E9%AA%8C%E8%AF%81%E8%BF%87%E7%A8%8B"><span class="nav-number">2.</span> <span class="nav-text">验证过程</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E6%80%BB%E7%BB%93"><span class="nav-number">3.</span> <span class="nav-text">总结</span></a></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author site-overview-item animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">leveryd</p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap site-overview-item animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">43</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-tags">
+        <span class="site-state-item-count">19</span>
+        <span class="site-state-item-name">标签</span>
+      </div>
+  </nav>
+</div>
+
+
+
+        </div>
+      </div>
+    </div>
+  </aside>
+  <div class="sidebar-dimmer"></div>
+
+
+    </header>
+
+    
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E9%AA%8C%E8%AF%81%E7%BC%BA%E9%A1%B5%E4%B8%AD%E6%96%AD%E6%9C%BA%E5%88%B6/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          验证缺页中断机制
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+        <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>在x86系列的cpu上开启分页机制后，指令涉及到”内存读写”操作时，用到的”内存地址”都是”虚拟地址”。”mmu硬件”会按照”分段”、”分页”的计算规则，将”虚拟地址”转换成”物理地址”。最终指令可以对”物理地址”读写数据。</p>
+<p>上面这段关于内存的”理论知识”，我觉得如果可以实践看一看，就能多一些”感觉”。</p>
+<p>本文记录我对下面两个结论的调试和验证过程，也是我对极客时间的<a target="_blank" rel="noopener" href="https://time.geekbang.org/column/intro/100078401?tab=catalog">操作系统实战 45 讲</a>课程中”内存管理”章节的部分学习和实践，基于<a target="_blank" rel="noopener" href="https://gitee.com/lmos/cosmos/tree/master/lesson25~26/Cosmos">第26课代码</a>。</p>
+<p>“mmu硬件”在转换”虚拟地址”时有可能发生”缺页异常”，包括：</p>
+<ul>
+<li>访问”未向内核申请的虚拟地址”会导致”缺页异常”</li>
+<li>当第一次访问申请的虚拟地址时，也会产生”缺页异常”；第二次访问同样的虚拟地址时，不会产生”缺页异常”</li>
+</ul>
+<h1 id="验证过程"><a href="#验证过程" class="headerlink" title="验证过程"></a>验证过程</h1><ul>
+<li><p>访问”未向内核申请的虚拟地址”会导致”缺页异常”</p>
+<p>按照理论来说：访问未申请的虚拟地址时，”mmu硬件”在转换”虚拟地址”时会发出”缺页异常”（可能因为找不到对应的”页表项”）</p>
+<p>在验证这个理论前，先介绍一下cosmos(课程自制的内核系统名称)相关的代码，以方便读者大概理解文中出现的函数作用</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">void test_vadr()</span><br><span class="line">&#123;</span><br><span class="line">	adr_t vadr &#x3D; vma_new_vadrs(&amp;initmmadrsdsc, NULL, 0x1000, 0, 0);  &#x2F;&#x2F; 0x1000是想要申请的空间大小，vadr是申请的内存地址</span><br><span class="line">	if(NULL &#x3D;&#x3D; vadr)</span><br><span class="line">	&#123;</span><br><span class="line">		kprint(&quot;分配虚拟地址空间失败\n&quot;);</span><br><span class="line">	&#125;</span><br><span class="line">  ...</span><br><span class="line">	hal_memset((void*)vadr, 0, 0x1000);  &#x2F;&#x2F; 初始化刚申请的内存为0</span><br><span class="line">	...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>上面<code>test_vadr</code>是cosmos中用来验证”虚拟内存”相关功能的测试函数。</p>
+<p>在cosmos中，想要使用虚拟空间，需要先调用<code>vma_new_vadrs</code>申请一个虚拟地址。</p>
+<p>cosmos相关代码介绍完毕，下面用gdb调试课程代码，来实际验证一下”理论”：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line">(gdb) break test_vadr   &#x2F;&#x2F; 在 test_vadr 函数下断点（选择在test_vadr函数下断点，是因为此时 虚拟内存管理、物理内存管理、缺页异常处理 等功能都已经实现）</span><br><span class="line">Breakpoint 1 at 0xffff80000202444a: file ..&#x2F;kernel&#x2F;krlvadrsmem.c, line 289.</span><br><span class="line">(gdb) continue</span><br><span class="line">Continuing.</span><br><span class="line"></span><br><span class="line">Breakpoint 1, test_vadr () at ..&#x2F;kernel&#x2F;krlvadrsmem.c:289</span><br><span class="line">289	&#123;</span><br><span class="line">(gdb) break krluserspace_accessfailed   &#x2F;&#x2F; 在 krluserspace_accessfailed 函数下断点</span><br><span class="line">Breakpoint 2 at 0xffff800002026588: file ..&#x2F;kernel&#x2F;krlvadrsmem.c, line 1145.</span><br><span class="line">(gdb) call hal_memset(0x400,0,0x1)  &#x2F;&#x2F; 调用hal_memset函数，向 0x400地址 写一个字节内容</span><br><span class="line"></span><br><span class="line">Breakpoint 2, krluserspace_accessfailed (fairvadrs&#x3D;0) at ..&#x2F;kernel&#x2F;krlvadrsmem.c:1145 &#x2F;&#x2F;</span><br><span class="line">...</span><br><span class="line">(gdb) where   &#x2F;&#x2F; 可以看到 当前代码在..&#x2F;kernel&#x2F;krlvadrsmem.c文件1145行的krluserspace_accessfailed</span><br><span class="line">#0  krluserspace_accessfailed (fairvadrs&#x3D;0) at ..&#x2F;kernel&#x2F;krlvadrsmem.c:1145</span><br><span class="line">#1  0xffff8000020135d2 in hal_fault_allocator (faultnumb&#x3D;14, krnlsframp&#x3D;0xffff80000008fe18)</span><br><span class="line">    at ..&#x2F;hal&#x2F;x86&#x2F;halintupt.c:171</span><br><span class="line">#2  0xffff80000200d830 in exc_page_fault ()</span><br><span class="line">...</span><br><span class="line">(gdb) continue</span><br><span class="line">Continuing.</span><br><span class="line">^C      &#x2F;&#x2F; 因为在这里卡死了，所以我按了ctrl+c</span><br><span class="line">Program received signal SIGINT, Interrupt.</span><br><span class="line">hal_sysdie (errmsg&#x3D;0xffff80000203a237 &quot;缺页处理失败\n&quot;) at ..&#x2F;hal&#x2F;x86&#x2F;halcpuctrl.c:185</span><br><span class="line">185	        ;</span><br></pre></td></tr></table></figure>
+<p>从上面的调试信息可以看出来：cpu在执行<code>hal_memset</code>函数访问<code>0x400</code>虚拟地址时，跳到了<code>krluserspace_accessfailed</code>函数，最后卡死在<code>halcpuctrl.c</code>第185行</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/144075113-24fdf0f1-74ac-4223-9a09-d6c71ed0993a.png" alt="image"></p>
+<p>这里的<code>0x400</code>地址不是通过<code>vma_new_vadrs</code>申请的地址。</p>
+<p><code>krluserspace_accessfailed</code>函数只有cpu遇到中断并且中断号为14（也就是”缺页异常”）的时候才会被调用</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;&#x2F; 异常处理</span><br><span class="line">void hal_fault_allocator(uint_t faultnumb, void *krnlsframp) &#x2F;&#x2F;eax,edx</span><br><span class="line">&#123;</span><br><span class="line">    ...</span><br><span class="line">    if (faultnumb &#x3D;&#x3D; 14)        &#x2F;&#x2F; 缺页异常 中断号是14</span><br><span class="line">    &#123;</span><br><span class="line">        ...</span><br><span class="line">        if (krluserspace_accessfailed(fairvadrs) !&#x3D; 0)</span><br><span class="line">       &#123;</span><br><span class="line">           system_error(&quot;缺页处理失败\n&quot;);</span><br><span class="line">       &#125;</span><br><span class="line">        ...</span><br><span class="line">    &#125;</span><br><span class="line">    ...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>所以可以推测出来：访问<code>0x400</code>时，mmu硬件发出了”缺页中断”，接着cpu处理”缺页中断”就会到<code>krluserspace_accessfailed</code>函数，因为<code>krluserspace_accessfailed</code>函数处理”页表映射”失败，所以会调用<code>system_error</code>函数，最终执行<code>for循环</code>卡死。</p>
+<p>这样可以看出来理论没有问题。</p>
+</li>
+<li><p>访问”已申请的虚拟地址”</p>
+<p>按照理论：在第一次访问”已申请的虚拟地址”，因为”虚拟内存”和”物理内存”的映射关系还没写到”页表”中，所以”mmu硬件”在转换”虚拟地址”时会发出”缺页异常”，然后”缺页异常”处理程序会写这个映射关系到”页表”中；第二次访问同一个”已申请的虚拟地址”，因为”虚拟内存”和”物理内存”的映射关系已经写到”页表”，”mmu硬件”就可以正常转换，不会发出”缺页异常”。</p>
+<p>下面同样用gdb调试来验证一下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line">(gdb) continue</span><br><span class="line">Continuing.</span><br><span class="line"></span><br><span class="line">Breakpoint 1, test_vadr () at ..&#x2F;kernel&#x2F;krlvadrsmem.c:289</span><br><span class="line">289	&#123;</span><br><span class="line">(gdb) break krluserspace_accessfailed</span><br><span class="line">Breakpoint 2 at 0xffff800002026588: file ..&#x2F;kernel&#x2F;krlvadrsmem.c, line 1145.</span><br><span class="line">(gdb) x &#x2F;bx 0x40000</span><br><span class="line">0x40000:	Cannot access memory at address 0x40000</span><br><span class="line">(gdb) call vma_new_vadrs(&amp;initmmadrsdsc,0x40000,0x1000, 0, 0)   &#x2F;&#x2F; 向内核申请虚拟空间，地址是0x40000，大小是0x1000</span><br><span class="line">$1 &#x3D; 0</span><br><span class="line">(gdb) call hal_memset(0x40000,0,0x1)    &#x2F;&#x2F; 第一次访问0x40000时进入到&quot;中断处理函数&quot;</span><br><span class="line"></span><br><span class="line">Breakpoint 2, krluserspace_accessfailed (fairvadrs&#x3D;0) at ..&#x2F;kernel&#x2F;krlvadrsmem.c:1145</span><br><span class="line">...</span><br><span class="line">(gdb) finish</span><br><span class="line">Run till exit from #0  krluserspace_accessfailed (fairvadrs&#x3D;2097282) at ..&#x2F;kernel&#x2F;krlvadrsmem.c:1145</span><br><span class="line">...</span><br><span class="line">(gdb) finish</span><br><span class="line">Run till exit from #0  0xffff8000020135d2 in hal_fault_allocator (faultnumb&#x3D;14,</span><br><span class="line">    krnlsframp&#x3D;0xffff80000008fe18) at ..&#x2F;hal&#x2F;x86&#x2F;halintupt.c:171</span><br><span class="line">0xffff80000200d830 in exc_page_fault ()</span><br><span class="line">(gdb) finish</span><br><span class="line">Run till exit from #0  0xffff80000200d830 in exc_page_fault ()</span><br><span class="line">(gdb) where</span><br><span class="line">#0  test_vadr () at ..&#x2F;kernel&#x2F;krlvadrsmem.c:289</span><br><span class="line">...</span><br><span class="line">(gdb) call hal_memset(0x40000,0,0x1)    &#x2F;&#x2F; 第二次访问0x40000时没有产生&quot;中断&quot;</span><br><span class="line">(gdb) x &#x2F;bx 0x40000</span><br><span class="line">0x40000:	0x00</span><br></pre></td></tr></table></figure>
+
+<p>从上面可以看到：调用<code>vma_new_vadrs</code>申请<code>0x40000</code>地址后，第一次调用<code>hal_memset</code>去访问<code>0x40000</code>时会进入到”缺页异常”处理程序(<code>krluserspace_accessfailed</code>函数)中，第二次再访问<code>0x40000</code>时就不会进入到”缺页异常”处理程序。</p>
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>通过调试，很容易对cosmos中”虚拟内存”访问时的业务流程做一点研究。</p>
+<p>同样我们可以通过”调试”去观察”分页”机制，来验证课程中的知识点。</p>
+<p>PS：后面会有一篇文章讲解怎么调试cosmos代码</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F/" rel="tag"># 操作系统</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2021-12-26-%E7%BB%86%E5%93%81%E6%9F%90%E8%AF%AD%E4%B9%89waf%E7%9A%84xss%E9%98%B2%E6%8A%A4(2)/" rel="prev" title="细品某语义waf的xss防护(2)">
+                  <i class="fa fa-chevron-left"></i> 细品某语义waf的xss防护(2)
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2021-12-26-%E8%AF%8D%E6%B3%95%E5%88%86%E6%9E%90%E5%9C%A8%E5%AE%89%E5%85%A8%E4%BA%A7%E5%93%81%E4%B8%AD%E7%9A%84%E5%BA%94%E7%94%A8/" rel="next" title="词法分析在安全产品中的应用">
+                  词法分析在安全产品中的应用 <i class="fa fa-chevron-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+
+<div class="copyright">
+  &copy; 
+  <span itemprop="copyrightYear">2021</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">leveryd</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous"></script>
+<script src="/js/comments.js"></script><script src="/js/utils.js"></script><script src="/js/motion.js"></script><script src="/js/schemes/muse.js"></script><script src="/js/next-boot.js"></script>
+
+  
+
+
+
+
+
+  
+
+
+
+
+
+</body>
+</html>

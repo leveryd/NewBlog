@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 5.2.0">
+
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@5.15.4/css/all.min.css" integrity="sha256-mUZM63G8m73Mcidfrv5E+Y61y7a12O5mW4ezU3bxqW4=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"yoursite.com","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.8.2","exturl":false,"sidebar":{"position":"left","display":"post","padding":18,"offset":12},"copycode":false,"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"prism":false,"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js"></script>
+<meta name="description" content="背景了解hids的读者应该知道hids agent会有上报很多信息，其中有的agent会将可疑文件上报到云端做恶意分析。 同事问我一个问题：文件如果特别大，也会被上报吗？不会影响性能吗？ 这个问题让我联想到 你的扫描器可以绕过防火墙么（三） 中大包绕过waf的场景，接着很容易想到：如果agent碰到大文件就不上传了，不就很容易绕过云端的恶意分析了嘛。 另外，一个恶意文件如果体积过大，可能对安全研究">
+<meta property="og:type" content="article">
+<meta property="og:title" content="如何避免文件上报-制作大文件">
+<meta property="og:url" content="http://yoursite.com/2021-12-26-%E5%A6%82%E4%BD%95%E9%81%BF%E5%85%8D%E6%96%87%E4%BB%B6%E4%B8%8A%E6%8A%A5-%E5%88%B6%E4%BD%9C%E5%A4%A7%E6%96%87%E4%BB%B6/index.html">
+<meta property="og:site_name" content="leveryd的个人博客">
+<meta property="og:description" content="背景了解hids的读者应该知道hids agent会有上报很多信息，其中有的agent会将可疑文件上报到云端做恶意分析。 同事问我一个问题：文件如果特别大，也会被上报吗？不会影响性能吗？ 这个问题让我联想到 你的扫描器可以绕过防火墙么（三） 中大包绕过waf的场景，接着很容易想到：如果agent碰到大文件就不上传了，不就很容易绕过云端的恶意分析了嘛。 另外，一个恶意文件如果体积过大，可能对安全研究">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2021-12-26T07:33:56.976Z">
+<meta property="article:modified_time" content="2021-12-26T07:33:56.976Z">
+<meta property="article:author" content="leveryd">
+<meta property="article:tag" content="HIDS">
+<meta name="twitter:card" content="summary">
+
+
+<link rel="canonical" href="http://yoursite.com/2021-12-26-%E5%A6%82%E4%BD%95%E9%81%BF%E5%85%8D%E6%96%87%E4%BB%B6%E4%B8%8A%E6%8A%A5-%E5%88%B6%E4%BD%9C%E5%A4%A7%E6%96%87%E4%BB%B6/">
+
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"http://yoursite.com/2021-12-26-%E5%A6%82%E4%BD%95%E9%81%BF%E5%85%8D%E6%96%87%E4%BB%B6%E4%B8%8A%E6%8A%A5-%E5%88%B6%E4%BD%9C%E5%A4%A7%E6%96%87%E4%BB%B6/","path":"2021-12-26-如何避免文件上报-制作大文件/","title":"如何避免文件上报-制作大文件"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>如何避免文件上报-制作大文件 | leveryd的个人博客</title>
+  
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">leveryd的个人博客</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+
+
+
+
+</div>
+        
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#%E8%83%8C%E6%99%AF"><span class="nav-number">1.</span> <span class="nav-text">背景</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E6%96%87%E4%BB%B6%E6%9C%AB%E5%B0%BE%E8%BF%BD%E5%8A%A0%E6%95%B0%E6%8D%AE"><span class="nav-number">2.</span> <span class="nav-text">文件末尾追加数据</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E7%A8%80%E7%96%8F%E6%96%87%E4%BB%B6"><span class="nav-number">3.</span> <span class="nav-text">稀疏文件</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E4%BF%AE%E6%94%B9inode%E5%85%83%E6%95%B0%E6%8D%AE"><span class="nav-number">4.</span> <span class="nav-text">修改inode元数据</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E5%90%91elf%E6%96%87%E4%BB%B6%E8%8A%82%E4%B8%AD%E6%B7%BB%E5%8A%A0%E5%9E%83%E5%9C%BE%E6%95%B0%E6%8D%AE"><span class="nav-number">5.</span> <span class="nav-text">向elf文件节中添加垃圾数据</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E6%80%BB%E7%BB%93"><span class="nav-number">6.</span> <span class="nav-text">总结</span></a></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author site-overview-item animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">leveryd</p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap site-overview-item animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">43</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-tags">
+        <span class="site-state-item-count">19</span>
+        <span class="site-state-item-name">标签</span>
+      </div>
+  </nav>
+</div>
+
+
+
+        </div>
+      </div>
+    </div>
+  </aside>
+  <div class="sidebar-dimmer"></div>
+
+
+    </header>
+
+    
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%A6%82%E4%BD%95%E9%81%BF%E5%85%8D%E6%96%87%E4%BB%B6%E4%B8%8A%E6%8A%A5-%E5%88%B6%E4%BD%9C%E5%A4%A7%E6%96%87%E4%BB%B6/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          如何避免文件上报-制作大文件
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+        <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>了解hids的读者应该知道hids agent会有上报很多信息，其中有的agent会将可疑文件上报到云端做恶意分析。</p>
+<p>同事问我一个问题：文件如果特别大，也会被上报吗？不会影响性能吗？</p>
+<p>这个问题让我联想到 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/qAv2wspeuCfhCjTaz03hNg">你的扫描器可以绕过防火墙么（三）</a> 中大包绕过waf的场景，接着很容易想到：如果agent碰到大文件就不上传了，不就很容易绕过云端的恶意分析了嘛。</p>
+<p>另外，一个恶意文件如果体积过大，可能对安全研究人员做”样本分析”造成一些困难，比如无法将文件下载到本地电脑（网速、磁盘空间可能不够）、ida等静态分析软件内存占用过大。</p>
+<p>基于以上”安全攻防”的业务场景，加上我最近在学习一些操作系统相关的知识，所以就研究下”怎么让elf文件变大”。</p>
+<p>文件变大的同时，还要满足以下条件：</p>
+<ul>
+<li>不影响elf文件执行</li>
+<li>从实用角度来说，攻击队也不会生成一个大文件，然后上传到目标。最好是上传一个小文件，上传到目标机器，然后本地让文件变大。</li>
+</ul>
+<p>先说结论，有以下方式让”文件大小”变大：</p>
+<ul>
+<li>文件末尾追加数据</li>
+<li>稀疏文件</li>
+<li>修改inode元数据</li>
+<li>向elf文件节中填充垃圾数据</li>
+</ul>
+<p>说明一下测试环境：测试程序是id命令，复制到了/tmp/y目录下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# \cp &#x2F;usr&#x2F;bin&#x2F;id &#x2F;tmp&#x2F;y</span><br></pre></td></tr></table></figure>
+
+<h1 id="文件末尾追加数据"><a href="#文件末尾追加数据" class="headerlink" title="文件末尾追加数据"></a>文件末尾追加数据</h1><ul>
+<li><p>怎么实现？</p>
+<p>这种方式实现很简单，如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# echo 1111 &gt;&gt; .&#x2F;id</span><br><span class="line">[root@instance-fj5pftdp y]# .&#x2F;id</span><br><span class="line">uid&#x3D;0(root) gid&#x3D;0(root) 组&#x3D;0(root)</span><br></pre></td></tr></table></figure>
+<p>关键是这样修改后的文件，还能正常执行。</p>
+</li>
+</ul>
+<h1 id="稀疏文件"><a href="#稀疏文件" class="headerlink" title="稀疏文件"></a>稀疏文件</h1><ul>
+<li><p>“稀疏文件”是什么？</p>
+<p>“稀疏文件”的”文件大小”和实际占用磁盘空间是不一致的，比如:</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# ll -h id</span><br><span class="line">-rwxr-xr-x 1 root root 10T 9月   6 20:03 id</span><br><span class="line">[root@instance-fj5pftdp y]# du -sh id</span><br><span class="line">40K	id</span><br></pre></td></tr></table></figure>
+<p>从上面命令可以看到：”文件大小”是10T，但实际数据只占用40K的磁盘大小。</p>
+<p>对于原理感兴趣的读者，可以参考 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/bLiqURdK_dtgr0GqU7yD9w">深度剖析 Linux cp 的秘密</a> 这篇文章。</p>
+</li>
+<li><p>怎么修改成”稀疏文件”？</p>
+<p>可以利用fallocate、truncate命令。</p>
+<p>使用起来也很简单，以truncate举例：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# ls -alh id</span><br><span class="line">-rwxr-xr-x 1 root root 37K 9月   5 20:18 id</span><br><span class="line">[root@instance-fj5pftdp y]# time truncate -s 10T id   &#x2F;&#x2F; 将id程序稀疏成10T大小</span><br><span class="line"></span><br><span class="line">real	0m0.007s</span><br><span class="line">user	0m0.000s</span><br><span class="line">sys	0m0.007s</span><br><span class="line">[root@instance-fj5pftdp y]# ls -alh id</span><br><span class="line">-rwxr-xr-x 1 root root 10T 9月   5 20:02 id    &#x2F;&#x2F; 文件大小已经变成10T</span><br><span class="line">[root@instance-fj5pftdp y]# .&#x2F;id</span><br><span class="line">uid&#x3D;0(root) gid&#x3D;0(root) 组&#x3D;0(root)</span><br></pre></td></tr></table></figure>
+
+<p>这种方式修改文件有两个特点：</p>
+<blockquote>
+<p>文件改动非常快，上面的例子中将id文件大小扩大到”10T”只用了1s不到</p>
+<p>文件大小最大可以是10T以上，但不需要本地磁盘空间真的有10T</p>
+</blockquote>
+<p>当你想下载或者读这个文件(比如<code>cat</code>)时，却是会有实实在在的<code>10T</code>流量。10T流量，按照”10M/s”的速度下载，也需要下载291个小时。</p>
+</li>
+</ul>
+<h1 id="修改inode元数据"><a href="#修改inode元数据" class="headerlink" title="修改inode元数据"></a>修改inode元数据</h1><ul>
+<li><p>为什么修改”inode元数据”就可以修改文件大小信息？</p>
+<p>inode元数据包含了文件大小信息，而inode元数据也是存储在磁盘扇区中的，所以应该可以通过修改inode元数据来”伪造”文件大小。</p>
+<p>其实不光大小信息，inode元数据中还包括 文件是否删除、创建时间、修改时间、访问时间 等信息，所以这些都可以被伪造。</p>
+<p>可以通过stat命令查看inode元数据：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# stat id</span><br><span class="line">  文件：&quot;id&quot;</span><br><span class="line">  大小：37400     	块：80         IO 块：4096   普通文件</span><br><span class="line">设备：fd01h&#x2F;64769d	Inode：171252      硬链接：1</span><br><span class="line">权限：(0755&#x2F;-rwxr-xr-x)  Uid：(    0&#x2F;    root)   Gid：(    0&#x2F;    root)</span><br><span class="line">最近访问：2021-09-06 20:27:26.224913458 +0800</span><br><span class="line">最近更改：2021-09-06 20:27:26.218913032 +0800</span><br><span class="line">最近改动：2021-09-06 20:27:26.224913458 +0800</span><br><span class="line">创建时间：-</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>怎么修改”inode元数据”？</p>
+<p>利用debugfs命令，如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# debugfs -w &#x2F;dev&#x2F;vda1</span><br><span class="line">debugfs:  mi &#x2F;tmp&#x2F;y&#x2F;id</span><br><span class="line">                          Mode    [0100755]</span><br><span class="line">                       User ID    [0]</span><br><span class="line">                      Group ID    [0]</span><br><span class="line">                          Size    [37400] 100000      &#x2F;&#x2F; 这里修改文件大小为100000</span><br><span class="line">                 Creation time    [1630929039]</span><br><span class="line">             ...</span><br><span class="line">debugfs:  quit</span><br><span class="line">[root@instance-fj5pftdp ~]# ll &#x2F;tmp&#x2F;y&#x2F;id</span><br><span class="line">-rwxr-xr-x 1 root root 37400 9月   6 19:50 &#x2F;tmp&#x2F;y&#x2F;id</span><br><span class="line">[root@instance-fj5pftdp ~]# echo 3 &gt; &#x2F;proc&#x2F;sys&#x2F;vm&#x2F;drop_caches   &#x2F;&#x2F; 清理inode缓存后，修改才生效</span><br><span class="line">[root@instance-fj5pftdp ~]# ll &#x2F;tmp&#x2F;y&#x2F;id</span><br><span class="line">-rwxr-xr-x 1 root root 100000 9月   6 19:50 &#x2F;tmp&#x2F;y&#x2F;id    &#x2F;&#x2F; 文件大小变成了100000</span><br><span class="line">[root@instance-fj5pftdp ~]# &#x2F;tmp&#x2F;y&#x2F;id</span><br><span class="line">uid&#x3D;0(root) gid&#x3D;0(root) 组&#x3D;0(root)</span><br></pre></td></tr></table></figure>
+
+<p>在测试过程中，需要读者注意的是：</p>
+<blockquote>
+<p>因为会对磁盘数据做写操作，所以最好找一个没数据的机器做测试</p>
+<p>记得清理inode缓存</p>
+<p>测试时如果使用文件当作设备，在挂载文件系统时去修改文件大小 会不生效。原因未知</p>
+</blockquote>
+</li>
+</ul>
+<h1 id="向elf文件节中添加垃圾数据"><a href="#向elf文件节中添加垃圾数据" class="headerlink" title="向elf文件节中添加垃圾数据"></a>向elf文件节中添加垃圾数据</h1><ul>
+<li><p>是什么？</p>
+<p>elf文件中包含很多的<em>节</em>，比如：</p>
+<blockquote>
+<p>.text存放代码</p>
+<p>.data存放初始化的全局变量和静态变量</p>
+</blockquote>
+<p>关于elf的文件格式，更多信息可以参考 《程序员的自我修养—链接、装载与库》第三章 elf文件结构描述。</p>
+<p>可以向elf的节（比如.data、.text、.bss等）中写入垃圾数据，而不影响程序的正常运行。</p>
+</li>
+</ul>
+<p>  这种方式和其他三种方式的区别在于：因为可以删掉没用的节，所以就很容易就把”其他三种方式”修改的elf给还原回来。</p>
+<p>  比如strip后，文件大小就还原了<br>  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# ll -h id</span><br><span class="line">-rwxr-xr-x 1 root root 10T 9月   6 20:03 id</span><br><span class="line">[root@instance-fj5pftdp y]# strip id</span><br><span class="line">[root@instance-fj5pftdp y]# ll -h id</span><br><span class="line">-rwxr-xr-x 1 root root 37K 9月   6 20:27 id</span><br></pre></td></tr></table></figure></p>
+<ul>
+<li><p>怎么”向elf文件节中添加垃圾数据”？</p>
+<p>没有找到linux自带的命令，找到 <a target="_blank" rel="noopener" href="https://firmianay.gitbook.io/ctf-all-in-one/3_topics/reverse/3.2.1_patch_binary#patchkit">patch elf工具-patchkit</a>。</p>
+<p>看文档感觉有点麻烦，就没有做测试了。</p>
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>“文件末尾追加数据”和”向elf文件节中填充垃圾数据”这两种方式是真的修改了文件内容，所以受限于磁盘空间大小也不可能生成几个T大小的文件。</p>
+<p>“稀疏文件”这种方式，可以方便快速地生成几个T大小的文件，并且让上传、下载此文件 耗费很多时间，甚至是不可能成功。</p>
+<p>“修改inode元数据”，虽然也可以快速地将文件大小修改为几个T，但是并不会让上传、下载此文件 耗费很多时间，传输的文件大小还是实际大小。</p>
+<p>如果应急时碰到超大的elf文件，就先用strip看看体积会不会变小。</p>
+<p>本文提到的手段没有在真实的对抗中实践过，仅仅是我自己的研究，欢迎有对抗经验的读者与我交流。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/HIDS/" rel="tag"># HIDS</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2021-12-26-%E5%80%9F%E5%8A%A9crash%E5%B7%A5%E5%85%B7%E7%90%86%E8%A7%A3linux%E7%B3%BB%E7%BB%9F%E7%9A%84%E5%86%85%E5%AD%98%E5%88%86%E9%85%8D/" rel="prev" title="借助crash工具理解linux系统的内存分配">
+                  <i class="fa fa-chevron-left"></i> 借助crash工具理解linux系统的内存分配
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2021-12-26-%E5%A6%82%E4%BD%95%E9%99%90%E5%88%B6agent%E8%BF%9B%E7%A8%8B%E7%9A%84%E8%B5%84%E6%BA%90%E4%BD%BF%E7%94%A8/" rel="next" title="如何限制agent进程的资源使用">
+                  如何限制agent进程的资源使用 <i class="fa fa-chevron-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+
+<div class="copyright">
+  &copy; 
+  <span itemprop="copyrightYear">2021</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">leveryd</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous"></script>
+<script src="/js/comments.js"></script><script src="/js/utils.js"></script><script src="/js/motion.js"></script><script src="/js/schemes/muse.js"></script><script src="/js/next-boot.js"></script>
+
+  
+
+
+
+
+
+  
+
+
+
+
+
+</body>
+</html>
