@@ -1,37 +1,392 @@
-{% extends '_layout.swig' %}
-{% import '_macro/post.swig' as post_template %}
-{% import '_macro/sidebar.swig' as sidebar_template %}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 5.2.0">
 
 
-{% block title %}{{ page.title }} | {{ config.title }}{% endblock %}
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
 
-{% block page_class %}page-post-detail{% endblock %}
+<link rel="stylesheet" href="/css/main.css">
 
 
-{% block content %}
 
-  <div id="posts" class="posts-expand">
-    {{ post_template.render(page) }}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@5.15.4/css/all.min.css" integrity="sha256-mUZM63G8m73Mcidfrv5E+Y61y7a12O5mW4ezU3bxqW4=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
 
-    <div class="post-spread">
-      {% if theme.jiathis %}
-        {% include '_partials/share/jiathis.swig' %}
-      {% elseif theme.baidushare %}
-        {% include '_partials/share/baidushare.swig' %}
-      {% elseif theme.add_this_id %}
-        {% include '_partials/share/add-this.swig' %}
-      {% elseif theme.duoshuo_shortname and theme.duoshuo_share %}
-        {% include '_partials/share/duoshuo_share.swig' %}
-      {% endif %}
+<script class="next-config" data-name="main" type="application/json">{"hostname":"yoursite.com","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.8.2","exturl":false,"sidebar":{"position":"left","display":"post","padding":18,"offset":12},"copycode":false,"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"prism":false,"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js"></script>
+<meta name="description" content="背景很久之前做过webshell检测方案调研，webshell可以在流量安全产品（比如waf、nids）和主机安全产品（hids）检测。 在流量安全产品常见的检测场景包括：  文件上传接口，比如检查上传的文件名、文件内容 webshell访问，比如检查常见的webshell管理工具  在主机安全产品常见的检测场景包括：  文本内容，比如检查所有php文件是否webshell 内存马  根据网络上公">
+<meta property="og:type" content="article">
+<meta property="og:title" content="webshell检测总结与实例分析">
+<meta property="og:url" content="http://yoursite.com/2021-12-26-webshell%E6%A3%80%E6%B5%8B%E6%80%BB%E7%BB%93%E4%B8%8E%E5%AE%9E%E4%BE%8B%E5%88%86%E6%9E%90/index.html">
+<meta property="og:site_name" content="leveryd的个人博客">
+<meta property="og:description" content="背景很久之前做过webshell检测方案调研，webshell可以在流量安全产品（比如waf、nids）和主机安全产品（hids）检测。 在流量安全产品常见的检测场景包括：  文件上传接口，比如检查上传的文件名、文件内容 webshell访问，比如检查常见的webshell管理工具  在主机安全产品常见的检测场景包括：  文本内容，比如检查所有php文件是否webshell 内存马  根据网络上公">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://images.gitee.com/uploads/images/2021/1027/201021_0352ba68_83508.png">
+<meta property="og:image" content="https://images.gitee.com/uploads/images/2021/1027/201048_9220c5df_83508.png">
+<meta property="og:image" content="https://images.gitee.com/uploads/images/2021/1027/201109_7cf149be_83508.png">
+<meta property="og:image" content="https://images.gitee.com/uploads/images/2021/1027/201126_9af5fb47_83508.png">
+<meta property="og:image" content="https://images.gitee.com/uploads/images/2021/1027/201155_7f9c8ee0_83508.png">
+<meta property="article:published_time" content="2021-12-26T07:33:56.974Z">
+<meta property="article:modified_time" content="2021-12-26T07:33:56.974Z">
+<meta property="article:author" content="leveryd">
+<meta property="article:tag" content="HIDS">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://images.gitee.com/uploads/images/2021/1027/201021_0352ba68_83508.png">
+
+
+<link rel="canonical" href="http://yoursite.com/2021-12-26-webshell%E6%A3%80%E6%B5%8B%E6%80%BB%E7%BB%93%E4%B8%8E%E5%AE%9E%E4%BE%8B%E5%88%86%E6%9E%90/">
+
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"http://yoursite.com/2021-12-26-webshell%E6%A3%80%E6%B5%8B%E6%80%BB%E7%BB%93%E4%B8%8E%E5%AE%9E%E4%BE%8B%E5%88%86%E6%9E%90/","path":"2021-12-26-webshell检测总结与实例分析/","title":"webshell检测总结与实例分析"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>webshell检测总结与实例分析 | leveryd的个人博客</title>
+  
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
     </div>
   </div>
 
-{% endblock %}
+  <div class="site-meta">
 
-{% block sidebar %}
-  {{ sidebar_template.render(true) }}
-{% endblock %}
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">leveryd的个人博客</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
 
-{% block script_extra %}
-  {% include '_scripts/pages/post-details.swig' %}
-{% endblock %}
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu">
+        <li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li>
+        <li class="menu-item menu-item-about"><a href="/about/" rel="section"><i class="fa fa-user fa-fw"></i>关于</a></li>
+        <li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+        
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#%E8%83%8C%E6%99%AF"><span class="nav-number">1.</span> <span class="nav-text">背景</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E5%88%86%E6%9E%90"><span class="nav-number">2.</span> <span class="nav-text">分析</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%A8%A1%E7%B3%8A%E5%93%88%E5%B8%8C"><span class="nav-number">2.1.</span> <span class="nav-text">模糊哈希</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%BB%A3%E7%A0%81%E9%A3%8E%E6%A0%BC"><span class="nav-number">2.2.</span> <span class="nav-text">代码风格</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%9C%BA%E5%99%A8%E5%AD%A6%E4%B9%A0"><span class="nav-number">2.3.</span> <span class="nav-text">机器学习</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%8A%BD%E8%B1%A1%E8%AF%AD%E6%B3%95%E6%A0%91"><span class="nav-number">2.4.</span> <span class="nav-text">抽象语法树</span></a></li></ol></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E6%80%BB%E7%BB%93"><span class="nav-number">3.</span> <span class="nav-text">总结</span></a></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author site-overview-item animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">leveryd</p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap site-overview-item animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">43</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-tags">
+        <span class="site-state-item-count">19</span>
+        <span class="site-state-item-name">标签</span>
+      </div>
+  </nav>
+</div>
+
+
+
+        </div>
+      </div>
+    </div>
+  </aside>
+  <div class="sidebar-dimmer"></div>
+
+
+    </header>
+
+    
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-webshell%E6%A3%80%E6%B5%8B%E6%80%BB%E7%BB%93%E4%B8%8E%E5%AE%9E%E4%BE%8B%E5%88%86%E6%9E%90/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          webshell检测总结与实例分析
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+        <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>很久之前做过<a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/161ffd8e918d70b5029ab828333837c9">webshell检测方案调研</a>，webshell可以在流量安全产品（比如waf、nids）和主机安全产品（hids）检测。</p>
+<p>在流量安全产品常见的检测场景包括：</p>
+<ul>
+<li>文件上传接口，比如检查上传的文件名、文件内容</li>
+<li>webshell访问，比如检查常见的webshell管理工具</li>
+</ul>
+<p>在主机安全产品常见的检测场景包括：</p>
+<ul>
+<li>文本内容，比如检查所有php文件是否webshell</li>
+<li>内存马</li>
+</ul>
+<p>根据网络上公开资料总结，”文本内容”检测手段包括：<br>| webshell检测技术 | 举例<br>| - | - |<br>| 动态分析-沙箱 | <a target="_blank" rel="noopener" href="https://scanner.baidu.com/#/pages/intro">百度webdir</a> |<br>| 静态分析-正则 |<br>| 静态分析-统计学角度 |<br>| 静态分析-AST |<br>| 机器学习/深度学习 |<br>| RASP | <a target="_blank" rel="noopener" href="https://rasp.baidu.com/doc/dev/official.html">百度OpenRASP</a> |</p>
+<p>长亭开源的<a target="_blank" rel="noopener" href="https://github.com/chaitin/cloudwalker">cloudwalker</a>检测方式较全，个人觉得值得学习。</p>
+<p>本文简要分析cloudwalker的检测手段，应该适合正在调研webshell检测方案的读者阅读。</p>
+<blockquote>
+<p>PS: p牛说他们目前的方案已经和开源版本有非常大的不同，目前方案的线上demo：<a target="_blank" rel="noopener" href="https://forum.xray.cool/webshell">https://forum.xray.cool/webshell</a></p>
+</blockquote>
+<h1 id="分析"><a href="#分析" class="headerlink" title="分析"></a>分析</h1><ul>
+<li><p>cloudwalker是什么？</p>
+<p><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s?__biz=MzIwNDA2NDk5OQ==&mid=2651372030&idx=1&sn=682c49b3decda87ddf0ed641d5d347c6&chksm=8d39c876ba4e4160e88bacf0ffc3cadc39b60a269a6facec9f62134823af829624e42df52376&token=496332164&lang=zh_CN">牧云（CloudWalker）开源手记 | Webshell 监控检测策略初探</a></p>
+<p><a target="_blank" rel="noopener" href="https://zhuanlan.zhihu.com/p/45796590">牧云（CloudWalker）开源|如约而至: Webshell核心检测引擎</a></p>
+<p>这两篇官方文章其实已经把检测策略介绍过了，总结起来包括四类：</p>
+<ul>
+<li>基于模糊哈希</li>
+<li>基于模糊正则</li>
+<li>基于代码风格</li>
+<li>基于机器学习：模型使用svm，特征包括了三个维度（代码风格、操作序列、操作名）</li>
+</ul>
+</li>
+</ul>
+<h2 id="模糊哈希"><a href="#模糊哈希" class="headerlink" title="模糊哈希"></a>模糊哈希</h2><ul>
+<li><p>是什么？</p>
+<p>用<code>ssdeep</code>命令来实践，看一下生成的模糊哈希。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">[root@vm10-50-0-18 ssdeep_test]# ssdeep &#x2F;usr&#x2F;bin&#x2F;sleep &#x2F;usr&#x2F;bin&#x2F;sleep1 -s</span><br><span class="line">ssdeep,1.1--blocksize:hash:hash,filename</span><br><span class="line">768:VQ1Q5jc5QNAVo5FWQkckarfJ8JV3XAiqbolRX7:O35Q2Vo5FWkfJ8nXX7,&quot;&#x2F;usr&#x2F;bin&#x2F;sleep&quot;</span><br><span class="line">768:VQ1Q5jc5QNAVo5FWQkckarfJ8JV3XAiqbolRX7:O35Q2Vo5FWkfJ8nXX7,&quot;&#x2F;usr&#x2F;bin&#x2F;sleep1&quot;</span><br><span class="line">[root@vm10-50-0-18 ssdeep_test]# echo 11 &gt;&gt; &#x2F;usr&#x2F;bin&#x2F;sleep1</span><br><span class="line">[root@vm10-50-0-18 ssdeep_test]# ssdeep &#x2F;usr&#x2F;bin&#x2F;sleep &#x2F;usr&#x2F;bin&#x2F;sleep1 -s</span><br><span class="line">ssdeep,1.1--blocksize:hash:hash,filename</span><br><span class="line">768:VQ1Q5jc5QNAVo5FWQkckarfJ8JV3XAiqbolRX7:O35Q2Vo5FWkfJ8nXX7,&quot;&#x2F;usr&#x2F;bin&#x2F;sleep&quot;</span><br><span class="line">768:VQ1Q5jc5QNAVo5FWQkckarfJ8JV3XAiqbolRX7B:O35Q2Vo5FWkfJ8nXX7B,&quot;&#x2F;usr&#x2F;bin&#x2F;sleep1&quot;</span><br></pre></td></tr></table></figure>
+
+<p>可以看出来，<code>/usr/bin/sleep1</code> 在添加了两个字节的数据后，算出来的模糊哈希虽然和原来的不同，但是很相似。</p>
+<p>所以可以得出结论：如果文件的”模糊哈希”相似，就很可能文件内容非常相似。</p>
+</li>
+<li><p>cloudwalker怎么用”模糊哈希”检测webshell？</p>
+<p>在 tool/webshell-detector/bin/static/model-latest/SampleHash.txt 文件有计算好的”webshell模糊哈希列表”</p>
+<p>在检测文件时，先计算出”检测对象”的模糊哈希，然后和”webshell模糊哈希列表”做相似度比较</p>
+<p><img src="https://images.gitee.com/uploads/images/2021/1027/201021_0352ba68_83508.png" alt="输入图片说明" title="屏幕截图.png"></p>
+</li>
+</ul>
+<h2 id="代码风格"><a href="#代码风格" class="headerlink" title="代码风格"></a>代码风格</h2><ul>
+<li><p>是什么？</p>
+<p>从代码字符串中统计出的如下信息：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">* WM：代码中的单词总数</span><br><span class="line">* LM：代码行数</span><br><span class="line">* SPL：代码中的分号数量&#x2F;总行数</span><br><span class="line">* SR：符号比例 &#x3D; 符号长度&#x2F;总长度</span><br><span class="line">* ...</span><br></pre></td></tr></table></figure>
+
+<p>这一部分业务逻辑在 <a target="_blank" rel="noopener" href="https://github.com/leveryd/cloudwalker-source-read/blob/master/tool/webshell-detector/src/Stat.go">Stat.go</a></p>
+</li>
+<li><p>cloudwalker怎么用”代码风格”检测webshell？</p>
+<p>在 <a target="_blank" rel="noopener" href="https://github.com/leveryd/cloudwalker-source-read/blob/master/tool/webshell-detector/bin/static/config/statState.json">statState.json</a> 中允许用户配置”代码风格合理范围”。cloudWalker计算出”检测对象”的”代码风格”后，会检查是否在此范围内。</p>
+<p>另外，”代码风格”信息会作为机器学习模型中的特征。</p>
+</li>
+</ul>
+<h2 id="机器学习"><a href="#机器学习" class="headerlink" title="机器学习"></a>机器学习</h2><ul>
+<li><p>cloudwalker怎么用”机器学习”检测webshell？</p>
+<p>使用了两层的机器学习。</p>
+<p>第一层模型使用svm算法，特征包括三类：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 前面说的&quot;代码风格&quot;</span><br><span class="line">* &quot;操作序列模型&quot;的预测结果</span><br><span class="line">* &quot;操作名称模型&quot;的预测结果</span><br></pre></td></tr></table></figure>
+
+<p><img src="https://images.gitee.com/uploads/images/2021/1027/201048_9220c5df_83508.png" alt="输入图片说明" title="屏幕截图.png"></p>
+</li>
+<li><p>“操作序列模型”是什么？</p>
+<p>训练好的模型在 tool/webshell-detector/bin/static/model-latest/OpSerial.model</p>
+<p>它使用svm算法，特征是”操作序列”处理后的数据。</p>
+<p>“操作序列”包含了php代码中的”操作特征”。</p>
+</li>
+<li><p>怎么生成”操作序列”？</p>
+<p>由代码获取到抽象语法树后，再由抽象语法树生成”操作序列”。</p>
+<p>举个例子：</p>
+<p>假设待检测的php代码如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;?php eval($_POST[0]);?&gt;</span><br></pre></td></tr></table></figure>
+
+<p>代码生成的抽象语法树（ast）</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&#123;&quot;status&quot;:&quot;successed&quot;,&quot;ast&quot;:&#123;&quot;kind&quot;:132,&quot;flags&quot;:0,&quot;lineno&quot;:1,&quot;children&quot;:[&#123;&quot;kind&quot;:269,&quot;flags&quot;:1,&quot;lineno&quot;:1,&quot;children&quot;:&#123;&quot;expr&quot;:&#123;&quot;kind&quot;:512,&quot;flags&quot;:0,&quot;lineno&quot;:1,&quot;children&quot;:&#123;&quot;expr&quot;:&#123;&quot;kind&quot;:256,&quot;flags&quot;:0,&quot;lineno&quot;:1,&quot;children&quot;:&#123;&quot;name&quot;:&quot;_POST&quot;&#125;&#125;,&quot;dim&quot;:0&#125;&#125;&#125;&#125;]&#125;&#125;</span><br></pre></td></tr></table></figure>
+<p><img src="https://images.gitee.com/uploads/images/2021/1027/201109_7cf149be_83508.png" alt="输入图片说明" title="屏幕截图.png"></p>
+<p>对应的”操作序列”如下：</p>
+<p><img src="https://images.gitee.com/uploads/images/2021/1027/201126_9af5fb47_83508.png" alt="输入图片说明" title="屏幕截图.png"></p>
+<p>可以看出来，”操作序列”包含了”抽象语法树”两层之间的联系。</p>
+</li>
+</ul>
+<h2 id="抽象语法树"><a href="#抽象语法树" class="headerlink" title="抽象语法树"></a>抽象语法树</h2><ul>
+<li><p>怎么生成”抽象语法树”？</p>
+<p>代码在 tool/webshell-detector/php 目录。</p>
+<p>流程如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 在cloudwalker启动时，[php.c](https:&#x2F;&#x2F;github.com&#x2F;leveryd&#x2F;cloudwalker-source-read&#x2F;blob&#x2F;master&#x2F;tool&#x2F;webshell-detector&#x2F;php&#x2F;php.c)新建子线程，并等待输入。</span><br><span class="line">* 子线程接收php代码后，解析生成&quot;抽象语法树&quot;，将结果返回给主线程。子线程通过管道与主线程通信。</span><br></pre></td></tr></table></figure>
+
+<p>解析能力基于<a target="_blank" rel="noopener" href="https://github.com/nikic/php-ast">php-ast项目</a>，业务逻辑可以见<a target="_blank" rel="noopener" href="https://github.com/leveryd/cloudwalker-source-read/blob/master/tool/webshell-detector/php/payload/index.php">index.php</a></p>
+<p>可以运行index.php做一点简单的测试：输入包括”字符串长度”和”代码”，输出ast字符串</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">➜  php git:(master) ✗ .&#x2F;bin&#x2F;php payload&#x2F;index.php</span><br><span class="line">26</span><br><span class="line">&lt;?php eval(&#39;$_POST[0]&#39;);?&gt;</span><br><span class="line">142</span><br><span class="line">&#123;&quot;status&quot;:&quot;successed&quot;,&quot;ast&quot;:&#123;&quot;kind&quot;:132,&quot;flags&quot;:0,&quot;lineno&quot;:1,&quot;children&quot;:[&#123;&quot;kind&quot;:269,&quot;flags&quot;:1,&quot;lineno&quot;:1,&quot;children&quot;:&#123;&quot;expr&quot;:&quot;$_POST[0]&quot;&#125;&#125;]&#125;&#125;</span><br></pre></td></tr></table></figure>
+
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p><a target="_blank" rel="noopener" href="https://github.com/leveryd/cloudwalker-source-read/">仓库</a>中放了我阅读代码时的注释，方便有需要的读者。</p>
+<p>从测试效果来看，开源版本和目前线上版本有很大差异：开源版本cloudwalker比较容易绕过，<a target="_blank" rel="noopener" href="https://forum.xray.cool/webshell">线上</a>则难度大很多。</p>
+<p><img src="https://images.gitee.com/uploads/images/2021/1027/201155_7f9c8ee0_83508.png" alt="输入图片说明" title="屏幕截图.png"></p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/HIDS/" rel="tag"># HIDS</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2021-12-26-%E4%BB%8Eshiro-550%E6%BC%8F%E6%B4%9E%E5%93%81%E9%98%BF%E9%87%8C%E4%BA%91waf%E8%A7%84%E5%88%99%E5%BC%95%E6%93%8E/" rel="prev" title="从shiro-550漏洞品阿里云waf规则引擎">
+                  <i class="fa fa-chevron-left"></i> 从shiro-550漏洞品阿里云waf规则引擎
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2021-12-26-%E4%B8%BA%E4%BB%80%E4%B9%88masscan%E5%BF%AB%EF%BC%88%E4%B8%80%EF%BC%89/" rel="next" title="为什么masscan扫描快（一）">
+                  为什么masscan扫描快（一） <i class="fa fa-chevron-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+
+<div class="copyright">
+  &copy; 
+  <span itemprop="copyrightYear">2021</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">leveryd</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous"></script>
+<script src="/js/comments.js"></script><script src="/js/utils.js"></script><script src="/js/motion.js"></script><script src="/js/schemes/muse.js"></script><script src="/js/next-boot.js"></script>
+
+  
+
+
+
+
+
+  
+
+
+
+
+
+</body>
+</html>

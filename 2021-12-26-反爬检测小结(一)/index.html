@@ -1,37 +1,344 @@
-{% extends '_layout.swig' %}
-{% import '_macro/post.swig' as post_template %}
-{% import '_macro/sidebar.swig' as sidebar_template %}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 5.2.0">
 
 
-{% block title %}{{ page.title }} | {{ config.title }}{% endblock %}
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
 
-{% block page_class %}page-post-detail{% endblock %}
+<link rel="stylesheet" href="/css/main.css">
 
 
-{% block content %}
 
-  <div id="posts" class="posts-expand">
-    {{ post_template.render(page) }}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@5.15.4/css/all.min.css" integrity="sha256-mUZM63G8m73Mcidfrv5E+Y61y7a12O5mW4ezU3bxqW4=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
 
-    <div class="post-spread">
-      {% if theme.jiathis %}
-        {% include '_partials/share/jiathis.swig' %}
-      {% elseif theme.baidushare %}
-        {% include '_partials/share/baidushare.swig' %}
-      {% elseif theme.add_this_id %}
-        {% include '_partials/share/add-this.swig' %}
-      {% elseif theme.duoshuo_shortname and theme.duoshuo_share %}
-        {% include '_partials/share/duoshuo_share.swig' %}
-      {% endif %}
+<script class="next-config" data-name="main" type="application/json">{"hostname":"yoursite.com","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.8.2","exturl":false,"sidebar":{"position":"left","display":"post","padding":18,"offset":12},"copycode":false,"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"prism":false,"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js"></script>
+<meta name="description" content="背景之前对”反爬反bot”做过一些调研工作：从网上搜索资料、研究分析厂商的产品。 如果你也准备做”反爬”相关的工作，希望我的小结能够加速你的进度。 爬虫 是什么？ 在做”反爬”之前，我想有必要对我们的目标”爬虫”有一些了解。下面的分类有些只是我个人的分法，相信”老反爬工程师”有更细致的分类。 按照产品形态上，爬虫可以分为：  h5爬虫（包括pc端爬虫）：主要爬取网页上的信息，比如淘宝首页的商品信息">
+<meta property="og:type" content="article">
+<meta property="og:title" content="反爬检测小结(一)">
+<meta property="og:url" content="http://yoursite.com/2021-12-26-%E5%8F%8D%E7%88%AC%E6%A3%80%E6%B5%8B%E5%B0%8F%E7%BB%93(%E4%B8%80)/index.html">
+<meta property="og:site_name" content="leveryd的个人博客">
+<meta property="og:description" content="背景之前对”反爬反bot”做过一些调研工作：从网上搜索资料、研究分析厂商的产品。 如果你也准备做”反爬”相关的工作，希望我的小结能够加速你的进度。 爬虫 是什么？ 在做”反爬”之前，我想有必要对我们的目标”爬虫”有一些了解。下面的分类有些只是我个人的分法，相信”老反爬工程师”有更细致的分类。 按照产品形态上，爬虫可以分为：  h5爬虫（包括pc端爬虫）：主要爬取网页上的信息，比如淘宝首页的商品信息">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://user-images.githubusercontent.com/1846319/146482122-ac152bed-390e-4e02-ab72-51f5ad437af4.png">
+<meta property="og:image" content="https://user-images.githubusercontent.com/1846319/146490073-049890c8-b45d-42d4-a337-00ac10251822.png">
+<meta property="article:published_time" content="2021-12-26T07:33:56.975Z">
+<meta property="article:modified_time" content="2021-12-26T07:33:56.975Z">
+<meta property="article:author" content="leveryd">
+<meta property="article:tag" content="WAF">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://user-images.githubusercontent.com/1846319/146482122-ac152bed-390e-4e02-ab72-51f5ad437af4.png">
+
+
+<link rel="canonical" href="http://yoursite.com/2021-12-26-%E5%8F%8D%E7%88%AC%E6%A3%80%E6%B5%8B%E5%B0%8F%E7%BB%93(%E4%B8%80)/">
+
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"http://yoursite.com/2021-12-26-%E5%8F%8D%E7%88%AC%E6%A3%80%E6%B5%8B%E5%B0%8F%E7%BB%93(%E4%B8%80)/","path":"2021-12-26-反爬检测小结(一)/","title":"反爬检测小结(一)"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>反爬检测小结(一) | leveryd的个人博客</title>
+  
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
     </div>
   </div>
 
-{% endblock %}
+  <div class="site-meta">
 
-{% block sidebar %}
-  {{ sidebar_template.render(true) }}
-{% endblock %}
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">leveryd的个人博客</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
 
-{% block script_extra %}
-  {% include '_scripts/pages/post-details.swig' %}
-{% endblock %}
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu">
+        <li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li>
+        <li class="menu-item menu-item-about"><a href="/about/" rel="section"><i class="fa fa-user fa-fw"></i>关于</a></li>
+        <li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+        
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#%E8%83%8C%E6%99%AF"><span class="nav-number">1.</span> <span class="nav-text">背景</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E7%88%AC%E8%99%AB"><span class="nav-number">2.</span> <span class="nav-text">爬虫</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E6%80%BB%E7%BB%93"><span class="nav-number">3.</span> <span class="nav-text">总结</span></a></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author site-overview-item animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">leveryd</p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap site-overview-item animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">43</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-tags">
+        <span class="site-state-item-count">19</span>
+        <span class="site-state-item-name">标签</span>
+      </div>
+  </nav>
+</div>
+
+
+
+        </div>
+      </div>
+    </div>
+  </aside>
+  <div class="sidebar-dimmer"></div>
+
+
+    </header>
+
+    
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%8F%8D%E7%88%AC%E6%A3%80%E6%B5%8B%E5%B0%8F%E7%BB%93(%E4%B8%80)/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          反爬检测小结(一)
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+        <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>之前对”反爬反bot”做过一些调研工作：从网上搜索资料、研究分析厂商的产品。</p>
+<p>如果你也准备做”反爬”相关的工作，希望我的小结能够加速你的进度。</p>
+<h1 id="爬虫"><a href="#爬虫" class="headerlink" title="爬虫"></a>爬虫</h1><ul>
+<li><p>是什么？</p>
+<p>在做”反爬”之前，我想有必要对我们的目标”爬虫”有一些了解。下面的分类有些只是我个人的分法，相信”老反爬工程师”有更细致的分类。</p>
+<p>按照产品形态上，爬虫可以分为：</p>
+<blockquote>
+<p>h5爬虫（包括pc端爬虫）：主要爬取网页上的信息，比如淘宝首页的商品信息等</p>
+<p>app爬虫：主要爬取手机app上的信息；有一些基于<a target="_blank" rel="noopener" href="https://developer.android.com/studio/test/monkeyrunner">monkeyrunner</a>实现</p>
+</blockquote>
+<p>提供”反爬服务”的厂商也是根据h5和app提供了不同的解决方案。</p>
+<p>按照好坏，爬虫也可以分为：</p>
+<blockquote>
+<p>合法爬虫：百度、谷歌等爬虫就不能被”反爬产品”拦截，否则会影响客户站点的SEO</p>
+<p>恶意爬虫: 我们要防的</p>
+</blockquote>
+<p>按照爬虫的目的，可以粗略分为：</p>
+<blockquote>
+<p>扫描器爬虫：主要爬取api接口、文件资源等信息，作为”漏洞扫描器”的输入。比如 <a target="_blank" rel="noopener" href="https://github.com/Qianlitp/crawlergo">crawlergo</a></p>
+<p>数据爬虫：主要以爬取数据为目的，可能大部分爬虫都可以归属到这类。</p>
+</blockquote>
+<p>扫描器爬虫有一个特点是，它会做的很”通用”：我比较难想象攻击者会为了测试每一个站点，单独写一个特定的爬虫。因为”通用”，所以这种爬虫我觉得是属于比较好发现和防御的。</p>
+<p>相对来说，数据爬虫就会很”专用”：”爬虫工程师”有足够的耐心去盯着一个目标，和”反爬系统”做对抗。所以这里的对抗程度”最为激烈”（人和人的对抗）。</p>
+<p>因为我只研究了h5爬虫，所以我下面都是围绕h5爬虫的场景来描述。</p>
+</li>
+<li><p>怎么实现h5爬虫？</p>
+<p>想要”反爬”，我们先要知道爬虫是怎么做的。</p>
+<p>从<a target="_blank" rel="noopener" href="https://pitechan.com/%E7%88%AC%E8%99%AB%E5%B7%A5%E7%A8%8B%E5%B8%88%E7%9A%84%E8%87%AA%E6%88%91%E4%BF%AE%E5%85%BB%E4%B9%8B%E7%B3%BB%E7%BB%9F%E6%9E%B6%E6%9E%84/">网络上</a>找了一个架构图</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/146482122-ac152bed-390e-4e02-ab72-51f5ad437af4.png" alt="爬虫架构"></p>
+<p>这里可以看到架构中包含”代理ip”、”浏览器操作”、”验证码识别”等功能，这些功能也是”反爬系统”重点关注的场景。</p>
+<p>另外根据网上资料总结，爬虫”请求网站数据”有三种比较流行的实现方式：</p>
+<blockquote>
+<p>纯脚本：很多网络上的教程会教你用python语言，beautifulsoup、evaljs等库去实现一个网页爬虫；或者基于scrapy框架来实现</p>
+<p>调用”浏览器”：使用puppeteer、selenium等</p>
+<p>浏览器插件</p>
+</blockquote>
+<p>了解爬虫是怎么实现后，我们就可以来看看怎么”反恶意爬虫”。</p>
+</li>
+<li><p>怎么”反恶意爬虫”？</p>
+<p>我们可以通过下面的方式识别”反恶意爬虫”：</p>
+<blockquote>
+<p>通过”可信前端”来识别爬虫：在”爬虫”调用”浏览器”来”请求网站数据”时，我们通过一些”手段”能够知道浏览器是爬虫在使用，而不是正常用户使用</p>
+<p>人机识别： 爬虫、扫描器、机器人等行为都可以通过”人机识别”来区分</p>
+<p>威胁情报：比如威胁情报能够告诉我们某个ip是否是代理ip，而从上面的架构图来看，”爬虫”是会有”代理ip”模块的</p>
+<p>数据风控：反爬本身就是业务安全，感觉和”风控反欺诈”用到的手段很相似。我没有做过风控，之前在微信读书看过《风控要略:互联网业务反欺诈之路》，感觉写得比较实在，推荐给你。</p>
+</blockquote>
+<p>我们识别”恶意爬虫”最终也是为了保护数据，而”保护数据”并不一定是需要识别”恶意爬虫”。比如 <a target="_blank" rel="noopener" href="https://zhuanlan.zhihu.com/p/37838586">字体反爬</a></p>
+<p>甚至可以做一些”反制”，比如<a target="_blank" rel="noopener" href="https://www.cnblogs.com/index-html/p/frontend-based-war.html">对抗假人 —— 前后端结合的 WAF</a>提到通过”脱壳迷惑”、”蜜罐钓鱼”等来消耗”爬虫工程师”的时间资源，再比如爬虫数据最终都要存储，或许可以制造垃圾数据或者带sql注入payload的数据。</p>
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>本文粗略地对”爬虫”和”反爬”手段做了一些分类。后面文章我会讲述”反爬”手段的一些细节和案例。</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/146490073-049890c8-b45d-42d4-a337-00ac10251822.png" alt="数据流"></p>
+<p>另外我在调研中觉得有些资料还不错，放到了<a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/5aad51fff569308748370dcf1609bc1c">gist</a>，你也可以看看。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/WAF/" rel="tag"># WAF</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2021-12-26-%E5%A6%82%E4%BD%95%E4%BC%AA%E8%A3%85%E8%BF%9B%E7%A8%8B%E4%BF%A1%E6%81%AF/" rel="prev" title="如何伪装进程信息">
+                  <i class="fa fa-chevron-left"></i> 如何伪装进程信息
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2021-12-26-%E5%88%86%E6%9E%90bash%E5%8F%8D%E5%BC%B9shell%E7%9A%84%E8%AF%AD%E6%B3%95/" rel="next" title="分析bash反弹shell的语法">
+                  分析bash反弹shell的语法 <i class="fa fa-chevron-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+
+<div class="copyright">
+  &copy; 
+  <span itemprop="copyrightYear">2021</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">leveryd</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous"></script>
+<script src="/js/comments.js"></script><script src="/js/utils.js"></script><script src="/js/motion.js"></script><script src="/js/schemes/muse.js"></script><script src="/js/next-boot.js"></script>
+
+  
+
+
+
+
+
+  
+
+
+
+
+
+</body>
+</html>
