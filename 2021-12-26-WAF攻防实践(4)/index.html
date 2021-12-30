@@ -1,335 +1,37 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-  <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width">
-<meta name="theme-color" content="#222">
-<meta name="generator" content="Hexo 5.2.0">
+{% extends '_layout.swig' %}
+{% import '_macro/post.swig' as post_template %}
+{% import '_macro/sidebar.swig' as sidebar_template %}
 
 
-  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
-  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
-  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
-  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+{% block title %}{{ page.title }} | {{ config.title }}{% endblock %}
 
-<link rel="stylesheet" href="/css/main.css">
+{% block page_class %}page-post-detail{% endblock %}
 
 
+{% block content %}
 
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@5.15.4/css/all.min.css" integrity="sha256-mUZM63G8m73Mcidfrv5E+Y61y7a12O5mW4ezU3bxqW4=" crossorigin="anonymous">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+  <div id="posts" class="posts-expand">
+    {{ post_template.render(page) }}
 
-<script class="next-config" data-name="main" type="application/json">{"hostname":"yoursite.com","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.8.2","exturl":false,"sidebar":{"position":"left","display":"post","padding":18,"offset":12},"copycode":false,"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"prism":false,"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js"></script>
-<meta name="description" content="背景上周在做安全测试时，发现站点的xss能够插入标签，当我想用on事件来执行javascript脚本时，发现被waf拦截了。 经常怼waf的，应该会碰到过，waf针对标签on属性名的拦截策略分为两种：  on属性名在黑名单列表 以on开头，且满足其他条件，比如字符串长度大于一定长度  举个例子，payload包含&lt;div onXXXXX&#x3D;alert(1)&gt;时，按照第一种策略，只有onX">
-<meta property="og:type" content="article">
-<meta property="og:title" content="WAF攻防实践(4)">
-<meta property="og:url" content="http://yoursite.com/2021-12-26-WAF%E6%94%BB%E9%98%B2%E5%AE%9E%E8%B7%B5(4)/index.html">
-<meta property="og:site_name" content="leveryd的个人博客">
-<meta property="og:description" content="背景上周在做安全测试时，发现站点的xss能够插入标签，当我想用on事件来执行javascript脚本时，发现被waf拦截了。 经常怼waf的，应该会碰到过，waf针对标签on属性名的拦截策略分为两种：  on属性名在黑名单列表 以on开头，且满足其他条件，比如字符串长度大于一定长度  举个例子，payload包含&lt;div onXXXXX&#x3D;alert(1)&gt;时，按照第一种策略，只有onX">
-<meta property="og:locale" content="zh_CN">
-<meta property="article:published_time" content="2021-12-26T07:33:56.973Z">
-<meta property="article:modified_time" content="2021-12-26T07:33:56.973Z">
-<meta property="article:author" content="leveryd">
-<meta property="article:tag" content="WAF">
-<meta name="twitter:card" content="summary">
-
-
-<link rel="canonical" href="http://yoursite.com/2021-12-26-WAF%E6%94%BB%E9%98%B2%E5%AE%9E%E8%B7%B5(4)/">
-
-
-
-<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"http://yoursite.com/2021-12-26-WAF%E6%94%BB%E9%98%B2%E5%AE%9E%E8%B7%B5(4)/","path":"2021-12-26-WAF攻防实践(4)/","title":"WAF攻防实践(4)"}</script>
-
-<script class="next-config" data-name="calendar" type="application/json">""</script>
-<title>WAF攻防实践(4) | leveryd的个人博客</title>
-  
-
-
-
-
-  <noscript>
-    <link rel="stylesheet" href="/css/noscript.css">
-  </noscript>
-</head>
-
-<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
-  <div class="headband"></div>
-
-  <main class="main">
-    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
-      <div class="header-inner"><div class="site-brand-container">
-  <div class="site-nav-toggle">
-    <div class="toggle" aria-label="切换导航栏" role="button">
+    <div class="post-spread">
+      {% if theme.jiathis %}
+        {% include '_partials/share/jiathis.swig' %}
+      {% elseif theme.baidushare %}
+        {% include '_partials/share/baidushare.swig' %}
+      {% elseif theme.add_this_id %}
+        {% include '_partials/share/add-this.swig' %}
+      {% elseif theme.duoshuo_shortname and theme.duoshuo_share %}
+        {% include '_partials/share/duoshuo_share.swig' %}
+      {% endif %}
     </div>
   </div>
 
-  <div class="site-meta">
-
-    <a href="/" class="brand" rel="start">
-      <i class="logo-line"></i>
-      <p class="site-title">leveryd的个人博客</p>
-      <i class="logo-line"></i>
-    </a>
-  </div>
-
-  <div class="site-nav-right">
-    <div class="toggle popup-trigger">
-    </div>
-  </div>
-</div>
-
-
-
-
-
-
-
-</div>
-        
-  
-  <div class="toggle sidebar-toggle" role="button">
-    <span class="toggle-line"></span>
-    <span class="toggle-line"></span>
-    <span class="toggle-line"></span>
-  </div>
-
-  <aside class="sidebar">
-
-    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
-      <ul class="sidebar-nav">
-        <li class="sidebar-nav-toc">
-          文章目录
-        </li>
-        <li class="sidebar-nav-overview">
-          站点概览
-        </li>
-      </ul>
-
-      <div class="sidebar-panel-container">
-        <!--noindex-->
-        <div class="post-toc-wrap sidebar-panel">
-            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#%E8%83%8C%E6%99%AF"><span class="nav-number">1.</span> <span class="nav-text">背景</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E5%88%86%E6%9E%90%E8%BF%87%E7%A8%8B"><span class="nav-number">2.</span> <span class="nav-text">分析过程</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E6%80%BB%E7%BB%93"><span class="nav-number">3.</span> <span class="nav-text">总结</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#PS"><span class="nav-number">4.</span> <span class="nav-text">PS</span></a></li></ol></div>
-        </div>
-        <!--/noindex-->
-
-        <div class="site-overview-wrap sidebar-panel">
-          <div class="site-author site-overview-item animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
-  <p class="site-author-name" itemprop="name">leveryd</p>
-  <div class="site-description" itemprop="description"></div>
-</div>
-<div class="site-state-wrap site-overview-item animated">
-  <nav class="site-state">
-      <div class="site-state-item site-state-posts">
-        <a href="/archives/">
-          <span class="site-state-item-count">44</span>
-          <span class="site-state-item-name">日志</span>
-        </a>
-      </div>
-      <div class="site-state-item site-state-tags">
-        <span class="site-state-item-count">19</span>
-        <span class="site-state-item-name">标签</span>
-      </div>
-  </nav>
-</div>
-
-
-
-        </div>
-      </div>
-    </div>
-  </aside>
-  <div class="sidebar-dimmer"></div>
-
-
-    </header>
-
-    
-  <div class="back-to-top" role="button" aria-label="返回顶部">
-    <i class="fa fa-arrow-up"></i>
-    <span>0%</span>
-  </div>
-
-<noscript>
-  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
-</noscript>
-
-
-    <div class="main-inner post posts-expand">
-
-
-  
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-WAF%E6%94%BB%E9%98%B2%E5%AE%9E%E8%B7%B5(4)/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h1 class="post-title" itemprop="name headline">
-          WAF攻防实践(4)
-        </h1>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-        <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>上周在做安全测试时，发现站点的xss能够插入标签，当我想用on事件来执行javascript脚本时，发现被waf拦截了。</p>
-<p>经常怼waf的，应该会碰到过，waf针对标签on属性名的拦截策略分为两种：</p>
-<ul>
-<li>on属性名在黑名单列表</li>
-<li>以on开头，且满足其他条件，比如字符串长度大于一定长度</li>
-</ul>
-<p>举个例子，payload包含<code>&lt;div onXXXXX=alert(1)&gt;</code>时，按照第一种策略，只有<code>onXXXXX</code>在黑名单列表中，才会被拦截。第二种策略就直接拦截了，因为<code>onXXXXX</code>以<code>on</code>开头，且还比较长。</p>
-<p>本文碰到的waf拦截策略是第一种，所以只要找到一个on属性不在黑名单列表中，就应该可以绕过。</p>
-<p>所以问题变成了：</p>
-<ul>
-<li>怎么找到所有的on属性？</li>
-<li>怎么判断哪个on属性没有被过滤？</li>
-<li>怎么利用未过滤的on事件？</li>
-</ul>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
-<li><p>怎么找到所有的on属性？</p>
-<p>前端遍历BOM对象document的属性即可</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">let results &#x3D; []</span><br><span class="line">for (let i in document)&#123;</span><br><span class="line">  if(i.startsWith(&quot;on&quot;))&#123;</span><br><span class="line">    results.push(i)</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br><span class="line">console.log(results)</span><br><span class="line">localStorage.onAttrs&#x3D;JSON.stringify(results)</span><br></pre></td></tr></table></figure>
-
-<p>因为results字符串非常长，会在chrome控制台会被截断，所以把它存到localStorage中，结果在 Chrome devtool -&gt; Application -&gt; Storage 中可以找到。</p>
-</li>
-<li><p>怎么判断哪个on属性没有被过滤？</p>
-<p>用burpsuite的intruder爆破模块过一遍，发现有两个属性没有拦截：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">ontransitionstart</span><br><span class="line">onbeforexrselect</span><br></pre></td></tr></table></figure>
-
-<p>这两个属性我之前也没见过，那怎么利用这两个属性执行js呢？</p>
-</li>
-<li><p>怎么利用<code>ontransitionstart</code>属性？</p>
-<p>根据<a target="_blank" rel="noopener" href="https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement/transitionstart_event">MDN-transitionstart文档</a>构造出利用方式：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">&lt;div class&#x3D;&quot;transition&quot; ontransitionstart&#x3D;&quot;alert(1)&quot;&gt;Hover over me&lt;&#x2F;div&gt;</span><br><span class="line"></span><br><span class="line">&lt;style&gt;</span><br><span class="line">.transition &#123;</span><br><span class="line">  width: 10000px;</span><br><span class="line">  height: 10000px;</span><br><span class="line">  background: rgba(255,0,0,1);</span><br><span class="line">  transition-property: transform, background;</span><br><span class="line">  transition-duration: 1s;</span><br><span class="line">  transition-delay: 1s;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">.transition:hover &#123;</span><br><span class="line">  transform: rotate(90deg);</span><br><span class="line">  background: rgba(255,0,0,0);</span><br><span class="line">&#125;</span><br><span class="line">&lt;&#x2F;style&gt;</span><br></pre></td></tr></table></figure>
-
-<p>虽然文档写的chrome和firefox都支持transitionstart事件，但是上面的利用payload实际测试结果：</p>
-<blockquote>
-<p>firefox可以、chrome不行</p>
-</blockquote>
-<p>chrome用addEventListener可以监听<code>transitionstart</code>事件，但不能用<code>ontransitionstart</code>来监听事件。这个原因不知道为啥。</p>
-</li>
-<li><p>怎么利用<code>onbeforexrselect</code>属性？</p>
-<p>根据<a target="_blank" rel="noopener" href="https://immersive-web.github.io/dom-overlays/">onbeforexrselect文档</a>来看，似乎<code>beforexrselect</code>事件还只是一个草案。</p>
-<p>也因为transitionstart事件已经能利用了，所以也没有再研究。</p>
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><ul>
-<li><p>从防守方来看，如果采用了on事件黑名单，就需要保证事件黑名单的全面。</p>
-</li>
-<li><p>chrome和firefox on属性有区别，或许可以作为一个区分浏览器的指纹特征（虽然感觉很不稳定）。</p>
-</li>
-<li><p>测试过程中，我还有一个疑问：不同元素之间的on属性是否会不同，比如div元素和document元素遍历出来的on属性是否会不同。有知道答案的读者可以后台告诉我。</p>
-</li>
-</ul>
-<h1 id="PS"><a href="#PS" class="headerlink" title="PS"></a>PS</h1><p>我个人把防火墙的绕过分为两个类别：</p>
-<ul>
-<li>架构层面的绕过，这种绕过不太关心具体的漏洞类型是xss还是sql注入</li>
-<li>漏洞类型相关的绕过</li>
-</ul>
-<p>第一种架构层面的绕过姿势比较难找，这种较为通用的绕过姿势，从攻击队视角来看我觉得比较适合扫描器来绕过防火墙。这也是<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/qAv2wspeuCfhCjTaz03hNg">你的扫描器可以绕过防火墙么</a>系列文章名称的由来。</p>
-<p>后面就都写到这个”waf攻防实践”系列里来。</p>
-
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-          <div class="post-tags">
-              <a href="/tags/WAF/" rel="tag"># WAF</a>
-          </div>
-
-        
-
-          <div class="post-nav">
-            <div class="post-nav-item">
-                <a href="/2021-12-26-WAF%E6%94%BB%E9%98%B2%E5%AE%9E%E8%B7%B5(5)/" rel="prev" title="WAF攻防实践(5)">
-                  <i class="fa fa-chevron-left"></i> WAF攻防实践(5)
-                </a>
-            </div>
-            <div class="post-nav-item">
-                <a href="/2021-12-26-Python%E6%A0%88%E6%BA%A2%E5%87%BACVE-2021-3177%E5%88%86%E6%9E%90/" rel="next" title="Python栈溢出CVE-2021-3177分析">
-                  Python栈溢出CVE-2021-3177分析 <i class="fa fa-chevron-right"></i>
-                </a>
-            </div>
-          </div>
-    </footer>
-  </article>
-</div>
-
-
-
-
-
-
-</div>
-  </main>
-
-  <footer class="footer">
-    <div class="footer-inner">
-
-
-<div class="copyright">
-  &copy; 
-  <span itemprop="copyrightYear">2021</span>
-  <span class="with-love">
-    <i class="fa fa-heart"></i>
-  </span>
-  <span class="author" itemprop="copyrightHolder">leveryd</span>
-</div>
-  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
-  </div>
-
-    </div>
-  </footer>
-
-  
-  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous"></script>
-<script src="/js/comments.js"></script><script src="/js/utils.js"></script><script src="/js/motion.js"></script><script src="/js/schemes/muse.js"></script><script src="/js/next-boot.js"></script>
-
-  
-
-
-
-
-
-  
-
-
-
-
-
-</body>
-</html>
+{% endblock %}
+
+{% block sidebar %}
+  {{ sidebar_template.render(true) }}
+{% endblock %}
+
+{% block script_extra %}
+  {% include '_scripts/pages/post-details.swig' %}
+{% endblock %}
