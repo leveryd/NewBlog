@@ -125,7 +125,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">44</span>
+          <span class="site-state-item-count">45</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
@@ -159,6 +159,133 @@
 
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2022-01-07-%E6%89%AB%E6%8F%8F%E5%99%A8%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90%E6%A1%88%E4%BE%8B(%E4%BA%8C)/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2022-01-07-%E6%89%AB%E6%8F%8F%E5%99%A8%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90%E6%A1%88%E4%BE%8B(%E4%BA%8C)/" class="post-title-link" itemprop="url">扫描器性能分析案例</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+      
+
+      <time title="创建时间：2022-01-07 23:10:04 / 修改时间：23:10:20" itemprop="dateCreated datePublished" datetime="2022-01-07T23:10:04+08:00">2022-01-07</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>扫描器的基本功能包括对某个主机列表的端口做扫描，类似<code>nmap -p 8000-9000 1.1.1.1/24</code>.</p>
+<p>为了实现上面的需求，曾经我写过类似下面的代码</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br></pre></td><td class="code"><pre><span class="line">def get_host():</span><br><span class="line">    ret_host_list &#x3D; []</span><br><span class="line">    ...   # 从api中获取扫描主机ip</span><br><span class="line">    return ret_host_list</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def get_port():</span><br><span class="line">    ret_port_list &#x3D; []</span><br><span class="line">    ...</span><br><span class="line">    return ret_port_list</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def generate_targets():</span><br><span class="line">    ret_target_list &#x3D; []</span><br><span class="line">    for host in get_host():</span><br><span class="line">        for port in get_port():</span><br><span class="line">            ret_target_list.append(</span><br><span class="line">                &#123;</span><br><span class="line">                    &quot;host&quot;: host,</span><br><span class="line">                    &quot;port&quot;: port</span><br><span class="line">                &#125;</span><br><span class="line">            )</span><br><span class="line">    return ret_target_list</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">for target in generate_targets():</span><br><span class="line">    ...</span><br></pre></td></tr></table></figure>
+
+<p>不知道你能不能看出来问题所在：上面的代码，当扫描的主机和端口都比较少时没什么问题，但是当主机和端口很多时，就会占用大量内存。</p>
+<p>本文记录两个问题：</p>
+<ul>
+<li>怎么改进上面的代码，避免内存占用过大的问题</li>
+<li>研究为什么会占用大量内存</li>
+</ul>
+<h1 id="过程"><a href="#过程" class="headerlink" title="过程"></a>过程</h1><ul>
+<li><p>复现</p>
+<p>我们先来写一个demo复现这个”内存占用”过大的问题</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">import sys</span><br><span class="line"></span><br><span class="line">def generate_target():</span><br><span class="line">  result &#x3D; []</span><br><span class="line">  for i in range(0, 256 * 256):</span><br><span class="line">    for j in range(8000, 8050):</span><br><span class="line">      result.append(&#123;&quot;host&quot;:i, &quot;port&quot;:j&#125;)</span><br><span class="line">  return result</span><br><span class="line"></span><br><span class="line">result &#x3D; generate_target()</span><br><span class="line"></span><br><span class="line">print(&quot;ok&quot;)</span><br><span class="line">sys.stdin.readline()</span><br></pre></td></tr></table></figure>
+<p>运行上面的脚本，通过<code>free -m</code>命令可以观察到物理内存接近减少900M。</p>
+<p>如果<code>range(8000,8050)</code>修改成<code>range(8000,9000)</code>，也即扫描8000-9000端口时，内存至少减少12G(因为我的测试机器只有12G的物理内存，所以只能得到这个数字)。</p>
+</li>
+<li><p>怎么改进上面的代码，避免内存问题？</p>
+<p>看着像是因为生成大量的{“host”:i, “port”:j}的扫描对象，所以才占用很多内存。</p>
+<p>那么改进很简单，如果我们将列表改成”生成器”，就不用在<code>generate_target</code>函数生成所有<code>&#123;&quot;host&quot;:i, &quot;port&quot;:j&#125;</code>的扫描对象。</p>
+<p>比如在函数中用yield关键字</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">import sys</span><br><span class="line"></span><br><span class="line">def generate_target():</span><br><span class="line">  result &#x3D; []</span><br><span class="line">  for i in range(0, 256 * 256):</span><br><span class="line">    for j in range(8000, 9000):</span><br><span class="line">      yield &#123;&quot;host&quot;:i, &quot;port&quot;:j&#125;</span><br><span class="line"></span><br><span class="line">result &#x3D; generate_target()</span><br><span class="line"></span><br><span class="line">print(&quot;ok&quot;)</span><br><span class="line">sys.stdin.readline()</span><br></pre></td></tr></table></figure>
+
+<p>或者用<a target="_blank" rel="noopener" href="https://www.python.org/dev/peps/pep-0289/">生成器表达式</a></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">import sys</span><br><span class="line"></span><br><span class="line">def generate_target():</span><br><span class="line">  return (&#123;&quot;host&quot;:i, &quot;port&quot;:j&#125; for i in range(0, 256 * 256) for j in range(8000, 9000))</span><br><span class="line"></span><br><span class="line">result &#x3D; generate_target()</span><br><span class="line"></span><br><span class="line">print(&quot;ok&quot;)</span><br><span class="line">sys.stdin.readline()</span><br></pre></td></tr></table></figure>
+
+<p>关于”生成器”的概念，可以参考 <a target="_blank" rel="noopener" href="https://www.liaoxuefeng.com/wiki/1016959663602400/1017318207388128">廖雪峰的教程</a>。</p>
+<p>如果对”生成器”的实现感兴趣，可以参考 <a target="_blank" rel="noopener" href="https://fasionchan.com/python-source/generator-coroutine/generator/">重新认识生成器generator</a></p>
+<p>复现脚本消耗了接近<code>900MB</code>的物理内存，难道真的”区区几个”dict就能占用这么多内存吗？</p>
+</li>
+<li><p>为什么会占用大量内存？</p>
+<p>我们可以用pympler库来看看python程序中的对象都占用了多少内存，修改后的脚本如下。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp tmp]# cat 20.py</span><br><span class="line">import sys</span><br><span class="line">from pympler import tracker, muppy, summary</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def print_mem():</span><br><span class="line">  all_objects &#x3D; muppy.get_objects()</span><br><span class="line">  sum &#x3D; summary.summarize(all_objects)</span><br><span class="line">  summary.print_(sum)</span><br><span class="line"></span><br><span class="line">def generate_target():</span><br><span class="line">  result &#x3D; []</span><br><span class="line">  for i in range(0, 256 * 256):</span><br><span class="line">    for j in range(8000, 8050):</span><br><span class="line">      result.append(&#123;&quot;host&quot;:i, &quot;port&quot;:j&#125;)</span><br><span class="line">  return result</span><br><span class="line"></span><br><span class="line">result &#x3D; generate_target()</span><br><span class="line"></span><br><span class="line">print_mem()</span><br><span class="line">sys.stdin.readline()</span><br></pre></td></tr></table></figure>
+
+<p><img src="https://user-images.githubusercontent.com/1846319/148363628-f256f98f-623b-4aff-b208-32b85b6f41dc.png" alt="image"></p>
+<p>执行后，可以看到有<code>3278449</code>个dict实例，总共占用<code>750.76MB</code>。</p>
+<p><code>3278449</code>约等于<code>256*256*50</code>,和脚本中的循环次数吻合。</p>
+<p>那这里一个dict实例占用多少个字节呢？我们用<code>sys.getsizeof</code>函数可以看到，在python3.6中<code>&#123;&#125;</code>和<code>&#123;&quot;host&quot;:&quot;1&quot;,&quot;port&quot;:&quot;1&quot;&#125;</code>都占用了240字节</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/148364060-e380097f-44d5-443c-9e10-d41bd583a90a.png" alt="image"></p>
+<p>这里一个dict实例占用<code>240</code>个字节，总共有<code>3278449</code>个实例，算一下确实会占用<code>750MB</code>，接近<code>900MB</code>。</p>
+<p>差不多我最开始的疑问都解开了，只有最后一个疑问。</p>
+<p>到这里我不知道你会不会和我一样奇怪：为啥<code>&#123;&#125;</code>啥也没存储，<code>sys.getsizeof</code>显示占用240字节，而<code>&#123;&quot;host&quot;:&quot;1&quot;,&quot;port&quot;:&quot;1&quot;&#125;</code>明显多了点字符串，<code>sys.getsizeof</code>为啥仍显示占用240字节。</p>
+</li>
+<li><p>为啥<code>sys.getsizeof</code>告诉我们<code>&#123;&#125;</code>占用240字节？</p>
+<p>这个现象是分python版本的，比如python3.8版本如下<br><img src="https://user-images.githubusercontent.com/1846319/148371893-4f9b1392-cc48-4311-9712-26d7eda54347.png" alt="image"></p>
+<p>我想如果知道<code>sys.getsizeof</code>是怎么计算内存占用的，我们就知道它的结果是什么意思。于是我就去翻文档和看源码。</p>
+<p>翻了下文档，没找到<code>sys.getsizeof</code>的计算过程，于是只好去看下CPython代码看下<code>sys.getsizeof</code>的实现。</p>
+<p>在Python/sysmodule.c中可以看出来：<code>sys.getsizeof</code>等于 <code>__sizeof__()</code> + GC头大小(16字节)</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line">size_t</span><br><span class="line">_PySys_GetSizeOf(PyObject *o)</span><br><span class="line">&#123;</span><br><span class="line">    PyObject *res &#x3D; NULL;</span><br><span class="line">    PyObject *method;</span><br><span class="line">    Py_ssize_t size;</span><br><span class="line"></span><br><span class="line">    ...</span><br><span class="line"></span><br><span class="line">    method &#x3D; _PyObject_LookupSpecial(o, &amp;PyId___sizeof__);    # 对象的sizeof函数</span><br><span class="line">    ...</span><br><span class="line">    res &#x3D; _PyObject_CallNoArg(method);</span><br><span class="line">    ...</span><br><span class="line"></span><br><span class="line">    size &#x3D; PyLong_AsSsize_t(res);</span><br><span class="line">    ...</span><br><span class="line">    if (PyObject_IS_GC(o))    # 容器对象(list、dict)会有GC头，str、int等没有GC头。GC头用来做垃圾回收</span><br><span class="line">        return ((size_t)size) + sizeof(PyGC_Head);</span><br><span class="line">    return (size_t)size;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>下面也可以验证上面的结论</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">➜  cpython-3.8 .&#x2F;python.exe</span><br><span class="line">Python 3.8.12+ (default, Jan  1 2022, 12:15:13)</span><br><span class="line">...</span><br><span class="line">&gt;&gt;&gt; [].__sizeof__()</span><br><span class="line">40</span><br><span class="line">&gt;&gt;&gt; sys.getsizeof([])</span><br><span class="line">56</span><br><span class="line">&gt;&gt;&gt; &#123;&quot;host&quot;:&quot;1&quot;&#125;.__sizeof__()</span><br><span class="line">216</span><br><span class="line">&gt;&gt;&gt; sys.getsizeof(&#123;&quot;host&quot;:&quot;1&quot;&#125;)</span><br><span class="line">232</span><br></pre></td></tr></table></figure>
+
+<p><code>__sizeof__()</code>是什么呢？每种类型的sizeof函数实现逻辑不同，dict类型的sizeof函数就是<code>Objects/dictobject.c</code>中的dict_sizeof函数。</p>
+<p>你可以动态调试，或者翻一翻文件，最终能看到计算过程，如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">Py_ssize_t</span><br><span class="line">_PyDict_SizeOf(PyDictObject *mp)    &#x2F;&#x2F; mp就是dict的实例</span><br><span class="line">&#123;</span><br><span class="line">    Py_ssize_t size, usable, res;</span><br><span class="line"></span><br><span class="line">    size &#x3D; DK_SIZE(mp-&gt;ma_keys);    &#x2F;&#x2F; 哈希表的大小，也就是PyDictObject数据结构中dk_indices数组的大小。这个场景下是8字节</span><br><span class="line">    usable &#x3D; USABLE_FRACTION(size); &#x2F;&#x2F; size的三分之二，也就是5</span><br><span class="line"></span><br><span class="line">    res &#x3D; _PyObject_SIZE(Py_TYPE(mp));  &#x2F;&#x2F; PyDictObject数据结构的大小，48字节</span><br><span class="line">    if (mp-&gt;ma_values)</span><br><span class="line">        res +&#x3D; usable * sizeof(PyObject*);</span><br><span class="line">    &#x2F;* If the dictionary is split, the keys portion is accounted-for</span><br><span class="line">       in the type object. *&#x2F;</span><br><span class="line">    if (mp-&gt;ma_keys-&gt;dk_refcnt &#x3D;&#x3D; 1)</span><br><span class="line">        res +&#x3D; (sizeof(PyDictKeysObject)    &#x2F;&#x2F; 除两个数组外有 5 个字段，共 40 字节</span><br><span class="line">                + DK_IXSIZE(mp-&gt;ma_keys) * size  &#x2F;&#x2F; dk_indices索引数组占用的大小，这个场景下是8字节</span><br><span class="line">                + sizeof(PyDictKeyEntry) * usable);  &#x2F;&#x2F; 键值对数组，长度为5 。每个 PyDictKeyEntry 结构体 24 字节，共 120 字节</span><br><span class="line">    return res;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>关于PyDictObject数据结构，你可以参考 <a target="_blank" rel="noopener" href="https://fasionchan.com/python-source/builting-object/dict/">dict 对象，高效的关联式容器</a>。</p>
+<p>根据上面的内容，<code>48+40+8+120+16</code>刚好就是232字节，也就是python3.8下<code>sys.getsizeof(&#123;&quot;host&quot;:1&#125;)</code>的结果。</p>
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>问题背景中的场景可能还有其他的编程方式来实现，这里我只是为了引出我学到的”生成器”和”Python内置对象的内存占用”两个知识点。这两个点都背后能扯到更多的点，比如dict容器的动态扩容、哈希表冲突的解决，如果有兴趣，推荐你可以看文章中的参考资料。</p>
+<p>想起我以前老听说python性能不好，只以为是解释运行得慢。通过这个案例和参考资料的学习，感觉到还可以从”内存”方面比较。和c相比，python对象的内存占用是有一点多，比如空字符串c中就占用1个字节，python中占用49个字节。</p>
+<p>生成器可以节约内存。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -279,7 +406,7 @@
           <i class="far fa-calendar-check"></i>
         </span>
         <span class="post-meta-item-text">更新于</span>
-        <time title="修改时间：2021-12-29 16:21:45" itemprop="dateModified" datetime="2021-12-29T16:21:45+08:00">2021-12-29</time>
+        <time title="修改时间：2022-01-04 17:32:49" itemprop="dateModified" datetime="2022-01-04T17:32:49+08:00">2022-01-04</time>
       </span>
 
   
@@ -546,137 +673,6 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E7%BB%86%E5%93%81%E6%9F%90%E8%AF%AD%E4%B9%89waf%E7%9A%84xss%E9%98%B2%E6%8A%A4(3)/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E7%BB%86%E5%93%81%E6%9F%90%E8%AF%AD%E4%B9%89waf%E7%9A%84xss%E9%98%B2%E6%8A%A4(3)/" class="post-title-link" itemprop="url">细品某语义waf的xss防护(3)</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><ul>
-<li>经过前期调研，标签中下面的危险属性可以用来做xss攻击：<ul>
-<li>href属性</li>
-<li>src属性</li>
-<li>on事件属性</li>
-<li>srcdoc属性</li>
-<li>xlink:href</li>
-<li>action</li>
-<li>formaction</li>
-<li>data (object标签)</li>
-</ul>
-</li>
-</ul>
-<p>假设攻击场景如下</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">漏洞输出位置是 &lt;标签 危险属性&#x3D;&quot;用户输出可控位置&quot;&gt;，比如：</span><br><span class="line">&lt;a href&#x3D;&quot;用户输出可控位置&quot;&gt;</span><br><span class="line">&lt;script src&#x3D;&quot;用户输出可控位置&quot;&gt;</span><br><span class="line"></span><br><span class="line">攻击者不闭合属性值时利用xss攻击,如:</span><br><span class="line">&lt;a href&#x3D;&quot;javascript:alert(&#39;xss&#39;)&quot;&gt;</span><br></pre></td></tr></table></figure>
-
-<p>经过前期调研，在属性值中有下面这些利用方式：</p>
-<ul>
-<li>javascript:js代码</li>
-<li>js代码   （on事件属性）</li>
-<li>data:text/html</li>
-<li>script脚本地址 (script标签的src属性)</li>
-</ul>
-<p>在这个场景下，不考虑其他的利用手段，验证厂商语义waf的安全防护策略</p>
-<p>分析思路：</p>
-<ul>
-<li>针对在属性中每一种利用方式测试，根据拦截情况推测安全防护策略</li>
-</ul>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><h2 id="javascript-js代码"><a href="#javascript-js代码" class="headerlink" title="javascript:js代码"></a>javascript:js代码</h2><p>攻击场景是</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;a&#x2F;href&#x3D;&quot;用户输出可控点&quot;&gt;&lt;&#x2F;a&gt;</span><br></pre></td></tr></table></figure>
-
-<p>测试过程</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;javascript:console.xxx()   拦截</span><br><span class="line">a&#x3D;javascript:console.log(111);xx&#123;&#96;faji(   不拦截  说明判断了js语法是否正确</span><br><span class="line">a&#x3D;javascript:xxx.consol(11)  不拦截</span><br><span class="line">a&#x3D;javascript:xxx.console(11)  拦截   说明危险对象和危险函数一样，在同一个黑名单里。</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:xxx.consoleeee(11)    拦截</span><br><span class="line">a&#x3D;javascript:xxx.xxxconsoleeee(11) 不拦截  说明判断是否在黑名单中采用前缀判断</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:xxxxx()   不拦截</span><br><span class="line">a&#x3D;javascript:alertxxx(11) 拦截</span><br><span class="line">a&#x3D;javascript:alert()   拦截   说明逻辑是 是否存在函数调用 &amp;&amp; 函数名是否在黑名单中</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:a&#x3D;alert;a(1);  拦截</span><br><span class="line">a&#x3D;javascript:a&#x3D;alert;b(1);  拦截   似乎逻辑是 危险函数赋值 &amp;&amp; 调用函数</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:a&#x3D;console;b&#96;1&#96;;  拦截</span><br><span class="line">a&#x3D;javascript:a&#x3D;console;b(1);  拦截</span><br><span class="line">a&#x3D;javascript:a&#x3D;&#x2F;**&#x2F;console;b&#96;1&#96;;   拦截 可以确认拦截逻辑是  危险函数赋值 &amp;&amp; 调用函数</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:alert(&quot;1&quot;)  拦截</span><br><span class="line">a&#x3D;javascript:alert?.(&quot;1&quot;)  应该拦截，但是没有拦截。  说明这里做了js语法解析，且解析器没有支持最新的js语法</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:console()  不拦截</span><br><span class="line">a&#x3D;javascript:console();xxx.xx()  拦截    </span><br><span class="line">a&#x3D;javascript:consolexxaa();xxx.xx 不拦截   说明只有存在 对象.函数()形式的函数调用 &amp;&amp; 对象名在黑名单中  </span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:window&#x3D;xxx;xxx.xx()   不拦截</span><br><span class="line">a&#x3D;javascript:xxx&#x3D;window;xxx.xx()   拦截    可以确认拦截逻辑是 危险对象赋值 &amp;&amp; 调用函数</span><br></pre></td></tr></table></figure>
-
-<p>小结：</p>
-<ul>
-<li>解析js &amp;&amp; 是否存在”函数()”形式的函数调用 &amp;&amp; 获取调用函数名 &amp;&amp; 函数名在黑名单中（前缀匹配） 则拦截</li>
-<li>解析js &amp;&amp; 是否存在”对象.函数()”形式的函数调用 &amp;&amp; 获取函数名、对象名 &amp;&amp; 将危险对象名扩充到黑名单中 &amp;&amp; (函数名在黑名单中 || 对象名在对象黑名单中)   则拦截</li>
-<li>解析js &amp;&amp; (危险对象赋值 || 危险函数赋值) &amp;&amp; 调用函数    则拦截</li>
-</ul>
-<h2 id="js代码"><a href="#js代码" class="headerlink" title="js代码"></a>js代码</h2><p>攻击场景是</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;svg&#x2F;onload&#x3D;&quot;用户输出点&quot;&gt;</span><br></pre></td></tr></table></figure>
-
-<p>测试过程</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;alert()   拦截</span><br><span class="line">a&#x3D;xxxxx()   不拦截  说明逻辑是 是否存在函数调用 &amp;&amp; 函数名是否在黑名单中</span><br><span class="line">a&#x3D;x&#x3D;alert;x(1);   应该拦截，但是没有拦截。   说明这里没有&quot;危险函数赋值 &amp;&amp; 调用函数&quot;的检测逻辑</span><br><span class="line">a&#x3D;console.log(11)   应该拦截，但是也没有拦截   说明没有拦截&quot;危险对象&quot;</span><br><span class="line">xxxx.alert(11)   拦截    确认逻辑是 是否存在函数调用 &amp;&amp; 函数名是否在黑名单中</span><br></pre></td></tr></table></figure>
-
-<p>小结:</p>
-<ul>
-<li>解析js &amp;&amp; 存在”对象.函数()”形式或者”函数()”函数形式的函数调用 &amp;&amp; 函数名是否在黑名单中   则拦截</li>
-</ul>
-<h2 id="data-text-html"><a href="#data-text-html" class="headerlink" title="data:text/html"></a>data:text/html</h2><p>攻击场景是</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;iframe src&#x3D;&quot;用户输出可控点&quot;&gt;</span><br></pre></td></tr></table></figure>
-<p>测试过程</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">data:text&#x2F;html;base64;PGltZy9vbmxvYWQ9eHg  不拦截</span><br><span class="line"></span><br><span class="line">data:text&#x2F;html;base64,PHN2Zy9vbmxvYWQ9YWxlcnQoMSk+   应该拦截，但是没有拦截. 说明不拦截这种利用场景</span><br></pre></td></tr></table></figure>
-<p>小结：不拦截</p>
-<h2 id="script脚本地址-script标签"><a href="#script脚本地址-script标签" class="headerlink" title="script脚本地址 (script标签)"></a>script脚本地址 (script标签)</h2><p>攻击场景是</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;script src&#x3D;&quot;用户输出点&quot;&gt;</span><br></pre></td></tr></table></figure>
-
-<p>测试过程</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">http:&#x2F;&#x2F;xxx.com&#x2F;a.js  应该拦截，但是没有拦截. 说明不拦截这种攻击场景</span><br></pre></td></tr></table></figure>
-<p>小结：不拦截</p>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>拦截策略，可能是：</p>
-<ul>
-<li>解析js &amp;&amp; 是否存在”函数()”形式的函数调用 &amp;&amp; 获取调用函数名 &amp;&amp; 函数名在黑名单中（前缀匹配） 则拦截</li>
-<li>解析js &amp;&amp; 是否存在”对象.函数()”形式的函数调用 &amp;&amp; 获取函数名、对象名 &amp;&amp; 将危险对象名扩充到黑名单中 &amp;&amp; (函数名在黑名单中 || 对象名在对象黑名单中)   则拦截</li>
-<li>解析js &amp;&amp; (危险对象赋值 || 危险函数赋值) &amp;&amp; 调用函数    则拦截</li>
-<li>解析js &amp;&amp; 存在”对象.函数()”形式或者”函数()”函数形式的函数调用 &amp;&amp; 函数名是否在黑名单中   则拦截</li>
-</ul>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E7%BB%86%E5%93%81%E6%9F%90%E8%AF%AD%E4%B9%89waf%E7%9A%84xss%E9%98%B2%E6%8A%A4(4)/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -787,6 +783,137 @@
 </ul>
 </li>
 <li>有一些payload被拦截的原因目前无法解释</li>
+</ul>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E7%BB%86%E5%93%81%E6%9F%90%E8%AF%AD%E4%B9%89waf%E7%9A%84xss%E9%98%B2%E6%8A%A4(3)/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E7%BB%86%E5%93%81%E6%9F%90%E8%AF%AD%E4%B9%89waf%E7%9A%84xss%E9%98%B2%E6%8A%A4(3)/" class="post-title-link" itemprop="url">细品某语义waf的xss防护(3)</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><ul>
+<li>经过前期调研，标签中下面的危险属性可以用来做xss攻击：<ul>
+<li>href属性</li>
+<li>src属性</li>
+<li>on事件属性</li>
+<li>srcdoc属性</li>
+<li>xlink:href</li>
+<li>action</li>
+<li>formaction</li>
+<li>data (object标签)</li>
+</ul>
+</li>
+</ul>
+<p>假设攻击场景如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">漏洞输出位置是 &lt;标签 危险属性&#x3D;&quot;用户输出可控位置&quot;&gt;，比如：</span><br><span class="line">&lt;a href&#x3D;&quot;用户输出可控位置&quot;&gt;</span><br><span class="line">&lt;script src&#x3D;&quot;用户输出可控位置&quot;&gt;</span><br><span class="line"></span><br><span class="line">攻击者不闭合属性值时利用xss攻击,如:</span><br><span class="line">&lt;a href&#x3D;&quot;javascript:alert(&#39;xss&#39;)&quot;&gt;</span><br></pre></td></tr></table></figure>
+
+<p>经过前期调研，在属性值中有下面这些利用方式：</p>
+<ul>
+<li>javascript:js代码</li>
+<li>js代码   （on事件属性）</li>
+<li>data:text/html</li>
+<li>script脚本地址 (script标签的src属性)</li>
+</ul>
+<p>在这个场景下，不考虑其他的利用手段，验证厂商语义waf的安全防护策略</p>
+<p>分析思路：</p>
+<ul>
+<li>针对在属性中每一种利用方式测试，根据拦截情况推测安全防护策略</li>
+</ul>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><h2 id="javascript-js代码"><a href="#javascript-js代码" class="headerlink" title="javascript:js代码"></a>javascript:js代码</h2><p>攻击场景是</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;a&#x2F;href&#x3D;&quot;用户输出可控点&quot;&gt;&lt;&#x2F;a&gt;</span><br></pre></td></tr></table></figure>
+
+<p>测试过程</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;javascript:console.xxx()   拦截</span><br><span class="line">a&#x3D;javascript:console.log(111);xx&#123;&#96;faji(   不拦截  说明判断了js语法是否正确</span><br><span class="line">a&#x3D;javascript:xxx.consol(11)  不拦截</span><br><span class="line">a&#x3D;javascript:xxx.console(11)  拦截   说明危险对象和危险函数一样，在同一个黑名单里。</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:xxx.consoleeee(11)    拦截</span><br><span class="line">a&#x3D;javascript:xxx.xxxconsoleeee(11) 不拦截  说明判断是否在黑名单中采用前缀判断</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:xxxxx()   不拦截</span><br><span class="line">a&#x3D;javascript:alertxxx(11) 拦截</span><br><span class="line">a&#x3D;javascript:alert()   拦截   说明逻辑是 是否存在函数调用 &amp;&amp; 函数名是否在黑名单中</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:a&#x3D;alert;a(1);  拦截</span><br><span class="line">a&#x3D;javascript:a&#x3D;alert;b(1);  拦截   似乎逻辑是 危险函数赋值 &amp;&amp; 调用函数</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:a&#x3D;console;b&#96;1&#96;;  拦截</span><br><span class="line">a&#x3D;javascript:a&#x3D;console;b(1);  拦截</span><br><span class="line">a&#x3D;javascript:a&#x3D;&#x2F;**&#x2F;console;b&#96;1&#96;;   拦截 可以确认拦截逻辑是  危险函数赋值 &amp;&amp; 调用函数</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:alert(&quot;1&quot;)  拦截</span><br><span class="line">a&#x3D;javascript:alert?.(&quot;1&quot;)  应该拦截，但是没有拦截。  说明这里做了js语法解析，且解析器没有支持最新的js语法</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:console()  不拦截</span><br><span class="line">a&#x3D;javascript:console();xxx.xx()  拦截    </span><br><span class="line">a&#x3D;javascript:consolexxaa();xxx.xx 不拦截   说明只有存在 对象.函数()形式的函数调用 &amp;&amp; 对象名在黑名单中  </span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:window&#x3D;xxx;xxx.xx()   不拦截</span><br><span class="line">a&#x3D;javascript:xxx&#x3D;window;xxx.xx()   拦截    可以确认拦截逻辑是 危险对象赋值 &amp;&amp; 调用函数</span><br></pre></td></tr></table></figure>
+
+<p>小结：</p>
+<ul>
+<li>解析js &amp;&amp; 是否存在”函数()”形式的函数调用 &amp;&amp; 获取调用函数名 &amp;&amp; 函数名在黑名单中（前缀匹配） 则拦截</li>
+<li>解析js &amp;&amp; 是否存在”对象.函数()”形式的函数调用 &amp;&amp; 获取函数名、对象名 &amp;&amp; 将危险对象名扩充到黑名单中 &amp;&amp; (函数名在黑名单中 || 对象名在对象黑名单中)   则拦截</li>
+<li>解析js &amp;&amp; (危险对象赋值 || 危险函数赋值) &amp;&amp; 调用函数    则拦截</li>
+</ul>
+<h2 id="js代码"><a href="#js代码" class="headerlink" title="js代码"></a>js代码</h2><p>攻击场景是</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;svg&#x2F;onload&#x3D;&quot;用户输出点&quot;&gt;</span><br></pre></td></tr></table></figure>
+
+<p>测试过程</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;alert()   拦截</span><br><span class="line">a&#x3D;xxxxx()   不拦截  说明逻辑是 是否存在函数调用 &amp;&amp; 函数名是否在黑名单中</span><br><span class="line">a&#x3D;x&#x3D;alert;x(1);   应该拦截，但是没有拦截。   说明这里没有&quot;危险函数赋值 &amp;&amp; 调用函数&quot;的检测逻辑</span><br><span class="line">a&#x3D;console.log(11)   应该拦截，但是也没有拦截   说明没有拦截&quot;危险对象&quot;</span><br><span class="line">xxxx.alert(11)   拦截    确认逻辑是 是否存在函数调用 &amp;&amp; 函数名是否在黑名单中</span><br></pre></td></tr></table></figure>
+
+<p>小结:</p>
+<ul>
+<li>解析js &amp;&amp; 存在”对象.函数()”形式或者”函数()”函数形式的函数调用 &amp;&amp; 函数名是否在黑名单中   则拦截</li>
+</ul>
+<h2 id="data-text-html"><a href="#data-text-html" class="headerlink" title="data:text/html"></a>data:text/html</h2><p>攻击场景是</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;iframe src&#x3D;&quot;用户输出可控点&quot;&gt;</span><br></pre></td></tr></table></figure>
+<p>测试过程</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">data:text&#x2F;html;base64;PGltZy9vbmxvYWQ9eHg  不拦截</span><br><span class="line"></span><br><span class="line">data:text&#x2F;html;base64,PHN2Zy9vbmxvYWQ9YWxlcnQoMSk+   应该拦截，但是没有拦截. 说明不拦截这种利用场景</span><br></pre></td></tr></table></figure>
+<p>小结：不拦截</p>
+<h2 id="script脚本地址-script标签"><a href="#script脚本地址-script标签" class="headerlink" title="script脚本地址 (script标签)"></a>script脚本地址 (script标签)</h2><p>攻击场景是</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;script src&#x3D;&quot;用户输出点&quot;&gt;</span><br></pre></td></tr></table></figure>
+
+<p>测试过程</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">http:&#x2F;&#x2F;xxx.com&#x2F;a.js  应该拦截，但是没有拦截. 说明不拦截这种攻击场景</span><br></pre></td></tr></table></figure>
+<p>小结：不拦截</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>拦截策略，可能是：</p>
+<ul>
+<li>解析js &amp;&amp; 是否存在”函数()”形式的函数调用 &amp;&amp; 获取调用函数名 &amp;&amp; 函数名在黑名单中（前缀匹配） 则拦截</li>
+<li>解析js &amp;&amp; 是否存在”对象.函数()”形式的函数调用 &amp;&amp; 获取函数名、对象名 &amp;&amp; 将危险对象名扩充到黑名单中 &amp;&amp; (函数名在黑名单中 || 对象名在对象黑名单中)   则拦截</li>
+<li>解析js &amp;&amp; (危险对象赋值 || 危险函数赋值) &amp;&amp; 调用函数    则拦截</li>
+<li>解析js &amp;&amp; 存在”对象.函数()”形式或者”函数()”函数形式的函数调用 &amp;&amp; 函数名是否在黑名单中   则拦截</li>
 </ul>
 
       
@@ -955,6 +1082,106 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E9%AA%8C%E8%AF%81%E7%BC%BA%E9%A1%B5%E4%B8%AD%E6%96%AD%E6%9C%BA%E5%88%B6/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E9%AA%8C%E8%AF%81%E7%BC%BA%E9%A1%B5%E4%B8%AD%E6%96%AD%E6%9C%BA%E5%88%B6/" class="post-title-link" itemprop="url">验证缺页中断机制</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>在x86系列的cpu上开启分页机制后，指令涉及到”内存读写”操作时，用到的”内存地址”都是”虚拟地址”。”mmu硬件”会按照”分段”、”分页”的计算规则，将”虚拟地址”转换成”物理地址”。最终指令可以对”物理地址”读写数据。</p>
+<p>上面这段关于内存的”理论知识”，我觉得如果可以实践看一看，就能多一些”感觉”。</p>
+<p>本文记录我对下面两个结论的调试和验证过程，也是我对极客时间的<a target="_blank" rel="noopener" href="https://time.geekbang.org/column/intro/100078401?tab=catalog">操作系统实战 45 讲</a>课程中”内存管理”章节的部分学习和实践，基于<a target="_blank" rel="noopener" href="https://gitee.com/lmos/cosmos/tree/master/lesson25~26/Cosmos">第26课代码</a>。</p>
+<p>“mmu硬件”在转换”虚拟地址”时有可能发生”缺页异常”，包括：</p>
+<ul>
+<li>访问”未向内核申请的虚拟地址”会导致”缺页异常”</li>
+<li>当第一次访问申请的虚拟地址时，也会产生”缺页异常”；第二次访问同样的虚拟地址时，不会产生”缺页异常”</li>
+</ul>
+<h1 id="验证过程"><a href="#验证过程" class="headerlink" title="验证过程"></a>验证过程</h1><ul>
+<li><p>访问”未向内核申请的虚拟地址”会导致”缺页异常”</p>
+<p>按照理论来说：访问未申请的虚拟地址时，”mmu硬件”在转换”虚拟地址”时会发出”缺页异常”（可能因为找不到对应的”页表项”）</p>
+<p>在验证这个理论前，先介绍一下cosmos(课程自制的内核系统名称)相关的代码，以方便读者大概理解文中出现的函数作用</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">void test_vadr()</span><br><span class="line">&#123;</span><br><span class="line">	adr_t vadr &#x3D; vma_new_vadrs(&amp;initmmadrsdsc, NULL, 0x1000, 0, 0);  &#x2F;&#x2F; 0x1000是想要申请的空间大小，vadr是申请的内存地址</span><br><span class="line">	if(NULL &#x3D;&#x3D; vadr)</span><br><span class="line">	&#123;</span><br><span class="line">		kprint(&quot;分配虚拟地址空间失败\n&quot;);</span><br><span class="line">	&#125;</span><br><span class="line">  ...</span><br><span class="line">	hal_memset((void*)vadr, 0, 0x1000);  &#x2F;&#x2F; 初始化刚申请的内存为0</span><br><span class="line">	...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>上面<code>test_vadr</code>是cosmos中用来验证”虚拟内存”相关功能的测试函数。</p>
+<p>在cosmos中，想要使用虚拟空间，需要先调用<code>vma_new_vadrs</code>申请一个虚拟地址。</p>
+<p>cosmos相关代码介绍完毕，下面用gdb调试课程代码，来实际验证一下”理论”：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line">(gdb) break test_vadr   &#x2F;&#x2F; 在 test_vadr 函数下断点（选择在test_vadr函数下断点，是因为此时 虚拟内存管理、物理内存管理、缺页异常处理 等功能都已经实现）</span><br><span class="line">Breakpoint 1 at 0xffff80000202444a: file ..&#x2F;kernel&#x2F;krlvadrsmem.c, line 289.</span><br><span class="line">(gdb) continue</span><br><span class="line">Continuing.</span><br><span class="line"></span><br><span class="line">Breakpoint 1, test_vadr () at ..&#x2F;kernel&#x2F;krlvadrsmem.c:289</span><br><span class="line">289	&#123;</span><br><span class="line">(gdb) break krluserspace_accessfailed   &#x2F;&#x2F; 在 krluserspace_accessfailed 函数下断点</span><br><span class="line">Breakpoint 2 at 0xffff800002026588: file ..&#x2F;kernel&#x2F;krlvadrsmem.c, line 1145.</span><br><span class="line">(gdb) call hal_memset(0x400,0,0x1)  &#x2F;&#x2F; 调用hal_memset函数，向 0x400地址 写一个字节内容</span><br><span class="line"></span><br><span class="line">Breakpoint 2, krluserspace_accessfailed (fairvadrs&#x3D;0) at ..&#x2F;kernel&#x2F;krlvadrsmem.c:1145 &#x2F;&#x2F;</span><br><span class="line">...</span><br><span class="line">(gdb) where   &#x2F;&#x2F; 可以看到 当前代码在..&#x2F;kernel&#x2F;krlvadrsmem.c文件1145行的krluserspace_accessfailed</span><br><span class="line">#0  krluserspace_accessfailed (fairvadrs&#x3D;0) at ..&#x2F;kernel&#x2F;krlvadrsmem.c:1145</span><br><span class="line">#1  0xffff8000020135d2 in hal_fault_allocator (faultnumb&#x3D;14, krnlsframp&#x3D;0xffff80000008fe18)</span><br><span class="line">    at ..&#x2F;hal&#x2F;x86&#x2F;halintupt.c:171</span><br><span class="line">#2  0xffff80000200d830 in exc_page_fault ()</span><br><span class="line">...</span><br><span class="line">(gdb) continue</span><br><span class="line">Continuing.</span><br><span class="line">^C      &#x2F;&#x2F; 因为在这里卡死了，所以我按了ctrl+c</span><br><span class="line">Program received signal SIGINT, Interrupt.</span><br><span class="line">hal_sysdie (errmsg&#x3D;0xffff80000203a237 &quot;缺页处理失败\n&quot;) at ..&#x2F;hal&#x2F;x86&#x2F;halcpuctrl.c:185</span><br><span class="line">185	        ;</span><br></pre></td></tr></table></figure>
+<p>从上面的调试信息可以看出来：cpu在执行<code>hal_memset</code>函数访问<code>0x400</code>虚拟地址时，跳到了<code>krluserspace_accessfailed</code>函数，最后卡死在<code>halcpuctrl.c</code>第185行</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/144075113-24fdf0f1-74ac-4223-9a09-d6c71ed0993a.png" alt="image"></p>
+<p>这里的<code>0x400</code>地址不是通过<code>vma_new_vadrs</code>申请的地址。</p>
+<p><code>krluserspace_accessfailed</code>函数只有cpu遇到中断并且中断号为14（也就是”缺页异常”）的时候才会被调用</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;&#x2F; 异常处理</span><br><span class="line">void hal_fault_allocator(uint_t faultnumb, void *krnlsframp) &#x2F;&#x2F;eax,edx</span><br><span class="line">&#123;</span><br><span class="line">    ...</span><br><span class="line">    if (faultnumb &#x3D;&#x3D; 14)        &#x2F;&#x2F; 缺页异常 中断号是14</span><br><span class="line">    &#123;</span><br><span class="line">        ...</span><br><span class="line">        if (krluserspace_accessfailed(fairvadrs) !&#x3D; 0)</span><br><span class="line">       &#123;</span><br><span class="line">           system_error(&quot;缺页处理失败\n&quot;);</span><br><span class="line">       &#125;</span><br><span class="line">        ...</span><br><span class="line">    &#125;</span><br><span class="line">    ...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>所以可以推测出来：访问<code>0x400</code>时，mmu硬件发出了”缺页中断”，接着cpu处理”缺页中断”就会到<code>krluserspace_accessfailed</code>函数，因为<code>krluserspace_accessfailed</code>函数处理”页表映射”失败，所以会调用<code>system_error</code>函数，最终执行<code>for循环</code>卡死。</p>
+<p>这样可以看出来理论没有问题。</p>
+</li>
+<li><p>访问”已申请的虚拟地址”</p>
+<p>按照理论：在第一次访问”已申请的虚拟地址”，因为”虚拟内存”和”物理内存”的映射关系还没写到”页表”中，所以”mmu硬件”在转换”虚拟地址”时会发出”缺页异常”，然后”缺页异常”处理程序会写这个映射关系到”页表”中；第二次访问同一个”已申请的虚拟地址”，因为”虚拟内存”和”物理内存”的映射关系已经写到”页表”，”mmu硬件”就可以正常转换，不会发出”缺页异常”。</p>
+<p>下面同样用gdb调试来验证一下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line">(gdb) continue</span><br><span class="line">Continuing.</span><br><span class="line"></span><br><span class="line">Breakpoint 1, test_vadr () at ..&#x2F;kernel&#x2F;krlvadrsmem.c:289</span><br><span class="line">289	&#123;</span><br><span class="line">(gdb) break krluserspace_accessfailed</span><br><span class="line">Breakpoint 2 at 0xffff800002026588: file ..&#x2F;kernel&#x2F;krlvadrsmem.c, line 1145.</span><br><span class="line">(gdb) x &#x2F;bx 0x40000</span><br><span class="line">0x40000:	Cannot access memory at address 0x40000</span><br><span class="line">(gdb) call vma_new_vadrs(&amp;initmmadrsdsc,0x40000,0x1000, 0, 0)   &#x2F;&#x2F; 向内核申请虚拟空间，地址是0x40000，大小是0x1000</span><br><span class="line">$1 &#x3D; 0</span><br><span class="line">(gdb) call hal_memset(0x40000,0,0x1)    &#x2F;&#x2F; 第一次访问0x40000时进入到&quot;中断处理函数&quot;</span><br><span class="line"></span><br><span class="line">Breakpoint 2, krluserspace_accessfailed (fairvadrs&#x3D;0) at ..&#x2F;kernel&#x2F;krlvadrsmem.c:1145</span><br><span class="line">...</span><br><span class="line">(gdb) finish</span><br><span class="line">Run till exit from #0  krluserspace_accessfailed (fairvadrs&#x3D;2097282) at ..&#x2F;kernel&#x2F;krlvadrsmem.c:1145</span><br><span class="line">...</span><br><span class="line">(gdb) finish</span><br><span class="line">Run till exit from #0  0xffff8000020135d2 in hal_fault_allocator (faultnumb&#x3D;14,</span><br><span class="line">    krnlsframp&#x3D;0xffff80000008fe18) at ..&#x2F;hal&#x2F;x86&#x2F;halintupt.c:171</span><br><span class="line">0xffff80000200d830 in exc_page_fault ()</span><br><span class="line">(gdb) finish</span><br><span class="line">Run till exit from #0  0xffff80000200d830 in exc_page_fault ()</span><br><span class="line">(gdb) where</span><br><span class="line">#0  test_vadr () at ..&#x2F;kernel&#x2F;krlvadrsmem.c:289</span><br><span class="line">...</span><br><span class="line">(gdb) call hal_memset(0x40000,0,0x1)    &#x2F;&#x2F; 第二次访问0x40000时没有产生&quot;中断&quot;</span><br><span class="line">(gdb) x &#x2F;bx 0x40000</span><br><span class="line">0x40000:	0x00</span><br></pre></td></tr></table></figure>
+
+<p>从上面可以看到：调用<code>vma_new_vadrs</code>申请<code>0x40000</code>地址后，第一次调用<code>hal_memset</code>去访问<code>0x40000</code>时会进入到”缺页异常”处理程序(<code>krluserspace_accessfailed</code>函数)中，第二次再访问<code>0x40000</code>时就不会进入到”缺页异常”处理程序。</p>
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>通过调试，很容易对cosmos中”虚拟内存”访问时的业务流程做一点研究。</p>
+<p>同样我们可以通过”调试”去观察”分页”机制，来验证课程中的知识点。</p>
+<p>PS：后面会有一篇文章讲解怎么调试cosmos代码</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E9%AA%8C%E8%AF%81%E6%98%AF%E5%90%A6%E5%AD%98%E5%9C%A8%E5%86%99%E6%96%87%E4%BB%B6%E6%BC%8F%E6%B4%9E%E5%B0%8F%E6%8A%80%E5%B7%A7/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -1052,106 +1279,6 @@
 <li>可以用 /run/systemd/ask-password-block/136:{id} 文件来探测是否存在文件写漏洞，前提是服务有root权限。</li>
 </ul>
 <p>最后，感谢和我讨论这个小问题的朋友。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E9%AA%8C%E8%AF%81%E7%BC%BA%E9%A1%B5%E4%B8%AD%E6%96%AD%E6%9C%BA%E5%88%B6/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E9%AA%8C%E8%AF%81%E7%BC%BA%E9%A1%B5%E4%B8%AD%E6%96%AD%E6%9C%BA%E5%88%B6/" class="post-title-link" itemprop="url">验证缺页中断机制</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>在x86系列的cpu上开启分页机制后，指令涉及到”内存读写”操作时，用到的”内存地址”都是”虚拟地址”。”mmu硬件”会按照”分段”、”分页”的计算规则，将”虚拟地址”转换成”物理地址”。最终指令可以对”物理地址”读写数据。</p>
-<p>上面这段关于内存的”理论知识”，我觉得如果可以实践看一看，就能多一些”感觉”。</p>
-<p>本文记录我对下面两个结论的调试和验证过程，也是我对极客时间的<a target="_blank" rel="noopener" href="https://time.geekbang.org/column/intro/100078401?tab=catalog">操作系统实战 45 讲</a>课程中”内存管理”章节的部分学习和实践，基于<a target="_blank" rel="noopener" href="https://gitee.com/lmos/cosmos/tree/master/lesson25~26/Cosmos">第26课代码</a>。</p>
-<p>“mmu硬件”在转换”虚拟地址”时有可能发生”缺页异常”，包括：</p>
-<ul>
-<li>访问”未向内核申请的虚拟地址”会导致”缺页异常”</li>
-<li>当第一次访问申请的虚拟地址时，也会产生”缺页异常”；第二次访问同样的虚拟地址时，不会产生”缺页异常”</li>
-</ul>
-<h1 id="验证过程"><a href="#验证过程" class="headerlink" title="验证过程"></a>验证过程</h1><ul>
-<li><p>访问”未向内核申请的虚拟地址”会导致”缺页异常”</p>
-<p>按照理论来说：访问未申请的虚拟地址时，”mmu硬件”在转换”虚拟地址”时会发出”缺页异常”（可能因为找不到对应的”页表项”）</p>
-<p>在验证这个理论前，先介绍一下cosmos(课程自制的内核系统名称)相关的代码，以方便读者大概理解文中出现的函数作用</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">void test_vadr()</span><br><span class="line">&#123;</span><br><span class="line">	adr_t vadr &#x3D; vma_new_vadrs(&amp;initmmadrsdsc, NULL, 0x1000, 0, 0);  &#x2F;&#x2F; 0x1000是想要申请的空间大小，vadr是申请的内存地址</span><br><span class="line">	if(NULL &#x3D;&#x3D; vadr)</span><br><span class="line">	&#123;</span><br><span class="line">		kprint(&quot;分配虚拟地址空间失败\n&quot;);</span><br><span class="line">	&#125;</span><br><span class="line">  ...</span><br><span class="line">	hal_memset((void*)vadr, 0, 0x1000);  &#x2F;&#x2F; 初始化刚申请的内存为0</span><br><span class="line">	...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-<p>上面<code>test_vadr</code>是cosmos中用来验证”虚拟内存”相关功能的测试函数。</p>
-<p>在cosmos中，想要使用虚拟空间，需要先调用<code>vma_new_vadrs</code>申请一个虚拟地址。</p>
-<p>cosmos相关代码介绍完毕，下面用gdb调试课程代码，来实际验证一下”理论”：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line">(gdb) break test_vadr   &#x2F;&#x2F; 在 test_vadr 函数下断点（选择在test_vadr函数下断点，是因为此时 虚拟内存管理、物理内存管理、缺页异常处理 等功能都已经实现）</span><br><span class="line">Breakpoint 1 at 0xffff80000202444a: file ..&#x2F;kernel&#x2F;krlvadrsmem.c, line 289.</span><br><span class="line">(gdb) continue</span><br><span class="line">Continuing.</span><br><span class="line"></span><br><span class="line">Breakpoint 1, test_vadr () at ..&#x2F;kernel&#x2F;krlvadrsmem.c:289</span><br><span class="line">289	&#123;</span><br><span class="line">(gdb) break krluserspace_accessfailed   &#x2F;&#x2F; 在 krluserspace_accessfailed 函数下断点</span><br><span class="line">Breakpoint 2 at 0xffff800002026588: file ..&#x2F;kernel&#x2F;krlvadrsmem.c, line 1145.</span><br><span class="line">(gdb) call hal_memset(0x400,0,0x1)  &#x2F;&#x2F; 调用hal_memset函数，向 0x400地址 写一个字节内容</span><br><span class="line"></span><br><span class="line">Breakpoint 2, krluserspace_accessfailed (fairvadrs&#x3D;0) at ..&#x2F;kernel&#x2F;krlvadrsmem.c:1145 &#x2F;&#x2F;</span><br><span class="line">...</span><br><span class="line">(gdb) where   &#x2F;&#x2F; 可以看到 当前代码在..&#x2F;kernel&#x2F;krlvadrsmem.c文件1145行的krluserspace_accessfailed</span><br><span class="line">#0  krluserspace_accessfailed (fairvadrs&#x3D;0) at ..&#x2F;kernel&#x2F;krlvadrsmem.c:1145</span><br><span class="line">#1  0xffff8000020135d2 in hal_fault_allocator (faultnumb&#x3D;14, krnlsframp&#x3D;0xffff80000008fe18)</span><br><span class="line">    at ..&#x2F;hal&#x2F;x86&#x2F;halintupt.c:171</span><br><span class="line">#2  0xffff80000200d830 in exc_page_fault ()</span><br><span class="line">...</span><br><span class="line">(gdb) continue</span><br><span class="line">Continuing.</span><br><span class="line">^C      &#x2F;&#x2F; 因为在这里卡死了，所以我按了ctrl+c</span><br><span class="line">Program received signal SIGINT, Interrupt.</span><br><span class="line">hal_sysdie (errmsg&#x3D;0xffff80000203a237 &quot;缺页处理失败\n&quot;) at ..&#x2F;hal&#x2F;x86&#x2F;halcpuctrl.c:185</span><br><span class="line">185	        ;</span><br></pre></td></tr></table></figure>
-<p>从上面的调试信息可以看出来：cpu在执行<code>hal_memset</code>函数访问<code>0x400</code>虚拟地址时，跳到了<code>krluserspace_accessfailed</code>函数，最后卡死在<code>halcpuctrl.c</code>第185行</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/144075113-24fdf0f1-74ac-4223-9a09-d6c71ed0993a.png" alt="image"></p>
-<p>这里的<code>0x400</code>地址不是通过<code>vma_new_vadrs</code>申请的地址。</p>
-<p><code>krluserspace_accessfailed</code>函数只有cpu遇到中断并且中断号为14（也就是”缺页异常”）的时候才会被调用</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;&#x2F; 异常处理</span><br><span class="line">void hal_fault_allocator(uint_t faultnumb, void *krnlsframp) &#x2F;&#x2F;eax,edx</span><br><span class="line">&#123;</span><br><span class="line">    ...</span><br><span class="line">    if (faultnumb &#x3D;&#x3D; 14)        &#x2F;&#x2F; 缺页异常 中断号是14</span><br><span class="line">    &#123;</span><br><span class="line">        ...</span><br><span class="line">        if (krluserspace_accessfailed(fairvadrs) !&#x3D; 0)</span><br><span class="line">       &#123;</span><br><span class="line">           system_error(&quot;缺页处理失败\n&quot;);</span><br><span class="line">       &#125;</span><br><span class="line">        ...</span><br><span class="line">    &#125;</span><br><span class="line">    ...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>所以可以推测出来：访问<code>0x400</code>时，mmu硬件发出了”缺页中断”，接着cpu处理”缺页中断”就会到<code>krluserspace_accessfailed</code>函数，因为<code>krluserspace_accessfailed</code>函数处理”页表映射”失败，所以会调用<code>system_error</code>函数，最终执行<code>for循环</code>卡死。</p>
-<p>这样可以看出来理论没有问题。</p>
-</li>
-<li><p>访问”已申请的虚拟地址”</p>
-<p>按照理论：在第一次访问”已申请的虚拟地址”，因为”虚拟内存”和”物理内存”的映射关系还没写到”页表”中，所以”mmu硬件”在转换”虚拟地址”时会发出”缺页异常”，然后”缺页异常”处理程序会写这个映射关系到”页表”中；第二次访问同一个”已申请的虚拟地址”，因为”虚拟内存”和”物理内存”的映射关系已经写到”页表”，”mmu硬件”就可以正常转换，不会发出”缺页异常”。</p>
-<p>下面同样用gdb调试来验证一下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line">(gdb) continue</span><br><span class="line">Continuing.</span><br><span class="line"></span><br><span class="line">Breakpoint 1, test_vadr () at ..&#x2F;kernel&#x2F;krlvadrsmem.c:289</span><br><span class="line">289	&#123;</span><br><span class="line">(gdb) break krluserspace_accessfailed</span><br><span class="line">Breakpoint 2 at 0xffff800002026588: file ..&#x2F;kernel&#x2F;krlvadrsmem.c, line 1145.</span><br><span class="line">(gdb) x &#x2F;bx 0x40000</span><br><span class="line">0x40000:	Cannot access memory at address 0x40000</span><br><span class="line">(gdb) call vma_new_vadrs(&amp;initmmadrsdsc,0x40000,0x1000, 0, 0)   &#x2F;&#x2F; 向内核申请虚拟空间，地址是0x40000，大小是0x1000</span><br><span class="line">$1 &#x3D; 0</span><br><span class="line">(gdb) call hal_memset(0x40000,0,0x1)    &#x2F;&#x2F; 第一次访问0x40000时进入到&quot;中断处理函数&quot;</span><br><span class="line"></span><br><span class="line">Breakpoint 2, krluserspace_accessfailed (fairvadrs&#x3D;0) at ..&#x2F;kernel&#x2F;krlvadrsmem.c:1145</span><br><span class="line">...</span><br><span class="line">(gdb) finish</span><br><span class="line">Run till exit from #0  krluserspace_accessfailed (fairvadrs&#x3D;2097282) at ..&#x2F;kernel&#x2F;krlvadrsmem.c:1145</span><br><span class="line">...</span><br><span class="line">(gdb) finish</span><br><span class="line">Run till exit from #0  0xffff8000020135d2 in hal_fault_allocator (faultnumb&#x3D;14,</span><br><span class="line">    krnlsframp&#x3D;0xffff80000008fe18) at ..&#x2F;hal&#x2F;x86&#x2F;halintupt.c:171</span><br><span class="line">0xffff80000200d830 in exc_page_fault ()</span><br><span class="line">(gdb) finish</span><br><span class="line">Run till exit from #0  0xffff80000200d830 in exc_page_fault ()</span><br><span class="line">(gdb) where</span><br><span class="line">#0  test_vadr () at ..&#x2F;kernel&#x2F;krlvadrsmem.c:289</span><br><span class="line">...</span><br><span class="line">(gdb) call hal_memset(0x40000,0,0x1)    &#x2F;&#x2F; 第二次访问0x40000时没有产生&quot;中断&quot;</span><br><span class="line">(gdb) x &#x2F;bx 0x40000</span><br><span class="line">0x40000:	0x00</span><br></pre></td></tr></table></figure>
-
-<p>从上面可以看到：调用<code>vma_new_vadrs</code>申请<code>0x40000</code>地址后，第一次调用<code>hal_memset</code>去访问<code>0x40000</code>时会进入到”缺页异常”处理程序(<code>krluserspace_accessfailed</code>函数)中，第二次再访问<code>0x40000</code>时就不会进入到”缺页异常”处理程序。</p>
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>通过调试，很容易对cosmos中”虚拟内存”访问时的业务流程做一点研究。</p>
-<p>同样我们可以通过”调试”去观察”分页”机制，来验证课程中的知识点。</p>
-<p>PS：后面会有一篇文章讲解怎么调试cosmos代码</p>
 
       
     </div>
@@ -1289,258 +1416,6 @@
 <h1 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h1><ul>
 <li>pf_ring版本的tcpdump抓包率更高</li>
 </ul>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%BD%93%E7%AB%AF%E5%8F%A3%E6%89%AB%E6%8F%8F%E9%81%87%E5%88%B0%E9%98%B2%E7%81%AB%E5%A2%99/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E5%BD%93%E7%AB%AF%E5%8F%A3%E6%89%AB%E6%8F%8F%E9%81%87%E5%88%B0%E9%98%B2%E7%81%AB%E5%A2%99/" class="post-title-link" itemprop="url">当端口扫描遇到防火墙</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>在<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/yLtUKN9fJrQD0P63Ghkv7w">为什么masscan扫描快(1)?</a> 里，我提到之前端口扫描时遇到过很严重的误报：”端口扫描结果中发现有的ip开放了5000+个端口，并且端口上似乎没有什么业务。”。</p>
-<p>写完上篇文章后，后台收到一个读者留言说他也遇到过这样的ip。ip是国外的一个垃圾站点，下文中我以”x.x.x.x”代替这个ip。</p>
-<p>“x.x.x.x”使用<code>masscan x.x.x.x -p 1-65535 --rate 4000</code>时，结果中确实显示大量开放端口。</p>
-<p>为了验证这些端口是否真的开放，我使用<code>echo 111 | nc x.x.x.x 28328</code>命令验证(28328是masscan判定为开放的端口)，并同时tcpdump抓包，如下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# tcpdump &quot;host x.x.x.x&quot;</span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">&#x2F;&#x2F; 第一次执行 echo 111 | nc  x.x.x.x 28328</span><br><span class="line">23:59:20.635538 IP instance-fj5pftdp.34796 &gt; x.x.x.x.11935: Flags [S], seq 1688099017, win 27200, options [mss 1360,sackOK,TS val 2944989102 ecr 0,nop,wscale 7], length 0</span><br><span class="line">23:59:20.670753 IP x.x.x.x.11935 &gt; instance-fj5pftdp.34796: Flags [S.], seq 3942687481, ack 1688099018, win 14600, options [mss 1460,nop,wscale 7,nop,nop,sackOK], length 0</span><br><span class="line">23:59:20.670859 IP instance-fj5pftdp.34796 &gt; x.x.x.x.11935: Flags [.], ack 1, win 213, length 0</span><br><span class="line">23:59:20.671028 IP instance-fj5pftdp.34796 &gt; x.x.x.x.11935: Flags [P.], seq 1:5, ack 1, win 213, length 4</span><br><span class="line">23:59:20.671044 IP instance-fj5pftdp.34796 &gt; x.x.x.x.11935: Flags [F.], seq 5, ack 1, win 213, length 0</span><br><span class="line">23:59:20.709843 IP x.x.x.x &gt; instance-fj5pftdp: ICMP host x.x.x.x unreachable - admin prohibited, length 60</span><br><span class="line">23:59:20.742398 IP instance-fj5pftdp.34796 &gt; x.x.x.x.11935: Flags [F.], seq 5, ack 1, win 213, length 0</span><br><span class="line">23:59:20.978400 IP instance-fj5pftdp.34796 &gt; x.x.x.x.11935: Flags [FP.], seq 1:5, ack 1, win 213, length 4</span><br><span class="line">23:59:21.451408 IP instance-fj5pftdp.34796 &gt; x.x.x.x.11935: Flags [FP.], seq 1:5, ack 1, win 213, length 4</span><br><span class="line">23:59:22.397413 IP instance-fj5pftdp.34796 &gt; x.x.x.x.11935: Flags [FP.], seq 1:5, ack 1, win 213, length 4</span><br><span class="line"></span><br><span class="line">&#x2F;&#x2F; 第二次执行 echo 111 | nc  x.x.x.x 28328</span><br><span class="line">00:05:02.133562 IP instance-fj5pftdp.36738 &gt; x.x.x.x.11935: Flags [S], seq 3374266173, win 27200, options [mss 1360,sackOK,TS val 2945330600 ecr 0,nop,wscale 7], length 0</span><br><span class="line">00:05:02.168661 IP x.x.x.x &gt; instance-fj5pftdp: ICMP host x.x.x.x unreachable - admin prohibited, length 68</span><br></pre></td></tr></table></figure>
-
-<p>从数据包中可以看到一个奇怪的现象：</p>
-<ul>
-<li>第一次执行命令时，服务端第一次返回syn-ack,第二次返回icmp不可达。</li>
-<li>第二次执行命令时，服务端直接返回icmp不可达。</li>
-<li>实际上第三次、第四次执行命令时，服务端也是直接返回icmp不可达。</li>
-</ul>
-<p>另外多测试几次，有一个更奇怪的现象：</p>
-<ul>
-<li>扫描结果不稳定：有时显示大量端口开放、有时显示一个不固定的端口开放（比如44736）</li>
-</ul>
-<p>因此我想搞清楚以下问题：</p>
-<ul>
-<li>为啥会出现两个上面奇怪的现象？<ul>
-<li>是否存在防火墙？</li>
-<li>防火墙的防护策略是啥？</li>
-</ul>
-</li>
-<li>怎么规避这种防火墙获取正确的端口信息？</li>
-</ul>
-<p>首先有三个非常肯定的前提：</p>
-<ul>
-<li>目标机器28328、44736等端口肯定是没有tcp监听的，只有80、22、3306等端口开放</li>
-<li>目标机器上用了firewalld，且是默认防护策略</li>
-<li>因为返回了syn-ack，所以syn扫描才误判成端口开放</li>
-</ul>
-<h1 id="什么是防火墙？"><a href="#什么是防火墙？" class="headerlink" title="什么是防火墙？"></a>什么是防火墙？</h1><p>  按照防火墙的位置，防火墙可以划分成：</p>
-<ul>
-<li><p>主机防火墙：运行在服务器上</p>
-</li>
-<li><p>硬件设备：串联或者旁路部署</p>
-<p>系统自带的主机防火墙包括：</p>
-</li>
-<li><p>iptables</p>
-</li>
-<li><p>firewalld</p>
-</li>
-<li><p>tcp wrappers</p>
-<p>这次目标主机上就运行着firewalld，当访问不存在的端口时，它会返回icmp包。</p>
-<p>除了系统自带的防火墙，很多甲方会基于snort、bro、suricata、ossec等开源项目做入侵检测系统。</p>
-<p>除了这些，各家乙方的ips、ddos等防护设备都有可能在存在。</p>
-<p>按照是否支持状态跟踪，防火墙可以划分成：</p>
-</li>
-<li><p>有状态防火墙</p>
-</li>
-<li><p>无状态防火墙（也叫”包过滤防火墙”）</p>
-<p>按照在osi七层模型的位置，防火墙也可以划分成：</p>
-</li>
-<li><p>四层防火墙</p>
-</li>
-<li><p>七层防火墙（主要是waf产品）</p>
-</li>
-</ul>
-<h1 id="先总结这次遇到的防火墙策略"><a href="#先总结这次遇到的防火墙策略" class="headerlink" title="先总结这次遇到的防火墙策略"></a>先总结这次遇到的防火墙策略</h1><p>小结：</p>
-<ul>
-<li><p>整条链路存在两个防火墙：</p>
-<ul>
-<li>一个是主机上的firewalld，默认策略</li>
-<li>另一个应该是部署在机房中</li>
-</ul>
-</li>
-<li><p>主机的firewalld防火墙，有如下特征：</p>
-<ul>
-<li>收到syn包，目的端口不存在时会返回icmp包</li>
-</ul>
-</li>
-<li><p>机房的防火墙可能是一台防ddos设备，有如下特征：</p>
-<ul>
-<li><p>不是rst方式、首包丢弃等方式的防火墙；也不是基于”陷阱端口”</p>
-</li>
-<li><p>当频率到达阈值时，会开启”源认证”</p>
-</li>
-<li><p>通过”源认证”会暂时加白；如果频率再次触发阈值，就会再次开启”源认证”</p>
-</li>
-<li><p>有ip拉黑机制，被拉黑后，一段时间内客户端发出的syn、ack包不会收到任何回包</p>
-</li>
-<li><p>不拦截长度大于0的udp包</p>
-</li>
-</ul>
-</li>
-</ul>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
-<li><p>判断是否存在防火墙？</p>
-<p>现象一：</p>
-<p><code>nc x.x.x.x 不存在的端口</code>时，响应icmp包。</p>
-<p>基于如下两个原因可以推断出存在防火墙</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 一般来说，向操作系统不存在的端口发送tcp syn包时，会收到操作系统的rst包</span><br><span class="line">* 似乎只有防火墙喜欢返回icmp包</span><br></pre></td></tr></table></figure>
-
-<p>现象二：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">nmap工具扫描前：可以ping通，curl 80可以访问</span><br><span class="line"></span><br><span class="line">nmap工具扫描后，ping和curl都无法访问</span><br><span class="line"></span><br><span class="line">过一段时间后：又可以ping通，curl 80也可以访问</span><br></pre></td></tr></table></figure>
-
-<p>说明防火墙有黑名单机制。</p>
-<p>结论：确认存在防火墙，且有黑名单ip机制</p>
-</li>
-<li><p>判断防火墙是否有”握手时rst”、首包丢弃等行为</p>
-<p>思路：<br>连接提供tcp服务的端口并抓包，查看是否有rst，首包丢弃等行为</p>
-<p>过程：</p>
-<p>执行<code>echo | nc x.x.x.x 80</code>，并抓包</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# tcpdump -i eth0 &#39;host  x.x.x.x&#39;</span><br><span class="line">...</span><br><span class="line">18:15:53.547200 IP instance-fj5pftdp.51400 &gt; x.x.x.x.http: Flags [S], seq 468920486, win 27200, options [mss 1360,sackOK,TS val 2405982013 ecr 0,nop,wscale 7], length 0</span><br><span class="line">18:15:53.579860 IP x.x.x.x.http &gt; instance-fj5pftdp.51400: Flags [S.], seq 3601120884, ack 468920487, win 14480, options [mss 1460,sackOK,TS val 556123394 ecr 2405982013,nop,wscale 7], length 0</span><br><span class="line">18:15:53.579943 IP instance-fj5pftdp.51400 &gt; x.x.x.x.http: Flags [.], ack 1, win 213, options [nop,nop,TS val 2405982046 ecr 556123394], length 0</span><br><span class="line">18:15:53.580084 IP instance-fj5pftdp.51400 &gt; x.x.x.x.http: Flags [P.], seq 1:2, ack 1, win 213, options [nop,nop,TS val 2405982046 ecr 556123394], length 1: HTTP</span><br><span class="line">18:15:53.580097 IP instance-fj5pftdp.51400 &gt; x.x.x.x.http: Flags [F.], seq 2, ack 1, win 213, options [nop,nop,TS val 2405982046 ecr 556123394], length 0</span><br><span class="line">18:15:53.611613 IP x.x.x.x.http &gt; instance-fj5pftdp.51400: Flags [.], ack 2, win 114, options [nop,nop,TS val 556123427 ecr 2405982046], length 0</span><br><span class="line">18:15:53.611895 IP x.x.x.x.http &gt; instance-fj5pftdp.51400: Flags [F.], seq 1, ack 3, win 114, options [nop,nop,TS val 556123427 ecr 2405982046], length 0</span><br><span class="line">18:15:53.611924 IP instance-fj5pftdp.51400 &gt; x.x.x.x.http: Flags [.], ack 2, win 213, options [nop,nop,TS val 2405982078 ecr 556123427], length 0</span><br></pre></td></tr></table></figure>
-
-<p>可以看到，总共八个包：前三个握手、后四个挥手、中间一个包传tcp数据。</p>
-<p>中间并没有rst，首包syn也并没有被丢。</p>
-<p>结论：</p>
-<ul>
-<li>不是rst方式的防火墙</li>
-<li>不是首包丢弃的防火墙</li>
-</ul>
-</li>
-<li><p>判断防火墙是否syn-ack代理</p>
-<p>思路：在未被拉黑时，向x.x.x.x不存在tcp服务的端口发送syn包，如果能收到syn-ack，就说明防火墙做了syn-ack代理</p>
-<p>结论：防火墙没有syn-ack代理功能</p>
-</li>
-<li><p>拉黑后客户端发包能收到什么？</p>
-<p>经过测试，ip被拉黑后：</p>
-<ul>
-<li>客户端发出去的syn包、ack包得不到任何响应</li>
-<li>udp包可以正常通过（traceroute可以收到icmp回包）</li>
-</ul>
-</li>
-<li><p>什么时候会被防火墙拉黑？</p>
-<p>简单来说，存在两种可能性：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 频率超过一定限制 (主流的做法)</span><br><span class="line">* 扫到&quot;陷阱端口&quot;  (非主流的做法)</span><br></pre></td></tr></table></figure>
-
-<p>“陷阱端口”的概念见<a target="_blank" rel="noopener" href="https://github.com/EtherDream/anti-portscan">anti-portscan</a></p>
-<p>向80端口高频发出syn包，过了一会就被拉黑了。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">docker run -ti --rm docker.io&#x2F;williamyeh&#x2F;wrk -t4  -c40000 -d 10000 http:&#x2F;&#x2F;x.x.x.x</span><br></pre></td></tr></table></figure>
-
-<p>基于下面四点原因，可以排除”陷阱端口”这种防御检测方式。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">* &quot;陷阱端口&quot;这种方式比较复杂、比较非主流</span><br><span class="line">* 因为可能和业务端口冲突，所以部署在机房中的硬件防火墙不太可能基于&quot;陷阱端口&quot;检测</span><br><span class="line">* 后面确认了目标Linux系统上用了firewalld防火墙，主机上并没有&quot;陷阱端口&quot;这种机制</span><br><span class="line">* 测试结果表明 &quot;频率超过一定限制&quot; 后，ip就被拉黑了</span><br></pre></td></tr></table></figure>
-
-<p>结论：基于频率封禁ip</p>
-</li>
-</ul>
-<h1 id="为什么会出现问题背景中的奇怪现象"><a href="#为什么会出现问题背景中的奇怪现象" class="headerlink" title="为什么会出现问题背景中的奇怪现象"></a>为什么会出现问题背景中的奇怪现象</h1><ul>
-<li><p>为什么防火墙会返回syn-ack？</p>
-<p>如前面的分析，防火墙虽然没有syn-ack代理功能，但是在扫描端口时，目的端口不存在服务的syn包却收到了syn-ack响应。</p>
-<p>换句话说，就是”syn包频率过快”时，就会收到大量的syn-ack响应。</p>
-<p>虽然知道了这个现象，但是不清楚为啥会这样。问人和查资料后，在<a target="_blank" rel="noopener" href="https://forum.huawei.com/enterprise/zh/thread-373115.html">【华安解密之DDoS攻防】11 TCP原理篇之SYN Flood</a>找到一些线索。</p>
-<p>如文中所说，ddos设备会做源认证来识别客户端是否合法，此时就会响应syn-ack包。</p>
-<p>所以，当扫描端口时，”syn包频率过快”，引起ddos设备做源认证。</p>
-<p>因为一直没有回ack包，所以一直没有通过源认证。</p>
-<p>因为没有通过源认证，同时又在不断的发syn包，所以ddos设备会接着做认证，不断地回syn-ack包。这个时候ddos设备也不会拉黑ip。</p>
-</li>
-<li><p>为什么防火墙会返回syn-ack和icmp呢？</p>
-<p>有了上面的理解，这里也容易猜了。</p>
-<p>估计是执行<code>echo 111 | nc x.x.x.x 28328</code>时，此时正处于源认证阶段，客户端执行命令刚好能完成正常的三次握手，被识别成正常客户端，因此ddos设备把客户端加白了。</p>
-<p>加白后，包转发到后端目标机器上。目标机器因为firewalld防火墙，所以返回icmp包</p>
-</li>
-<li><p>为什么”扫描结果不稳定：有时显示大量端口开放、有时显示一个不固定的端口开放（比如44736）”？</p>
-<p>经过测试后，准确的说现象应该是：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">1. masscan扫描，然后发现大量端口开放</span><br><span class="line">2. nc完成一次正常连接</span><br><span class="line">3. masscan再次扫描，然后发现ip被拉黑，并且结果中显示有一个开放端口（此端口号不固定）</span><br></pre></td></tr></table></figure>
-
-<p>估摸着，ddos安全策略如下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">1. 客户端用masscan扫描，触发源认证</span><br><span class="line">2. nc完成正常连接，通过源认证。此时设备将客户端加白</span><br><span class="line">3. 客户端用masscan再次扫描，因为客户端已经加白了，同时syn包频率异常，所以设备需要再次验证客户端是否正常，不过这次只回一次syn-ack包</span><br><span class="line">4. 客户端masscan 因为收到一次syn-ack包，所以显示有一个端口开放。同时masscan回rst包</span><br><span class="line">5. 设备收到rst包后，认为客户端是恶意的，直接拉黑</span><br></pre></td></tr></table></figure>
-
-</li>
-</ul>
-<h1 id="怎么规避这种防火墙获取到正确的端口信息？"><a href="#怎么规避这种防火墙获取到正确的端口信息？" class="headerlink" title="怎么规避这种防火墙获取到正确的端口信息？"></a>怎么规避这种防火墙获取到正确的端口信息？</h1><p>最简单的一种规避手段：如果目标ip足够多，masscan/nmap扫时随机化扫描地址，就应该到不了频率阈值。</p>
-<p>照这个想法，按理说fofa、钟馗之眼 等空间绘测产品应该能准确识别开放端口。验证了一下：有两三个不该显示的端口、实际开放的端口也并没有获取完全（可能是数据更新的问题）。</p>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>在这个案例中，主要整清楚了：</p>
-<ul>
-<li>链路上有哪些防火墙？<ul>
-<li>主机防火墙firewalld，策略是默认策略，比较简单</li>
-<li>机房中的防ddos设备</li>
-</ul>
-</li>
-<li>防ddos设备的防护策略有哪些？<ul>
-<li>源认证</li>
-<li>首包丢弃</li>
-<li>握手时rst</li>
-</ul>
-</li>
-<li>什么时候会触发防护策略？<ul>
-<li>频率达到阈值</li>
-</ul>
-</li>
-<li>触发防护策略后会发生啥？<ul>
-<li>要不拉黑；要不就暂时加白</li>
-</ul>
-</li>
-</ul>
-<p>另外可以在云厂商控制台上看看云上抗ddos产品的功能和文档，也能了解ddos产品防护策略有哪些，虽然可能不全。</p>
-<p>如果发现内容结论有问题，请后台联系我。</p>
-<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a target="_blank" rel="noopener" href="https://github.com/nmap/nmap/issues/1904">从nmap的issue看到有人遇到同样问题</a></p>
 
       
     </div>
