@@ -125,7 +125,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">44</span>
+          <span class="site-state-item-count">45</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
@@ -349,6 +349,182 @@
 <p>所以，凡是业务场景允许”进程重启”的，应该都可以用这种模式来解决”内存泄漏”。</p>
 <p>难解决的是”长时间持续运行的程序”出现的”内存泄漏”</p>
 <h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a target="_blank" rel="noopener" href="https://www.zhihu.com/question/400104113/answer/1278541405">既然每个程序占用的内存都是操作系统管理的，为什么内存泄漏还是个问题？ - pansz的回答 - 知乎</a></p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E6%89%AB%E6%8F%8F%E5%99%A8%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90%E6%A1%88%E4%BE%8B/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E6%89%AB%E6%8F%8F%E5%99%A8%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90%E6%A1%88%E4%BE%8B/" class="post-title-link" itemprop="url">扫描器性能分析案例</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 21:32:40" itemprop="dateCreated datePublished" datetime="2021-12-26T21:32:40+08:00">2021-12-26</time>
+    </span>
+      <span class="post-meta-item">
+        <span class="post-meta-item-icon">
+          <i class="far fa-calendar-check"></i>
+        </span>
+        <span class="post-meta-item-text">更新于</span>
+        <time title="修改时间：2022-01-16 16:17:39" itemprop="dateModified" datetime="2022-01-16T16:17:39+08:00">2022-01-16</time>
+      </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <p>之前文章结论有问题，修正后形成本文。</p>
+<h2 id="原文如下"><a href="#原文如下" class="headerlink" title="原文如下"></a>原文如下</h2><h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>之前线上的漏洞扫描器遇到一个问题：扫描刚开始时，内存占用不超过200M，但在扫描过程中，扫描器会占用超过10G以上内存。因为同一台机器上还有其他的服务，可用物理内存也只有10G左右，所以扫描过程中就没有可用内存了，机器负载(uptime命令查看)也会很高。</p>
+<p>排查”怎么导致10G内存占用”也比较简单：因为每次内存占用过高时，都能看到机器上有上百个<code>java -jar ysoserial.jar</code>进程(扫描器开的)，所以可以知道是 <a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/14ade5985bfc1db1b5ccb3ae4f661178">shiro-550</a> 这个poc导致的内存消耗。</p>
+<p>先说明一下为什么有上百个<code>java -jar ysoserial.jar</code>进程：从 <a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/14ade5985bfc1db1b5ccb3ae4f661178">shiro-550</a> 代码中也可以看到，我在python中使用子进程调用<code>ysoserial</code>来生成shiro测试payload。因为扫描器使用协程池(<code>gevent.pool</code>)实现并发，所以扫描器执行到shiro poc时，会产生很多个<code>ysoserial</code>子进程。</p>
+<p>本文不讨论这个问题的解决办法(你可以看<a target="_blank" rel="noopener" href="https://paper.seebug.org/1290/">Shiro-550 PoC 编写日记</a>),而是分析为什么这里python中的子进程会消耗10G这么多的内存。</p>
+<p>我的分析思路：写一个demo复现，然后分析demo</p>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
+<li><p>复现</p>
+<p>写个demo复现一下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"># coding:utf-8</span><br><span class="line">import subprocess</span><br><span class="line">import gevent.monkey</span><br><span class="line">gevent.monkey.patch_all()</span><br><span class="line"></span><br><span class="line">import gevent.pool</span><br><span class="line"></span><br><span class="line">def test(_):</span><br><span class="line">    popen &#x3D; subprocess.Popen([&#39;python&#39;, &quot;&#x2F;tmp&#x2F;big.py&quot;], stdout&#x3D;subprocess.PIPE)   # big.py是一个60M左右的的python文件</span><br><span class="line">    print(popen.stdout.read())</span><br><span class="line"></span><br><span class="line">if __name__ &#x3D;&#x3D; &quot;__main__&quot;:</span><br><span class="line">    pool &#x3D; gevent.pool.Pool(100)    # 100个协程</span><br><span class="line"></span><br><span class="line">    _ &#x3D; &quot;x,&quot; * 300</span><br><span class="line">    pool.map(test, _.split(&quot;,&quot;))</span><br></pre></td></tr></table></figure>
+
+<p>其中<code>/tmp/big.py</code>是如下脚本生成的</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"># coding:utf-8</span><br><span class="line"></span><br><span class="line">size &#x3D; 60 * 1024 * 1024  # 60M</span><br><span class="line">fname &#x3D; &quot;&#x2F;tmp&#x2F;big.py&quot;</span><br><span class="line"></span><br><span class="line">template &#x3D; &quot;&quot;&quot;</span><br><span class="line">a&#x3D;&quot;%s&quot;</span><br><span class="line">while True:</span><br><span class="line">    pass</span><br><span class="line">&quot;&quot;&quot;</span><br><span class="line"></span><br><span class="line">with open(fname, &quot;w&quot;) as f:</span><br><span class="line">    f.write(template % (&#39;x&#39;*size))</span><br></pre></td></tr></table></figure>
+
+<p>下面在机器上观察demo脚本对物理内存占用的影响</p>
+</li>
+<li><p>观察</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/147537918-b056a863-26b1-4a89-9380-89c75dc16eb8.png" alt="image"></p>
+<p>可以观察到：在执行脚本前，机器还有10G可用的物理内存；执行脚本后，生成了100个big.py进程，内存也从11203M减少到4886M。</p>
+<p>内存为什么会减少这么多呢？其实算一算就很容易找到原因：内存减少了约6G，而big.py脚本大小约60M、总共有100个big.py进程，所以应该是每个<code>python big.py</code>进程会占用60M物理内存。</p>
+<p>想一想也很合理：执行<code>python big.py</code>时，python应该是将<code>big.py</code>文件全部读到内存中了。</p>
+</li>
+<li><p>回到最开始的问题</p>
+<p>可以推测执行<code>java -jar ysoserial.jar</code>命令时，java也会将<code>ysoserial.jar</code>文件读到内存。</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/147551785-e2bc1537-c359-4f79-bc0a-cd149b0189fe.png" alt="image"></p>
+<p>又因为<code>ysoserial.jar</code>文件接近50M，所以有200个<code>java -jar ysoserial.jar</code>子进程时，就会消耗至少10G的内存。</p>
+<p>到这里，我的疑问也解开了。</p>
+</li>
+<li><p>总结</p>
+<p>多进程执行<code>java -jar xxx.jar</code>或者<code>python xxx.py</code>时，需要注意<code>xxx.jar</code>和<code>xxx.py</code>的大小会对内存占用有影响。</p>
+<p>看到这里，我不知道你会不会心想这个问题也太简单了吧。</p>
+<p>确实，在写出验证demo之后，很容易得到结论。但是在写出demo之前，我把问题想错了导致走了点弯路。下面我来说一下我走弯路时的过程以及学到的东西。</p>
+</li>
+</ul>
+<h1 id="弯路"><a href="#弯路" class="headerlink" title="弯路"></a>弯路</h1><ul>
+<li><p>最开始的思路</p>
+<p>其实我最开始是怀疑”内存占用10G”以上的原因是：python生成子进程时会占用和父进程一样大小的物理内存,而父进程(也就是扫描器进程)本身因为会读了一些资源文件，所以本身是占用了比较大的物理内存。这样当父进程(扫描器进程)生成200个子进程(<code>java -jar ysoserial.jar</code>)时,就会占用200*40M(8G)的内存。似乎这个数字也将近10G，也能差不多对应上问题背景。</p>
+<p>现在回过头看之前的这个原因猜测，有两点问题：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* python生成子进程时因为有操作系统&quot;写时复制&quot;的机制，所以不会有200个子进程就占用200*40M的内存</span><br><span class="line">* &#96;subprocess.Popen&#96;生成的子进程内存占用和父进程无关，&#96;multiprocessing.Process&#96;生成的子进程内存占用和父进程是一样的</span><br></pre></td></tr></table></figure>
+
+<p>关于”写时复制”机制，可能你和我最开始一样不了解，下面我带你来验证一下这个机制是怎么回事。</p>
+</li>
+<li><p>“写时复制”机制</p>
+<p>linux上和生成子进程有关的系统调用有fork、clone，这两系统调用都会有”写时复制”机制。</p>
+<p>按照我自己的理解，”写时复制”机制就是刚生成子进程时，子进程和父进程 关于”用户态虚拟地址”到”物理地址”的映射关系是一样的。然后，在发生写操作时（无论父进程还是子进程），操作系统都会重新映射。</p>
+<p>因为映射到同一个物理页，所以不会导致物理内存变少。</p>
+<p>我们可以用crash工具来验证一下这个机制</p>
+</li>
+<li><p>crash工具验证fork时的”写时复制”机制</p>
+<p>准备测试代码：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">#include &lt;sys&#x2F;mman.h&gt;</span><br><span class="line">#include &lt;unistd.h&gt;</span><br><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line">#include &lt;string.h&gt;</span><br><span class="line"></span><br><span class="line">#define SIZE 4*1024*1024</span><br><span class="line">int main()&#123;</span><br><span class="line">  void *addr &#x3D; mmap(NULL, (size_t)SIZE, PROT_READ|PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);    &#x2F;&#x2F; 申请4M内存</span><br><span class="line">  memset(addr, &#39;A&#39;, SIZE);</span><br><span class="line"></span><br><span class="line">  printf(&quot;main: %p\n&quot;, addr);</span><br><span class="line"></span><br><span class="line">  while(1)&#123;</span><br><span class="line">    getchar();</span><br><span class="line"></span><br><span class="line">    if (fork() &#x3D;&#x3D; 0)&#123;</span><br><span class="line">      printf(&quot;sub: %p\n&quot;, addr);</span><br><span class="line">      while (1)&#123;</span><br><span class="line">        sleep(5);</span><br><span class="line">      &#125;</span><br><span class="line">    &#125;</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>通过crash工具来验证，可以看到：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 因为子进程和父进程都没有对addr内存做写操作，所以子进程和父进程中addr映射到同一个物理地址</span><br><span class="line">* 虽然代码中mmap用了&#96;PROT_WRITE&#96;标志，但是子进程和父进程addr内存标志中都没有RW可写标志</span><br></pre></td></tr></table></figure>
+
+<p><img src="https://user-images.githubusercontent.com/1846319/147578536-1b05bbbc-6007-4e8d-abd2-09ce782d9af9.png" alt="image"></p>
+<p>你也可以修改代码，在子进程中修改addr指向的内存，然后用crash观察”物理地址”和”内存标志”的变化，来体会”写时复制”。</p>
+<p>关于crash工具的安装和使用，你可以参考 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/GGnpYk30k-eUIULv3a_PKQ">借助crash工具理解linux系统的内存分配</a></p>
+</li>
+<li><p><code>multiprocessing.Process</code>是否会”写时复制”？</p>
+<p><code>multiprocessing.Process</code>是用clone系统调用而不是fork系统调用（你可以用strace命令验证一下）</p>
+<p>我们同样可以用crash来验证<code>multiprocessing.Process</code>的子进程和父进程是否会映射到同一个物理页。先说结论：<code>multiprocessing.Process</code>同样有”写时复制”。在得到这个结论前我差点以为<code>multiprocessing.Process</code>是没有”写时复制”机制的，因为我发现a变量地址对应的物理地址在”父进程”和”子进程”中是不同的。</p>
+<p>下面我来说一下我是怎么测试的。</p>
+<p>先准备测试代码</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp tmp]# cat v.py</span><br><span class="line">from multiprocessing import Process</span><br><span class="line"></span><br><span class="line">a &#x3D; b&quot;abc&quot;</span><br><span class="line">print(&quot;main&quot;, id(a))  # id函数返回变量a的虚拟地址</span><br><span class="line"></span><br><span class="line">def t():</span><br><span class="line">  while True:</span><br><span class="line">    pass</span><br><span class="line"></span><br><span class="line">p &#x3D; Process(target&#x3D;t, args&#x3D;&#39;&#39;)</span><br><span class="line">p.start()</span><br></pre></td></tr></table></figure>
+
+<p>然后用crash查看父子进程中a变量对应的物理地址，可以看到：父子进程a变量映射到不同的物理地址。</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/147625166-686af767-e186-4591-8a1f-cc9ad156eb4f.png" alt="image"></p>
+<p>上面的现象让我一度以为<code>multiprocessing.Process</code>是没有”写时复制”机制。但是因为我之前验证了”clone系统调用”有”写时复制”，所以我怀疑<code>multiprocessing.Process</code>因为啥原因所以没有”写时复制”？</p>
+<p>为了解决上面的疑问，我在python进程的clone系统调用下断点，在刚调用clone时用crash查看页表</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/147626931-bd780cde-cef8-47b8-be2c-6a977ed2a5c3.png" alt="image"></p>
+<p>可以看到，在clone刚被调用时，父子进程中a变量映射到同一个物理地址。</p>
+<p>到目前为止有两个现象：在clone刚被调用时，父子进程中a变量映射到同一个物理地址；<code>v.py</code>运行后，父子进程中a变量映射到不同的物理地址。</p>
+<p>我猜测：clone被调用后，<code>v.py</code>中后面修改了a变量，导致进程中a变量地址被映射到一个新的物理地址上。因为我的猜测也符合”写时复制”机制流程，所以直觉上应该是这样。</p>
+<p>但是现在还有一个问题：你看我们前面的<code>v.py</code>代码，它并没有修改a变量。那么a变量是被谁修改了呢。</p>
+<p>为了搞清楚这最后一个问题，我用gdb查看a变量在内存中长什么样，然后发现父子进程a变量的”引用计数”不相同，如下<code>ob_refcnt</code>字段值就是”引用计数”</p>
+<blockquote>
+<p>“引用计数”是CPython用来做”垃圾管理”的一个机制，当对象被创建或者被当作参数传递时，对象的引用计数会加1。</p>
+</blockquote>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# ps aux|grep v.py</span><br><span class="line">root     21465  0.0  0.0 144332  8604 pts&#x2F;1    S+   12:34   0:00 python3 v.py   &#x2F;&#x2F; 父进程</span><br><span class="line">root     21466 93.0  0.0 144332  6460 pts&#x2F;1    R+   12:34   6:19 python3 v.py   &#x2F;&#x2F; 子进程</span><br><span class="line">[root@instance-fj5pftdp ~]# gdb --batch -p 21465 -ex &#39;print *(PyBytesObject*) 140443328409848&#39;    &#x2F;&#x2F; 140443328409848是a变量地址</span><br><span class="line">...</span><br><span class="line">$1 &#x3D; &#123;ob_base &#x3D; &#123;ob_base &#x3D; &#123;ob_refcnt &#x3D; 1, ob_type &#x3D; 0x7fbb8a46dfa0 &lt;PyBytes_Type&gt;&#125;, ob_size &#x3D; 3&#125;, ob_shash &#x3D; 4892354780606192576, ob_sval &#x3D; &quot;a&quot;&#125;</span><br><span class="line">...</span><br><span class="line">[root@instance-fj5pftdp ~]# gdb --batch -p 21466 -ex &#39;print *(PyBytesObject*) 140443328409848&#39;</span><br><span class="line">...</span><br><span class="line">$1 &#x3D; &#123;ob_base &#x3D; &#123;ob_base &#x3D; &#123;ob_refcnt &#x3D; 3, ob_type &#x3D; 0x7fbb8a46dfa0 &lt;PyBytes_Type&gt;&#125;, ob_size &#x3D; 3&#125;, ob_shash &#x3D; 4892354780606192576, ob_sval &#x3D; &quot;a&quot;&#125;</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
+
+<p>可以推测CPython在clone之后修改了a变量的”引用计数”，因此发生了”写时复制”，父子进程中a变量地址指向的物理地址也不同。</p>
+<p>如果你有兴趣，可以将测试代码的<code>a = b&quot;abc&quot;</code>修改成<code>a = b&quot;a&quot; * 1024 * 1024 * 1024</code>，然后观察一下a变量的1G内存，就能发现父子进程的a变量只有第一个物理页是不同的，其他物理页都是相同的。</p>
+</li>
+<li><p><code>subprocess.Popen</code>和<code>multiprocessing.Process</code>区别</p>
+<p>做完上面实验我体会的差别：<code>subprocess.Popen</code>会调用<code>execve</code>系统调用，这个系统调用应该会将”页表映射”关系都换掉，所以父进程和子进程的内存没啥关系。</p>
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><ul>
+<li>多进程执行<code>java -jar xxx.jar</code>或者<code>python xxx.py</code>时，需要注意<code>xxx.jar</code>和<code>xxx.py</code>的大小会对内存占用有影响</li>
+<li>fork、clone系统调用都有”写时复制”机制，可以用crash工具来观察这个机制；”写时复制”可以节约物理内存</li>
+<li><code>multiprocessing.Process</code>生成子进程时，有可能因为”引用计数”被修改，所以子进程存储变量实例的第一个物理页可能和父进程不同</li>
+<li><code>subprocess.Popen</code>会调用<code>execve</code>系统调用，这个系统调用应该会将”页表”都换掉，所以父进程和子进程的内存没啥关系</li>
+</ul>
+<p>在研究这个问题的过程中，我了解了CPython对象的数据结构、写时复制，希望你也有收获。</p>
+<p>关于gdb的使用，你可以看<a target="_blank" rel="noopener" href="https://wizardforcel.gitbooks.io/100-gdb-tips/content/set-detach-on-fork.html">文档</a></p>
+<hr>
+<p>上面文章中下面的结论有部分错误：</p>
+<ul>
+<li>多进程执行<code>java -jar xxx.jar</code>或者<code>python xxx.py</code>时，需要注意<code>xxx.jar</code>和<code>xxx.py</code>的大小会对内存占用有影响</li>
+</ul>
+<p>实际上<code>java -jar xxx.jar</code>和<code>python xxx.py</code>还是有些不同：<code>xxx.jar</code>是jvm通过mmap系统调用映射”共享文件页”到内存中，所以多个进程会共享同一份内存; <code>xxx.py</code>并不会被python解释器通过mmap做”文件页”映射。</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/149651727-18ca7bdc-aac6-4b2f-b49d-f3895aba0b91.png" alt="image"></p>
+<p><img src="https://user-images.githubusercontent.com/1846319/149651655-bf29e24c-e881-41ea-a949-2a120abfbcf5.png" alt="image"></p>
+<p>原文中因为自己想当然地以为”jvm”会和”python解释器”一样，偷了点懒就没有动手验证，所以得出错误的结论。</p>
+<p>PS：想问一下有没有读者愿意帮我校对文章内容？可以在公众号聊天框发消息给我</p>
 
       
     </div>
@@ -612,6 +788,143 @@
 <li>解析js &amp;&amp; 是否存在”对象.函数()”形式的函数调用 &amp;&amp; 获取函数名、对象名 &amp;&amp; 将危险对象名扩充到黑名单中 &amp;&amp; (函数名在黑名单中 || 对象名在对象黑名单中)   则拦截</li>
 <li>解析js &amp;&amp; (危险对象赋值 || 危险函数赋值) &amp;&amp; 调用函数    则拦截</li>
 <li>解析js &amp;&amp; 存在”对象.函数()”形式或者”函数()”函数形式的函数调用 &amp;&amp; 函数名是否在黑名单中   则拦截</li>
+</ul>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E9%AA%8C%E8%AF%81pf_ring%E6%80%A7%E8%83%BD/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E9%AA%8C%E8%AF%81pf_ring%E6%80%A7%E8%83%BD/" class="post-title-link" itemprop="url">验证pf_ring性能</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>本实验主要为了验证<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/kernel">pf_ring.ko</a>内核模块是否能够提升抓包率。</p>
+<p>实验思路很多参考自 <a target="_blank" rel="noopener" href="http://cea.ceaj.org/CN/article/downloadArticleFile.do?attachType=PDF&id=30309">PF_RING与NAPI结合的捕包性能优化和仿真.pdf</a></p>
+<p>通过分析源码得知：</p>
+<ul>
+<li>pf_ring.ko未加载到内核时，<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/libpcap-1.9.1">libpcap</a> 会使用PCAP_MMAP方式来抓包</li>
+<li>pf_ring.ko加载到内核时，<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/libpcap-1.9.1">libpcap</a> 会通过<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/lib">libpfring</a>配合pf_ring.ko内核模块来抓包</li>
+<li>pf_ring基本没有对 <a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/tcpdump-4.9.3">tcpdump</a> 做改动</li>
+</ul>
+<p>实验思路：</p>
+<ul>
+<li>使用pf_ring项目中的tcpdump抓包，计算抓包率</li>
+<li>使用pktgen发包</li>
+<li>在”加载pf_ring.ko”和”不加载pf_ring.ko”两种场景下分别测试三次</li>
+</ul>
+<p>实验环境：</p>
+<table>
+<thead>
+<tr>
+<th>机器用途</th>
+<th>配置</th>
+<th>操作系统</th>
+<th>备注</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>发包机</td>
+<td>2核4G、pps 40w</td>
+<td>CentOS 7.5</td>
+<td>云虚机</td>
+</tr>
+<tr>
+<td>收包机</td>
+<td>2核4G、pps 40w</td>
+<td>CentOS 7.5</td>
+<td>云虚机</td>
+</tr>
+</tbody></table>
+<h1 id="过程"><a href="#过程" class="headerlink" title="过程"></a>过程</h1><h2 id="准备测试环境"><a href="#准备测试环境" class="headerlink" title="准备测试环境"></a>准备测试环境</h2><ul>
+<li><p>收包机器编译安装tcpdump</p>
+<p>安装依赖</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">yum install flex bison kernel-headers kernel-devel gcc stress -y</span><br></pre></td></tr></table></figure>
+
+<p>依次编译<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/kernel">pf_ring.ko</a>、<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/lib">libpfring</a>、<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/libpcap-1.9.1">libpcap</a>、<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/tcpdump-4.9.3">tcpdump</a></p>
+</li>
+<li><p>发包机器编写发包脚本</p>
+<p>此bash脚本配置来自网络</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line"># 定义一个工具函数，方便后面配置各种测试选项</span><br><span class="line">function pgset() &#123;</span><br><span class="line">    local result</span><br><span class="line"># 定义一个工具函数，方便后面配置各种测试选项</span><br><span class="line">    echo $1 &gt; $PGDEV</span><br><span class="line"></span><br><span class="line">    result&#x3D;&#96;cat $PGDEV | fgrep &quot;Result: OK:&quot;&#96;</span><br><span class="line">    if [ &quot;$result&quot; &#x3D; &quot;&quot; ]; then</span><br><span class="line">         cat $PGDEV | fgrep Result:</span><br><span class="line">    fi</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"># 为0号线程绑定eth0网卡</span><br><span class="line">PGDEV&#x3D;&#x2F;proc&#x2F;net&#x2F;pktgen&#x2F;kpktgend_0</span><br><span class="line"></span><br><span class="line">pgset &quot;rem_device_all&quot;   # 清空网卡绑定</span><br><span class="line">pgset &quot;add_device eth0&quot;  # 添加eth0网卡</span><br><span class="line"></span><br><span class="line"># 配置eth0网卡的测试选项</span><br><span class="line">PGDEV&#x3D;&#x2F;proc&#x2F;net&#x2F;pktgen&#x2F;eth0</span><br><span class="line">pgset &quot;count 2000&quot;    # 总发包数量</span><br><span class="line">pgset &quot;delay 0&quot;       # 不同包之间的发送延迟(单位纳秒)</span><br><span class="line">pgset &quot;clone_skb 0&quot;      # SKB包复制</span><br><span class="line">pgset &quot;pkt_size 64&quot;      # 网络包大小</span><br><span class="line">pgset &quot;dst 172.16.32.12&quot; # 目的IP</span><br><span class="line">pgset &quot;dst_mac fa:28:00:06:df:6c&quot;  # 目的MAC</span><br><span class="line"></span><br><span class="line"># 启动测试</span><br><span class="line">PGDEV&#x3D;&#x2F;proc&#x2F;net&#x2F;pktgen&#x2F;pgctrl</span><br><span class="line">pgset &quot;start&quot;</span><br></pre></td></tr></table></figure>
+
+<p>modprobe pktgen</p>
+</li>
+<li><p>人为调高收包机cpu利用率</p>
+<p>为什么要调高呢？因为实验过程中发现，如果不调高，即使收包机pps达到最大值40w，机器cpu仍然很低、tcpdump不会丢包，这样就看不出来效果。</p>
+<p>怎么调高cpu利用率？可以使用 <code>stress -c 2</code> 命令 故意占用cpu。</p>
+</li>
+</ul>
+<h2 id="观察测试数据"><a href="#观察测试数据" class="headerlink" title="观察测试数据"></a>观察测试数据</h2><ul>
+<li><p>发包为<code>pgset &quot;pkt_size 64&quot;</code>时，收包机的收包率</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4265694 packets captured</span><br><span class="line">4268967 packets received by filter</span><br><span class="line">3273 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4190808 packets captured</span><br><span class="line">4196105 packets received by filter</span><br><span class="line">5297 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4192817 packets captured</span><br><span class="line">4197737 packets received by filter</span><br><span class="line">4920 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# insmod ..&#x2F;..&#x2F;kernel&#x2F;pf_ring.ko</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4212730 packets captured</span><br><span class="line">4212730 packets received by filter</span><br><span class="line">0 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4217341 packets captured</span><br><span class="line">4217341 packets received by filter</span><br><span class="line">0 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4358870 packets captured</span><br><span class="line">4358870 packets received by filter</span><br><span class="line">0 packets dropped by kernel</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>测试数据汇总</p>
+<p>| 包大小 | 是否加载pf_ring.ko | captured | received | dropped |<br>| - | - | - | - | - | - |<br>| 64 | 否 | 4265694 | 4268967 | 3273 |<br>| 64 | 否 | 4192817 | 4197737 | 4920 |<br>| 64 | 否 | 4190808 | 4196105 | 5297 |<br>| 64 | 是 | 4212730 | 4212730 | 0 |<br>| 64 | 是 | 4217341 | 4217341 | 0 |<br>| 64 | 是 | 4358870 | 4358870 | 0 |<br>| 1500 | 否 | 2113248 | 2421024 | 307776 |<br>| 1500 | 否 | 1988029 | 2370209 | 382180 |<br>| 1500 | 否 | 2121627 | 2424882 | 303255 |<br>| 1500 | 是 | 2382563 | 2382563 | 0 |<br>| 1500 | 是 | 2422587 | 2422587 | 0 |<br>| 1500 | 是 | 2479560 | 2479560 | 0 |</p>
+<p><code>pgset &quot;pkt_size 64&quot;</code>命令调整包大小</p>
+<p>可以看到上面收包机tcpdump的数据：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 加载pf_ring.ko内核模块前，六次都有丢包</span><br><span class="line">* 加载pf_ring.ko内核模块后，六次都没有丢包</span><br><span class="line">* 大包时，丢包更严重</span><br></pre></td></tr></table></figure>
+
+<p>所以可以得出结论：</p>
+<ul>
+<li>pf_ring版本的tcpdump抓包率更高</li>
+</ul>
+</li>
+</ul>
+<h1 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h1><ul>
+<li>pf_ring版本的tcpdump抓包率更高</li>
 </ul>
 
       
@@ -917,7 +1230,7 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E9%AA%8C%E8%AF%81pf_ring%E6%80%A7%E8%83%BD/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E9%AA%8C%E8%AF%81%E7%BC%BA%E9%A1%B5%E4%B8%AD%E6%96%AD%E6%9C%BA%E5%88%B6/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -930,7 +1243,7 @@
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E9%AA%8C%E8%AF%81pf_ring%E6%80%A7%E8%83%BD/" class="post-title-link" itemprop="url">验证pf_ring性能</a>
+          <a href="/2021-12-26-%E9%AA%8C%E8%AF%81%E7%BC%BA%E9%A1%B5%E4%B8%AD%E6%96%AD%E6%9C%BA%E5%88%B6/" class="post-title-link" itemprop="url">验证缺页中断机制</a>
         </h2>
 
         <div class="post-meta-container">
@@ -954,80 +1267,43 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>本实验主要为了验证<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/kernel">pf_ring.ko</a>内核模块是否能够提升抓包率。</p>
-<p>实验思路很多参考自 <a target="_blank" rel="noopener" href="http://cea.ceaj.org/CN/article/downloadArticleFile.do?attachType=PDF&id=30309">PF_RING与NAPI结合的捕包性能优化和仿真.pdf</a></p>
-<p>通过分析源码得知：</p>
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>在x86系列的cpu上开启分页机制后，指令涉及到”内存读写”操作时，用到的”内存地址”都是”虚拟地址”。”mmu硬件”会按照”分段”、”分页”的计算规则，将”虚拟地址”转换成”物理地址”。最终指令可以对”物理地址”读写数据。</p>
+<p>上面这段关于内存的”理论知识”，我觉得如果可以实践看一看，就能多一些”感觉”。</p>
+<p>本文记录我对下面两个结论的调试和验证过程，也是我对极客时间的<a target="_blank" rel="noopener" href="https://time.geekbang.org/column/intro/100078401?tab=catalog">操作系统实战 45 讲</a>课程中”内存管理”章节的部分学习和实践，基于<a target="_blank" rel="noopener" href="https://gitee.com/lmos/cosmos/tree/master/lesson25~26/Cosmos">第26课代码</a>。</p>
+<p>“mmu硬件”在转换”虚拟地址”时有可能发生”缺页异常”，包括：</p>
 <ul>
-<li>pf_ring.ko未加载到内核时，<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/libpcap-1.9.1">libpcap</a> 会使用PCAP_MMAP方式来抓包</li>
-<li>pf_ring.ko加载到内核时，<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/libpcap-1.9.1">libpcap</a> 会通过<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/lib">libpfring</a>配合pf_ring.ko内核模块来抓包</li>
-<li>pf_ring基本没有对 <a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/tcpdump-4.9.3">tcpdump</a> 做改动</li>
+<li>访问”未向内核申请的虚拟地址”会导致”缺页异常”</li>
+<li>当第一次访问申请的虚拟地址时，也会产生”缺页异常”；第二次访问同样的虚拟地址时，不会产生”缺页异常”</li>
 </ul>
-<p>实验思路：</p>
-<ul>
-<li>使用pf_ring项目中的tcpdump抓包，计算抓包率</li>
-<li>使用pktgen发包</li>
-<li>在”加载pf_ring.ko”和”不加载pf_ring.ko”两种场景下分别测试三次</li>
-</ul>
-<p>实验环境：</p>
-<table>
-<thead>
-<tr>
-<th>机器用途</th>
-<th>配置</th>
-<th>操作系统</th>
-<th>备注</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>发包机</td>
-<td>2核4G、pps 40w</td>
-<td>CentOS 7.5</td>
-<td>云虚机</td>
-</tr>
-<tr>
-<td>收包机</td>
-<td>2核4G、pps 40w</td>
-<td>CentOS 7.5</td>
-<td>云虚机</td>
-</tr>
-</tbody></table>
-<h1 id="过程"><a href="#过程" class="headerlink" title="过程"></a>过程</h1><h2 id="准备测试环境"><a href="#准备测试环境" class="headerlink" title="准备测试环境"></a>准备测试环境</h2><ul>
-<li><p>收包机器编译安装tcpdump</p>
-<p>安装依赖</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">yum install flex bison kernel-headers kernel-devel gcc stress -y</span><br></pre></td></tr></table></figure>
+<h1 id="验证过程"><a href="#验证过程" class="headerlink" title="验证过程"></a>验证过程</h1><ul>
+<li><p>访问”未向内核申请的虚拟地址”会导致”缺页异常”</p>
+<p>按照理论来说：访问未申请的虚拟地址时，”mmu硬件”在转换”虚拟地址”时会发出”缺页异常”（可能因为找不到对应的”页表项”）</p>
+<p>在验证这个理论前，先介绍一下cosmos(课程自制的内核系统名称)相关的代码，以方便读者大概理解文中出现的函数作用</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">void test_vadr()</span><br><span class="line">&#123;</span><br><span class="line">	adr_t vadr &#x3D; vma_new_vadrs(&amp;initmmadrsdsc, NULL, 0x1000, 0, 0);  &#x2F;&#x2F; 0x1000是想要申请的空间大小，vadr是申请的内存地址</span><br><span class="line">	if(NULL &#x3D;&#x3D; vadr)</span><br><span class="line">	&#123;</span><br><span class="line">		kprint(&quot;分配虚拟地址空间失败\n&quot;);</span><br><span class="line">	&#125;</span><br><span class="line">  ...</span><br><span class="line">	hal_memset((void*)vadr, 0, 0x1000);  &#x2F;&#x2F; 初始化刚申请的内存为0</span><br><span class="line">	...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>上面<code>test_vadr</code>是cosmos中用来验证”虚拟内存”相关功能的测试函数。</p>
+<p>在cosmos中，想要使用虚拟空间，需要先调用<code>vma_new_vadrs</code>申请一个虚拟地址。</p>
+<p>cosmos相关代码介绍完毕，下面用gdb调试课程代码，来实际验证一下”理论”：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line">(gdb) break test_vadr   &#x2F;&#x2F; 在 test_vadr 函数下断点（选择在test_vadr函数下断点，是因为此时 虚拟内存管理、物理内存管理、缺页异常处理 等功能都已经实现）</span><br><span class="line">Breakpoint 1 at 0xffff80000202444a: file ..&#x2F;kernel&#x2F;krlvadrsmem.c, line 289.</span><br><span class="line">(gdb) continue</span><br><span class="line">Continuing.</span><br><span class="line"></span><br><span class="line">Breakpoint 1, test_vadr () at ..&#x2F;kernel&#x2F;krlvadrsmem.c:289</span><br><span class="line">289	&#123;</span><br><span class="line">(gdb) break krluserspace_accessfailed   &#x2F;&#x2F; 在 krluserspace_accessfailed 函数下断点</span><br><span class="line">Breakpoint 2 at 0xffff800002026588: file ..&#x2F;kernel&#x2F;krlvadrsmem.c, line 1145.</span><br><span class="line">(gdb) call hal_memset(0x400,0,0x1)  &#x2F;&#x2F; 调用hal_memset函数，向 0x400地址 写一个字节内容</span><br><span class="line"></span><br><span class="line">Breakpoint 2, krluserspace_accessfailed (fairvadrs&#x3D;0) at ..&#x2F;kernel&#x2F;krlvadrsmem.c:1145 &#x2F;&#x2F;</span><br><span class="line">...</span><br><span class="line">(gdb) where   &#x2F;&#x2F; 可以看到 当前代码在..&#x2F;kernel&#x2F;krlvadrsmem.c文件1145行的krluserspace_accessfailed</span><br><span class="line">#0  krluserspace_accessfailed (fairvadrs&#x3D;0) at ..&#x2F;kernel&#x2F;krlvadrsmem.c:1145</span><br><span class="line">#1  0xffff8000020135d2 in hal_fault_allocator (faultnumb&#x3D;14, krnlsframp&#x3D;0xffff80000008fe18)</span><br><span class="line">    at ..&#x2F;hal&#x2F;x86&#x2F;halintupt.c:171</span><br><span class="line">#2  0xffff80000200d830 in exc_page_fault ()</span><br><span class="line">...</span><br><span class="line">(gdb) continue</span><br><span class="line">Continuing.</span><br><span class="line">^C      &#x2F;&#x2F; 因为在这里卡死了，所以我按了ctrl+c</span><br><span class="line">Program received signal SIGINT, Interrupt.</span><br><span class="line">hal_sysdie (errmsg&#x3D;0xffff80000203a237 &quot;缺页处理失败\n&quot;) at ..&#x2F;hal&#x2F;x86&#x2F;halcpuctrl.c:185</span><br><span class="line">185	        ;</span><br></pre></td></tr></table></figure>
+<p>从上面的调试信息可以看出来：cpu在执行<code>hal_memset</code>函数访问<code>0x400</code>虚拟地址时，跳到了<code>krluserspace_accessfailed</code>函数，最后卡死在<code>halcpuctrl.c</code>第185行</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/144075113-24fdf0f1-74ac-4223-9a09-d6c71ed0993a.png" alt="image"></p>
+<p>这里的<code>0x400</code>地址不是通过<code>vma_new_vadrs</code>申请的地址。</p>
+<p><code>krluserspace_accessfailed</code>函数只有cpu遇到中断并且中断号为14（也就是”缺页异常”）的时候才会被调用</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;&#x2F; 异常处理</span><br><span class="line">void hal_fault_allocator(uint_t faultnumb, void *krnlsframp) &#x2F;&#x2F;eax,edx</span><br><span class="line">&#123;</span><br><span class="line">    ...</span><br><span class="line">    if (faultnumb &#x3D;&#x3D; 14)        &#x2F;&#x2F; 缺页异常 中断号是14</span><br><span class="line">    &#123;</span><br><span class="line">        ...</span><br><span class="line">        if (krluserspace_accessfailed(fairvadrs) !&#x3D; 0)</span><br><span class="line">       &#123;</span><br><span class="line">           system_error(&quot;缺页处理失败\n&quot;);</span><br><span class="line">       &#125;</span><br><span class="line">        ...</span><br><span class="line">    &#125;</span><br><span class="line">    ...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 
-<p>依次编译<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/kernel">pf_ring.ko</a>、<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/lib">libpfring</a>、<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/libpcap-1.9.1">libpcap</a>、<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/tcpdump-4.9.3">tcpdump</a></p>
+<p>所以可以推测出来：访问<code>0x400</code>时，mmu硬件发出了”缺页中断”，接着cpu处理”缺页中断”就会到<code>krluserspace_accessfailed</code>函数，因为<code>krluserspace_accessfailed</code>函数处理”页表映射”失败，所以会调用<code>system_error</code>函数，最终执行<code>for循环</code>卡死。</p>
+<p>这样可以看出来理论没有问题。</p>
 </li>
-<li><p>发包机器编写发包脚本</p>
-<p>此bash脚本配置来自网络</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line"># 定义一个工具函数，方便后面配置各种测试选项</span><br><span class="line">function pgset() &#123;</span><br><span class="line">    local result</span><br><span class="line"># 定义一个工具函数，方便后面配置各种测试选项</span><br><span class="line">    echo $1 &gt; $PGDEV</span><br><span class="line"></span><br><span class="line">    result&#x3D;&#96;cat $PGDEV | fgrep &quot;Result: OK:&quot;&#96;</span><br><span class="line">    if [ &quot;$result&quot; &#x3D; &quot;&quot; ]; then</span><br><span class="line">         cat $PGDEV | fgrep Result:</span><br><span class="line">    fi</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"># 为0号线程绑定eth0网卡</span><br><span class="line">PGDEV&#x3D;&#x2F;proc&#x2F;net&#x2F;pktgen&#x2F;kpktgend_0</span><br><span class="line"></span><br><span class="line">pgset &quot;rem_device_all&quot;   # 清空网卡绑定</span><br><span class="line">pgset &quot;add_device eth0&quot;  # 添加eth0网卡</span><br><span class="line"></span><br><span class="line"># 配置eth0网卡的测试选项</span><br><span class="line">PGDEV&#x3D;&#x2F;proc&#x2F;net&#x2F;pktgen&#x2F;eth0</span><br><span class="line">pgset &quot;count 2000&quot;    # 总发包数量</span><br><span class="line">pgset &quot;delay 0&quot;       # 不同包之间的发送延迟(单位纳秒)</span><br><span class="line">pgset &quot;clone_skb 0&quot;      # SKB包复制</span><br><span class="line">pgset &quot;pkt_size 64&quot;      # 网络包大小</span><br><span class="line">pgset &quot;dst 172.16.32.12&quot; # 目的IP</span><br><span class="line">pgset &quot;dst_mac fa:28:00:06:df:6c&quot;  # 目的MAC</span><br><span class="line"></span><br><span class="line"># 启动测试</span><br><span class="line">PGDEV&#x3D;&#x2F;proc&#x2F;net&#x2F;pktgen&#x2F;pgctrl</span><br><span class="line">pgset &quot;start&quot;</span><br></pre></td></tr></table></figure>
+<li><p>访问”已申请的虚拟地址”</p>
+<p>按照理论：在第一次访问”已申请的虚拟地址”，因为”虚拟内存”和”物理内存”的映射关系还没写到”页表”中，所以”mmu硬件”在转换”虚拟地址”时会发出”缺页异常”，然后”缺页异常”处理程序会写这个映射关系到”页表”中；第二次访问同一个”已申请的虚拟地址”，因为”虚拟内存”和”物理内存”的映射关系已经写到”页表”，”mmu硬件”就可以正常转换，不会发出”缺页异常”。</p>
+<p>下面同样用gdb调试来验证一下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line">(gdb) continue</span><br><span class="line">Continuing.</span><br><span class="line"></span><br><span class="line">Breakpoint 1, test_vadr () at ..&#x2F;kernel&#x2F;krlvadrsmem.c:289</span><br><span class="line">289	&#123;</span><br><span class="line">(gdb) break krluserspace_accessfailed</span><br><span class="line">Breakpoint 2 at 0xffff800002026588: file ..&#x2F;kernel&#x2F;krlvadrsmem.c, line 1145.</span><br><span class="line">(gdb) x &#x2F;bx 0x40000</span><br><span class="line">0x40000:	Cannot access memory at address 0x40000</span><br><span class="line">(gdb) call vma_new_vadrs(&amp;initmmadrsdsc,0x40000,0x1000, 0, 0)   &#x2F;&#x2F; 向内核申请虚拟空间，地址是0x40000，大小是0x1000</span><br><span class="line">$1 &#x3D; 0</span><br><span class="line">(gdb) call hal_memset(0x40000,0,0x1)    &#x2F;&#x2F; 第一次访问0x40000时进入到&quot;中断处理函数&quot;</span><br><span class="line"></span><br><span class="line">Breakpoint 2, krluserspace_accessfailed (fairvadrs&#x3D;0) at ..&#x2F;kernel&#x2F;krlvadrsmem.c:1145</span><br><span class="line">...</span><br><span class="line">(gdb) finish</span><br><span class="line">Run till exit from #0  krluserspace_accessfailed (fairvadrs&#x3D;2097282) at ..&#x2F;kernel&#x2F;krlvadrsmem.c:1145</span><br><span class="line">...</span><br><span class="line">(gdb) finish</span><br><span class="line">Run till exit from #0  0xffff8000020135d2 in hal_fault_allocator (faultnumb&#x3D;14,</span><br><span class="line">    krnlsframp&#x3D;0xffff80000008fe18) at ..&#x2F;hal&#x2F;x86&#x2F;halintupt.c:171</span><br><span class="line">0xffff80000200d830 in exc_page_fault ()</span><br><span class="line">(gdb) finish</span><br><span class="line">Run till exit from #0  0xffff80000200d830 in exc_page_fault ()</span><br><span class="line">(gdb) where</span><br><span class="line">#0  test_vadr () at ..&#x2F;kernel&#x2F;krlvadrsmem.c:289</span><br><span class="line">...</span><br><span class="line">(gdb) call hal_memset(0x40000,0,0x1)    &#x2F;&#x2F; 第二次访问0x40000时没有产生&quot;中断&quot;</span><br><span class="line">(gdb) x &#x2F;bx 0x40000</span><br><span class="line">0x40000:	0x00</span><br></pre></td></tr></table></figure>
 
-<p>modprobe pktgen</p>
-</li>
-<li><p>人为调高收包机cpu利用率</p>
-<p>为什么要调高呢？因为实验过程中发现，如果不调高，即使收包机pps达到最大值40w，机器cpu仍然很低、tcpdump不会丢包，这样就看不出来效果。</p>
-<p>怎么调高cpu利用率？可以使用 <code>stress -c 2</code> 命令 故意占用cpu。</p>
+<p>从上面可以看到：调用<code>vma_new_vadrs</code>申请<code>0x40000</code>地址后，第一次调用<code>hal_memset</code>去访问<code>0x40000</code>时会进入到”缺页异常”处理程序(<code>krluserspace_accessfailed</code>函数)中，第二次再访问<code>0x40000</code>时就不会进入到”缺页异常”处理程序。</p>
 </li>
 </ul>
-<h2 id="观察测试数据"><a href="#观察测试数据" class="headerlink" title="观察测试数据"></a>观察测试数据</h2><ul>
-<li><p>发包为<code>pgset &quot;pkt_size 64&quot;</code>时，收包机的收包率</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4265694 packets captured</span><br><span class="line">4268967 packets received by filter</span><br><span class="line">3273 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4190808 packets captured</span><br><span class="line">4196105 packets received by filter</span><br><span class="line">5297 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4192817 packets captured</span><br><span class="line">4197737 packets received by filter</span><br><span class="line">4920 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# insmod ..&#x2F;..&#x2F;kernel&#x2F;pf_ring.ko</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4212730 packets captured</span><br><span class="line">4212730 packets received by filter</span><br><span class="line">0 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4217341 packets captured</span><br><span class="line">4217341 packets received by filter</span><br><span class="line">0 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4358870 packets captured</span><br><span class="line">4358870 packets received by filter</span><br><span class="line">0 packets dropped by kernel</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>测试数据汇总</p>
-<p>| 包大小 | 是否加载pf_ring.ko | captured | received | dropped |<br>| - | - | - | - | - | - |<br>| 64 | 否 | 4265694 | 4268967 | 3273 |<br>| 64 | 否 | 4192817 | 4197737 | 4920 |<br>| 64 | 否 | 4190808 | 4196105 | 5297 |<br>| 64 | 是 | 4212730 | 4212730 | 0 |<br>| 64 | 是 | 4217341 | 4217341 | 0 |<br>| 64 | 是 | 4358870 | 4358870 | 0 |<br>| 1500 | 否 | 2113248 | 2421024 | 307776 |<br>| 1500 | 否 | 1988029 | 2370209 | 382180 |<br>| 1500 | 否 | 2121627 | 2424882 | 303255 |<br>| 1500 | 是 | 2382563 | 2382563 | 0 |<br>| 1500 | 是 | 2422587 | 2422587 | 0 |<br>| 1500 | 是 | 2479560 | 2479560 | 0 |</p>
-<p><code>pgset &quot;pkt_size 64&quot;</code>命令调整包大小</p>
-<p>可以看到上面收包机tcpdump的数据：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 加载pf_ring.ko内核模块前，六次都有丢包</span><br><span class="line">* 加载pf_ring.ko内核模块后，六次都没有丢包</span><br><span class="line">* 大包时，丢包更严重</span><br></pre></td></tr></table></figure>
-
-<p>所以可以得出结论：</p>
-<ul>
-<li>pf_ring版本的tcpdump抓包率更高</li>
-</ul>
-</li>
-</ul>
-<h1 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h1><ul>
-<li>pf_ring版本的tcpdump抓包率更高</li>
-</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>通过调试，很容易对cosmos中”虚拟内存”访问时的业务流程做一点研究。</p>
+<p>同样我们可以通过”调试”去观察”分页”机制，来验证课程中的知识点。</p>
+<p>PS：后面会有一篇文章讲解怎么调试cosmos代码</p>
 
       
     </div>
@@ -1151,200 +1427,6 @@
 <li>可以用 /run/systemd/ask-password-block/136:{id} 文件来探测是否存在文件写漏洞，前提是服务有root权限。</li>
 </ul>
 <p>最后，感谢和我讨论这个小问题的朋友。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E9%AA%8C%E8%AF%81%E7%BC%BA%E9%A1%B5%E4%B8%AD%E6%96%AD%E6%9C%BA%E5%88%B6/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E9%AA%8C%E8%AF%81%E7%BC%BA%E9%A1%B5%E4%B8%AD%E6%96%AD%E6%9C%BA%E5%88%B6/" class="post-title-link" itemprop="url">验证缺页中断机制</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>在x86系列的cpu上开启分页机制后，指令涉及到”内存读写”操作时，用到的”内存地址”都是”虚拟地址”。”mmu硬件”会按照”分段”、”分页”的计算规则，将”虚拟地址”转换成”物理地址”。最终指令可以对”物理地址”读写数据。</p>
-<p>上面这段关于内存的”理论知识”，我觉得如果可以实践看一看，就能多一些”感觉”。</p>
-<p>本文记录我对下面两个结论的调试和验证过程，也是我对极客时间的<a target="_blank" rel="noopener" href="https://time.geekbang.org/column/intro/100078401?tab=catalog">操作系统实战 45 讲</a>课程中”内存管理”章节的部分学习和实践，基于<a target="_blank" rel="noopener" href="https://gitee.com/lmos/cosmos/tree/master/lesson25~26/Cosmos">第26课代码</a>。</p>
-<p>“mmu硬件”在转换”虚拟地址”时有可能发生”缺页异常”，包括：</p>
-<ul>
-<li>访问”未向内核申请的虚拟地址”会导致”缺页异常”</li>
-<li>当第一次访问申请的虚拟地址时，也会产生”缺页异常”；第二次访问同样的虚拟地址时，不会产生”缺页异常”</li>
-</ul>
-<h1 id="验证过程"><a href="#验证过程" class="headerlink" title="验证过程"></a>验证过程</h1><ul>
-<li><p>访问”未向内核申请的虚拟地址”会导致”缺页异常”</p>
-<p>按照理论来说：访问未申请的虚拟地址时，”mmu硬件”在转换”虚拟地址”时会发出”缺页异常”（可能因为找不到对应的”页表项”）</p>
-<p>在验证这个理论前，先介绍一下cosmos(课程自制的内核系统名称)相关的代码，以方便读者大概理解文中出现的函数作用</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">void test_vadr()</span><br><span class="line">&#123;</span><br><span class="line">	adr_t vadr &#x3D; vma_new_vadrs(&amp;initmmadrsdsc, NULL, 0x1000, 0, 0);  &#x2F;&#x2F; 0x1000是想要申请的空间大小，vadr是申请的内存地址</span><br><span class="line">	if(NULL &#x3D;&#x3D; vadr)</span><br><span class="line">	&#123;</span><br><span class="line">		kprint(&quot;分配虚拟地址空间失败\n&quot;);</span><br><span class="line">	&#125;</span><br><span class="line">  ...</span><br><span class="line">	hal_memset((void*)vadr, 0, 0x1000);  &#x2F;&#x2F; 初始化刚申请的内存为0</span><br><span class="line">	...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-<p>上面<code>test_vadr</code>是cosmos中用来验证”虚拟内存”相关功能的测试函数。</p>
-<p>在cosmos中，想要使用虚拟空间，需要先调用<code>vma_new_vadrs</code>申请一个虚拟地址。</p>
-<p>cosmos相关代码介绍完毕，下面用gdb调试课程代码，来实际验证一下”理论”：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line">(gdb) break test_vadr   &#x2F;&#x2F; 在 test_vadr 函数下断点（选择在test_vadr函数下断点，是因为此时 虚拟内存管理、物理内存管理、缺页异常处理 等功能都已经实现）</span><br><span class="line">Breakpoint 1 at 0xffff80000202444a: file ..&#x2F;kernel&#x2F;krlvadrsmem.c, line 289.</span><br><span class="line">(gdb) continue</span><br><span class="line">Continuing.</span><br><span class="line"></span><br><span class="line">Breakpoint 1, test_vadr () at ..&#x2F;kernel&#x2F;krlvadrsmem.c:289</span><br><span class="line">289	&#123;</span><br><span class="line">(gdb) break krluserspace_accessfailed   &#x2F;&#x2F; 在 krluserspace_accessfailed 函数下断点</span><br><span class="line">Breakpoint 2 at 0xffff800002026588: file ..&#x2F;kernel&#x2F;krlvadrsmem.c, line 1145.</span><br><span class="line">(gdb) call hal_memset(0x400,0,0x1)  &#x2F;&#x2F; 调用hal_memset函数，向 0x400地址 写一个字节内容</span><br><span class="line"></span><br><span class="line">Breakpoint 2, krluserspace_accessfailed (fairvadrs&#x3D;0) at ..&#x2F;kernel&#x2F;krlvadrsmem.c:1145 &#x2F;&#x2F;</span><br><span class="line">...</span><br><span class="line">(gdb) where   &#x2F;&#x2F; 可以看到 当前代码在..&#x2F;kernel&#x2F;krlvadrsmem.c文件1145行的krluserspace_accessfailed</span><br><span class="line">#0  krluserspace_accessfailed (fairvadrs&#x3D;0) at ..&#x2F;kernel&#x2F;krlvadrsmem.c:1145</span><br><span class="line">#1  0xffff8000020135d2 in hal_fault_allocator (faultnumb&#x3D;14, krnlsframp&#x3D;0xffff80000008fe18)</span><br><span class="line">    at ..&#x2F;hal&#x2F;x86&#x2F;halintupt.c:171</span><br><span class="line">#2  0xffff80000200d830 in exc_page_fault ()</span><br><span class="line">...</span><br><span class="line">(gdb) continue</span><br><span class="line">Continuing.</span><br><span class="line">^C      &#x2F;&#x2F; 因为在这里卡死了，所以我按了ctrl+c</span><br><span class="line">Program received signal SIGINT, Interrupt.</span><br><span class="line">hal_sysdie (errmsg&#x3D;0xffff80000203a237 &quot;缺页处理失败\n&quot;) at ..&#x2F;hal&#x2F;x86&#x2F;halcpuctrl.c:185</span><br><span class="line">185	        ;</span><br></pre></td></tr></table></figure>
-<p>从上面的调试信息可以看出来：cpu在执行<code>hal_memset</code>函数访问<code>0x400</code>虚拟地址时，跳到了<code>krluserspace_accessfailed</code>函数，最后卡死在<code>halcpuctrl.c</code>第185行</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/144075113-24fdf0f1-74ac-4223-9a09-d6c71ed0993a.png" alt="image"></p>
-<p>这里的<code>0x400</code>地址不是通过<code>vma_new_vadrs</code>申请的地址。</p>
-<p><code>krluserspace_accessfailed</code>函数只有cpu遇到中断并且中断号为14（也就是”缺页异常”）的时候才会被调用</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;&#x2F; 异常处理</span><br><span class="line">void hal_fault_allocator(uint_t faultnumb, void *krnlsframp) &#x2F;&#x2F;eax,edx</span><br><span class="line">&#123;</span><br><span class="line">    ...</span><br><span class="line">    if (faultnumb &#x3D;&#x3D; 14)        &#x2F;&#x2F; 缺页异常 中断号是14</span><br><span class="line">    &#123;</span><br><span class="line">        ...</span><br><span class="line">        if (krluserspace_accessfailed(fairvadrs) !&#x3D; 0)</span><br><span class="line">       &#123;</span><br><span class="line">           system_error(&quot;缺页处理失败\n&quot;);</span><br><span class="line">       &#125;</span><br><span class="line">        ...</span><br><span class="line">    &#125;</span><br><span class="line">    ...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>所以可以推测出来：访问<code>0x400</code>时，mmu硬件发出了”缺页中断”，接着cpu处理”缺页中断”就会到<code>krluserspace_accessfailed</code>函数，因为<code>krluserspace_accessfailed</code>函数处理”页表映射”失败，所以会调用<code>system_error</code>函数，最终执行<code>for循环</code>卡死。</p>
-<p>这样可以看出来理论没有问题。</p>
-</li>
-<li><p>访问”已申请的虚拟地址”</p>
-<p>按照理论：在第一次访问”已申请的虚拟地址”，因为”虚拟内存”和”物理内存”的映射关系还没写到”页表”中，所以”mmu硬件”在转换”虚拟地址”时会发出”缺页异常”，然后”缺页异常”处理程序会写这个映射关系到”页表”中；第二次访问同一个”已申请的虚拟地址”，因为”虚拟内存”和”物理内存”的映射关系已经写到”页表”，”mmu硬件”就可以正常转换，不会发出”缺页异常”。</p>
-<p>下面同样用gdb调试来验证一下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line">(gdb) continue</span><br><span class="line">Continuing.</span><br><span class="line"></span><br><span class="line">Breakpoint 1, test_vadr () at ..&#x2F;kernel&#x2F;krlvadrsmem.c:289</span><br><span class="line">289	&#123;</span><br><span class="line">(gdb) break krluserspace_accessfailed</span><br><span class="line">Breakpoint 2 at 0xffff800002026588: file ..&#x2F;kernel&#x2F;krlvadrsmem.c, line 1145.</span><br><span class="line">(gdb) x &#x2F;bx 0x40000</span><br><span class="line">0x40000:	Cannot access memory at address 0x40000</span><br><span class="line">(gdb) call vma_new_vadrs(&amp;initmmadrsdsc,0x40000,0x1000, 0, 0)   &#x2F;&#x2F; 向内核申请虚拟空间，地址是0x40000，大小是0x1000</span><br><span class="line">$1 &#x3D; 0</span><br><span class="line">(gdb) call hal_memset(0x40000,0,0x1)    &#x2F;&#x2F; 第一次访问0x40000时进入到&quot;中断处理函数&quot;</span><br><span class="line"></span><br><span class="line">Breakpoint 2, krluserspace_accessfailed (fairvadrs&#x3D;0) at ..&#x2F;kernel&#x2F;krlvadrsmem.c:1145</span><br><span class="line">...</span><br><span class="line">(gdb) finish</span><br><span class="line">Run till exit from #0  krluserspace_accessfailed (fairvadrs&#x3D;2097282) at ..&#x2F;kernel&#x2F;krlvadrsmem.c:1145</span><br><span class="line">...</span><br><span class="line">(gdb) finish</span><br><span class="line">Run till exit from #0  0xffff8000020135d2 in hal_fault_allocator (faultnumb&#x3D;14,</span><br><span class="line">    krnlsframp&#x3D;0xffff80000008fe18) at ..&#x2F;hal&#x2F;x86&#x2F;halintupt.c:171</span><br><span class="line">0xffff80000200d830 in exc_page_fault ()</span><br><span class="line">(gdb) finish</span><br><span class="line">Run till exit from #0  0xffff80000200d830 in exc_page_fault ()</span><br><span class="line">(gdb) where</span><br><span class="line">#0  test_vadr () at ..&#x2F;kernel&#x2F;krlvadrsmem.c:289</span><br><span class="line">...</span><br><span class="line">(gdb) call hal_memset(0x40000,0,0x1)    &#x2F;&#x2F; 第二次访问0x40000时没有产生&quot;中断&quot;</span><br><span class="line">(gdb) x &#x2F;bx 0x40000</span><br><span class="line">0x40000:	0x00</span><br></pre></td></tr></table></figure>
-
-<p>从上面可以看到：调用<code>vma_new_vadrs</code>申请<code>0x40000</code>地址后，第一次调用<code>hal_memset</code>去访问<code>0x40000</code>时会进入到”缺页异常”处理程序(<code>krluserspace_accessfailed</code>函数)中，第二次再访问<code>0x40000</code>时就不会进入到”缺页异常”处理程序。</p>
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>通过调试，很容易对cosmos中”虚拟内存”访问时的业务流程做一点研究。</p>
-<p>同样我们可以通过”调试”去观察”分页”机制，来验证课程中的知识点。</p>
-<p>PS：后面会有一篇文章讲解怎么调试cosmos代码</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E6%8F%90%E9%AB%98%E6%BC%8F%E6%B4%9E%E9%AA%8C%E8%AF%81%E6%95%88%E7%8E%87%E7%9A%84%E5%B7%A5%E5%85%B7/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E6%8F%90%E9%AB%98%E6%BC%8F%E6%B4%9E%E9%AA%8C%E8%AF%81%E6%95%88%E7%8E%87%E7%9A%84%E5%B7%A5%E5%85%B7/" class="post-title-link" itemprop="url">提高漏洞验证效率的工具</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>某个xss漏洞点如下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">&lt;script&gt;</span><br><span class="line">x&#x3D;document.createElement(&quot;script&quot;);</span><br><span class="line">x.setAttribute(&quot;src&quot;, &quot;用户可控的地址&quot;);</span><br><span class="line">document.body.appendChild(x);</span><br><span class="line">&lt;&#x2F;script&gt;</span><br></pre></td></tr></table></figure>
-
-<p>虽然xss漏洞肯定是存在的，但是我不知道利用起来是不是会有问题，比如碰到csp等。</p>
-<p>所以我在”用户可控地址” 填入 “<a target="_blank" rel="noopener" href="http://x.x.x.x/1.js&quot;">http://x.x.x.x/1.js&quot;</a> 来验证，于是出现了点问题。</p>
-<p>第一个问题：https站点引入http静态资源时，浏览器控制台出现”混合内容”警告。似乎会影响js解析</p>
-<p>第二个问题：响应头的content-type需要是text/javascript，否则不能当作js解析</p>
-<p>所以我需要一个web服务：</p>
-<ul>
-<li>支持https</li>
-<li>返回内容可以自定义</li>
-<li>响应头content-type可以自定义</li>
-<li>支持公网访问</li>
-</ul>
-<p>自己去搭这样一个服务也不难，但是如果有现成的岂不是更好，省时省力。</p>
-<p>根据历史经验，我知道有两种平台似乎可以解决我的这个小需求：</p>
-<ul>
-<li>类似 pastebin 的平台，可以通过短链接访问</li>
-<li>xss平台</li>
-</ul>
-<h1 id="测试这些平台是否好用"><a href="#测试这些平台是否好用" class="headerlink" title="测试这些平台是否好用"></a>测试这些平台是否好用</h1><p><a target="_blank" rel="noopener" href="http://ix.io/">http://ix.io</a> : 不支持https</p>
-<p><a target="_blank" rel="noopener" href="http://pastebin.com/">http://pastebin.com</a>: 不支持设置content-type</p>
-<p>搜索到的很多xss平台，都需要邀请码。甚至有的注册成功了，但是使用起来有问题。</p>
-<p>再比如 xssye.com 这个xss平台我很久以前用过。今天登陆提示账号密码登陆不上，申请密码找回提示邮箱和账号对不上，重新注册又提示”需要注册邀请码”。</p>
-<p>总之试了几个，感觉用着比较难受。这些xss平台看前段页面似乎都是一套代码，也不确定是否可能存在漏洞。</p>
-<h1 id="有没有稳定好用的服务"><a href="#有没有稳定好用的服务" class="headerlink" title="有没有稳定好用的服务"></a>有没有稳定好用的服务</h1><p>想起来云上的文件存储服务，刚好是满足我自己的需求的。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">➜  ~ curl https:&#x2F;&#x2F;webbackup-3knjfg4bxz.bj.bcebos.com&#x2F;1.js</span><br><span class="line">alert(1);</span><br></pre></td></tr></table></figure>
-
-<p>另外云上的函数服务，还可以写代码对响应做更精细的控制。</p>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>云上的 文件存储、函数服务 等很适合快速在公网提供https服务，而且相对于个人自己搭建的服务要稳定省心得多，推荐使用。</p>
-<p>当然云上也有很坑的服务，就不说了。</p>
 
       
     </div>
