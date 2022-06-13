@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 5.2.0">
+
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@5.15.4/css/all.min.css" integrity="sha256-mUZM63G8m73Mcidfrv5E+Y61y7a12O5mW4ezU3bxqW4=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"yoursite.com","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.8.2","exturl":false,"sidebar":{"position":"left","display":"post","padding":18,"offset":12},"copycode":false,"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"prism":false,"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js"></script>
+<meta name="description" content="背景在 k8s中各组件和kube apiserver通信时的认证和鉴权 中提到”NodeRestriction准入插件”，实际上它是一个”准入控制器”。 “准入控制器”是一个重要的概念，在istio、apisix、某些安全产品中都有用到。 本文简要记录一下以下内容：  “准入控制器”是什么 怎么开启”准入控制器” 从源码浅析”准入控制器”   本文使用的k8s集群是用kubekey搭建，命令是.&#x2F;">
+<meta property="og:type" content="article">
+<meta property="og:title" content="浅识k8s准入控制">
+<meta property="og:url" content="http://yoursite.com/2022-06-13-%E5%87%86%E5%85%A5%E6%8E%A7%E5%88%B6/index.html">
+<meta property="og:site_name" content="leveryd的个人博客">
+<meta property="og:description" content="背景在 k8s中各组件和kube apiserver通信时的认证和鉴权 中提到”NodeRestriction准入插件”，实际上它是一个”准入控制器”。 “准入控制器”是一个重要的概念，在istio、apisix、某些安全产品中都有用到。 本文简要记录一下以下内容：  “准入控制器”是什么 怎么开启”准入控制器” 从源码浅析”准入控制器”   本文使用的k8s集群是用kubekey搭建，命令是.&#x2F;">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://user-images.githubusercontent.com/1846319/172763360-893e4afd-b937-410f-acbf-f225c1ffd82d.png">
+<meta property="og:image" content="https://user-images.githubusercontent.com/1846319/172758085-52f6bde8-6d68-43c8-9f11-32408207b966.png">
+<meta property="og:image" content="https://user-images.githubusercontent.com/1846319/173340117-3b177dd1-60d5-466c-b82e-f4c09a4962d3.png">
+<meta property="article:published_time" content="2022-06-13T09:19:07.102Z">
+<meta property="article:modified_time" content="2022-06-13T14:58:47.644Z">
+<meta property="article:author" content="leveryd">
+<meta property="article:tag" content="k8s">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://user-images.githubusercontent.com/1846319/172763360-893e4afd-b937-410f-acbf-f225c1ffd82d.png">
+
+
+<link rel="canonical" href="http://yoursite.com/2022-06-13-%E5%87%86%E5%85%A5%E6%8E%A7%E5%88%B6/">
+
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"http://yoursite.com/2022-06-13-%E5%87%86%E5%85%A5%E6%8E%A7%E5%88%B6/","path":"2022-06-13-准入控制/","title":"浅识k8s准入控制"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>浅识k8s准入控制 | leveryd的个人博客</title>
+  
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">leveryd的个人博客</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu">
+        <li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li>
+        <li class="menu-item menu-item-about"><a href="/about/" rel="section"><i class="fa fa-user fa-fw"></i>关于</a></li>
+        <li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+        
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#%E8%83%8C%E6%99%AF"><span class="nav-number">1.</span> <span class="nav-text">背景</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E5%88%86%E6%9E%90"><span class="nav-number">2.</span> <span class="nav-text">分析</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E2%80%9C%E5%87%86%E5%85%A5%E6%8E%A7%E5%88%B6%E5%99%A8%E2%80%9D%E6%98%AF%E4%BB%80%E4%B9%88%EF%BC%9F"><span class="nav-number">2.1.</span> <span class="nav-text">“准入控制器”是什么？</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%80%8E%E4%B9%88%E5%BC%80%E5%90%AF%E2%80%9D%E5%87%86%E5%85%A5%E6%8E%A7%E5%88%B6%E5%99%A8%E2%80%9D%EF%BC%9F"><span class="nav-number">2.2.</span> <span class="nav-text">怎么开启”准入控制器”？</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%BB%8E%E6%BA%90%E7%A0%81%E6%B5%85%E6%9E%90%E2%80%9D%E5%87%86%E5%85%A5%E6%8E%A7%E5%88%B6%E5%99%A8%E2%80%9D"><span class="nav-number">2.3.</span> <span class="nav-text">从源码浅析”准入控制器”</span></a></li></ol></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E6%80%BB%E7%BB%93"><span class="nav-number">3.</span> <span class="nav-text">总结</span></a></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author site-overview-item animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">leveryd</p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap site-overview-item animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">52</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-tags">
+        <span class="site-state-item-count">22</span>
+        <span class="site-state-item-name">标签</span>
+      </div>
+  </nav>
+</div>
+
+
+
+        </div>
+      </div>
+    </div>
+  </aside>
+  <div class="sidebar-dimmer"></div>
+
+
+    </header>
+
+    
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2022-06-13-%E5%87%86%E5%85%A5%E6%8E%A7%E5%88%B6/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          浅识k8s准入控制
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+      
+
+      <time title="创建时间：2022-06-13 17:19:07 / 修改时间：22:58:47" itemprop="dateCreated datePublished" datetime="2022-06-13T17:19:07+08:00">2022-06-13</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+        <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>在 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/JLsNAKHPOUPsFqq506WbPg">k8s中各组件和kube apiserver通信时的认证和鉴权</a> 中提到”NodeRestriction准入插件”，实际上它是一个”准入控制器”。</p>
+<p>“准入控制器”是一个重要的概念，在istio、apisix、某些安全产品中都有用到。</p>
+<p>本文简要记录一下以下内容：</p>
+<ul>
+<li>“准入控制器”是什么</li>
+<li>怎么开启”准入控制器”</li>
+<li>从源码浅析”准入控制器”</li>
+</ul>
+<blockquote>
+<p>本文使用的k8s集群是用<a target="_blank" rel="noopener" href="https://github.com/kubesphere/kubekey/blob/master/README_zh-CN.md">kubekey</a>搭建，命令是./kk create cluster –with-kubernetes v1.21.5 –with-kubesphere v3.2.1</p>
+</blockquote>
+<h1 id="分析"><a href="#分析" class="headerlink" title="分析"></a>分析</h1><h2 id="“准入控制器”是什么？"><a href="#“准入控制器”是什么？" class="headerlink" title="“准入控制器”是什么？"></a>“准入控制器”是什么？</h2><p>它有点类似”插件”，为apiserver提供了很好的”可扩展性”。</p>
+<p>请求apiserver时，通过认证、鉴权后、持久化(“api对象”保存到etcd)前，会经过”准入控制器”，让它可以做”变更和验证”。</p>
+<p>“变更”可以修改”api对象”，比如istio用来实现pod注入。”验证”可以用来校验”api对象”，比如 校验当前集群是否有足够多的资源满足”api对象”、校验当前提交的”pod对象”是否合法。</p>
+<h2 id="怎么开启”准入控制器”？"><a href="#怎么开启”准入控制器”？" class="headerlink" title="怎么开启”准入控制器”？"></a>怎么开启”准入控制器”？</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">root@ip-172-31-14-33:~&#x2F;kubernetes-1.21.5&#x2F;_output&#x2F;bin# .&#x2F;kube-apiserver --help |grep admission-plugins</span><br><span class="line">    ...</span><br><span class="line">    --enable-admission-plugins strings       admission plugins that should be enabled in addition to default enabled ones (NamespaceLifecycle, LimitRanger, ServiceAccount, TaintNodesByCondition, Priority, DefaultTolerationSeconds, DefaultStorageClass, StorageObjectInUseProtection, PersistentVolumeClaimResize, RuntimeClass, CertificateApproval, CertificateSigning, CertificateSubjectRestriction, DefaultIngressClass, MutatingAdmissionWebhook, ValidatingAdmissionWebhook, ResourceQuota). Comma-delimited list of admission plugins: AlwaysAdmit, AlwaysDeny, AlwaysPullImages, CertificateApproval, CertificateSigning, CertificateSubjectRestriction, DefaultIngressClass, DefaultStorageClass, DefaultTolerationSeconds, DenyServiceExternalIPs, EventRateLimit, ExtendedResourceToleration, ImagePolicyWebhook, LimitPodHardAntiAffinityTopology, LimitRanger, MutatingAdmissionWebhook, NamespaceAutoProvision, NamespaceExists, NamespaceLifecycle, NodeRestriction, OwnerReferencesPermissionEnforcement, PersistentVolumeClaimResize, PersistentVolumeLabel, PodNodeSelector, PodSecurityPolicy, PodTolerationRestriction, Priority, ResourceQuota, RuntimeClass, SecurityContextDeny, ServiceAccount, StorageObjectInUseProtection, TaintNodesByCondition, ValidatingAdmissionWebhook. The order of plugins in this flag does not matter.</span><br></pre></td></tr></table></figure>
+
+<p>根据命令行帮助可以知道，默认会开启17个”准入控制器”。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">&gt;&gt;&gt; a&#x3D;&quot;NamespaceLifecycle, LimitRanger, ServiceAccount, TaintNodesByCondition, Priority, DefaultTolerationSeconds, DefaultStorageClass, StorageObjectInUseProtection, Persis</span><br><span class="line">tentVolumeClaimResize, RuntimeClass, CertificateApproval, CertificateSigning, CertificateSubjectRestriction, DefaultIngressClass, MutatingAdmissionWebhook, ValidatingAdmissionWebhook, ResourceQuota&quot;</span><br><span class="line">&gt;&gt;&gt; len(a.split(&quot;,&quot;))</span><br><span class="line">17</span><br></pre></td></tr></table></figure>
+
+<p>也可以用–enable-admission-plugins开启额外的”准入控制器”。</p>
+<p>这些”准入控制器”介绍可以查看 <a target="_blank" rel="noopener" href="https://kubernetes.io/zh-cn/docs/reference/access-authn-authz/admission-controllers/">使用准入控制器</a> 文档。在我的实验环境中，可以看到额外开启了<code>NodeRestriction准入控制器</code>，它实现了apiserver对kubelet请求的权限控制。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">root@ip-172-31-14-33:~# ps aux|grep kube-apis</span><br><span class="line">root      9567  4.8  7.8 1381988 613048 ?      Ssl  03:49  17:48 kube-apiserver ... --enable-admission-plugins&#x3D;NodeRestriction ...</span><br></pre></td></tr></table></figure>
+
+<h2 id="从源码浅析”准入控制器”"><a href="#从源码浅析”准入控制器”" class="headerlink" title="从源码浅析”准入控制器”"></a>从源码浅析”准入控制器”</h2><p>我们可以通过”断点调试”结合源码分析，验证前面说的两个结论：</p>
+<ul>
+<li>请求先经过认证、鉴权，然后经过”准入控制器”</li>
+<li>默认开启17个”准入控制器”；加上NodeRestriction就是18个</li>
+</ul>
+<p>“认证、日志审计、鉴权”在apiserver中都是以filter的形式存在，而”准入控制器”有点像包装了一层servlet。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">func DefaultBuildHandlerChain(apiHandler http.Handler, c *Config) http.Handler &#123;</span><br><span class="line">	handler :&#x3D; filterlatency.TrackCompleted(apiHandler)</span><br><span class="line">	handler &#x3D; genericapifilters.WithAuthorization(handler, c.Authorization.Authorizer, c.Serializer) &#x2F;&#x2F; 鉴权</span><br><span class="line">	...</span><br><span class="line">	handler &#x3D; genericapifilters.WithAudit(handler, c.AuditBackend, c.AuditPolicyChecker, c.LongRunningFunc)  &#x2F;&#x2F; 日志审计</span><br><span class="line">	...</span><br><span class="line">  handler &#x3D; genericapifilters.WithAuthentication(handler, c.Authentication.Authenticator, failedHandler, c.Authentication.APIAudiences) &#x2F;&#x2F; 认证</span><br><span class="line">	...</span><br><span class="line">	return handler</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>finishRequest函数中会开goroutine调用”准入控制器”<br><img src="https://user-images.githubusercontent.com/1846319/172763360-893e4afd-b937-410f-acbf-f225c1ffd82d.png" alt="img"></p>
+<p>可以看到 admissionHandler切片长度是18，17个”默认开启的准入控制器”加上NodeRestriction<br><img src="https://user-images.githubusercontent.com/1846319/172758085-52f6bde8-6d68-43c8-9f11-32408207b966.png" alt="img"></p>
+<p>部分控制器代码在plugin/pkg/admission目录中，会实现Admit接口<br><img src="https://user-images.githubusercontent.com/1846319/173340117-3b177dd1-60d5-466c-b82e-f4c09a4962d3.png" alt="img"></p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><ul>
+<li>请求先经过认证、鉴权，然后经过”准入控制器”</li>
+<li>默认开启17个”准入控制器”；NodeRestriction不是默认开启的</li>
+</ul>
+<p>默认开启的”准入控制器”中有两个很特殊的，ValidatingAdmissionWebhook和MutatingAdmissionWebhook。这两个控制器让apiserver有了更多的可扩展性，实现了”动态准入控制”。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/k8s/" rel="tag"># k8s</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2022-05-01-%E4%B8%80%E6%AC%A1%E4%BB%B2%E8%A3%81%E7%BB%8F%E5%8E%86/" rel="prev" title="">
+                  <i class="fa fa-chevron-left"></i> 
+                </a>
+            </div>
+            <div class="post-nav-item">
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+
+<div class="copyright">
+  &copy; 
+  <span itemprop="copyrightYear">2022</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">leveryd</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous"></script>
+<script src="/js/comments.js"></script><script src="/js/utils.js"></script><script src="/js/motion.js"></script><script src="/js/schemes/muse.js"></script><script src="/js/next-boot.js"></script>
+
+  
+
+
+
+
+
+  
+
+
+
+
+
+</body>
+</html>

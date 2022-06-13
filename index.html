@@ -125,12 +125,12 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">48</span>
+          <span class="site-state-item-count">52</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
       <div class="site-state-item site-state-tags">
-        <span class="site-state-item-count">21</span>
+        <span class="site-state-item-count">22</span>
         <span class="site-state-item-name">标签</span>
       </div>
   </nav>
@@ -159,6 +159,516 @@
 
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2022-06-13-%E5%87%86%E5%85%A5%E6%8E%A7%E5%88%B6/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2022-06-13-%E5%87%86%E5%85%A5%E6%8E%A7%E5%88%B6/" class="post-title-link" itemprop="url">浅识k8s准入控制</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+      
+
+      <time title="创建时间：2022-06-13 17:19:07 / 修改时间：22:58:47" itemprop="dateCreated datePublished" datetime="2022-06-13T17:19:07+08:00">2022-06-13</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>在 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/JLsNAKHPOUPsFqq506WbPg">k8s中各组件和kube apiserver通信时的认证和鉴权</a> 中提到”NodeRestriction准入插件”，实际上它是一个”准入控制器”。</p>
+<p>“准入控制器”是一个重要的概念，在istio、apisix、某些安全产品中都有用到。</p>
+<p>本文简要记录一下以下内容：</p>
+<ul>
+<li>“准入控制器”是什么</li>
+<li>怎么开启”准入控制器”</li>
+<li>从源码浅析”准入控制器”</li>
+</ul>
+<blockquote>
+<p>本文使用的k8s集群是用<a target="_blank" rel="noopener" href="https://github.com/kubesphere/kubekey/blob/master/README_zh-CN.md">kubekey</a>搭建，命令是./kk create cluster –with-kubernetes v1.21.5 –with-kubesphere v3.2.1</p>
+</blockquote>
+<h1 id="分析"><a href="#分析" class="headerlink" title="分析"></a>分析</h1><h2 id="“准入控制器”是什么？"><a href="#“准入控制器”是什么？" class="headerlink" title="“准入控制器”是什么？"></a>“准入控制器”是什么？</h2><p>它有点类似”插件”，为apiserver提供了很好的”可扩展性”。</p>
+<p>请求apiserver时，通过认证、鉴权后、持久化(“api对象”保存到etcd)前，会经过”准入控制器”，让它可以做”变更和验证”。</p>
+<p>“变更”可以修改”api对象”，比如istio用来实现pod注入。”验证”可以用来校验”api对象”，比如 校验当前集群是否有足够多的资源满足”api对象”、校验当前提交的”pod对象”是否合法。</p>
+<h2 id="怎么开启”准入控制器”？"><a href="#怎么开启”准入控制器”？" class="headerlink" title="怎么开启”准入控制器”？"></a>怎么开启”准入控制器”？</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">root@ip-172-31-14-33:~&#x2F;kubernetes-1.21.5&#x2F;_output&#x2F;bin# .&#x2F;kube-apiserver --help |grep admission-plugins</span><br><span class="line">    ...</span><br><span class="line">    --enable-admission-plugins strings       admission plugins that should be enabled in addition to default enabled ones (NamespaceLifecycle, LimitRanger, ServiceAccount, TaintNodesByCondition, Priority, DefaultTolerationSeconds, DefaultStorageClass, StorageObjectInUseProtection, PersistentVolumeClaimResize, RuntimeClass, CertificateApproval, CertificateSigning, CertificateSubjectRestriction, DefaultIngressClass, MutatingAdmissionWebhook, ValidatingAdmissionWebhook, ResourceQuota). Comma-delimited list of admission plugins: AlwaysAdmit, AlwaysDeny, AlwaysPullImages, CertificateApproval, CertificateSigning, CertificateSubjectRestriction, DefaultIngressClass, DefaultStorageClass, DefaultTolerationSeconds, DenyServiceExternalIPs, EventRateLimit, ExtendedResourceToleration, ImagePolicyWebhook, LimitPodHardAntiAffinityTopology, LimitRanger, MutatingAdmissionWebhook, NamespaceAutoProvision, NamespaceExists, NamespaceLifecycle, NodeRestriction, OwnerReferencesPermissionEnforcement, PersistentVolumeClaimResize, PersistentVolumeLabel, PodNodeSelector, PodSecurityPolicy, PodTolerationRestriction, Priority, ResourceQuota, RuntimeClass, SecurityContextDeny, ServiceAccount, StorageObjectInUseProtection, TaintNodesByCondition, ValidatingAdmissionWebhook. The order of plugins in this flag does not matter.</span><br></pre></td></tr></table></figure>
+
+<p>根据命令行帮助可以知道，默认会开启17个”准入控制器”。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">&gt;&gt;&gt; a&#x3D;&quot;NamespaceLifecycle, LimitRanger, ServiceAccount, TaintNodesByCondition, Priority, DefaultTolerationSeconds, DefaultStorageClass, StorageObjectInUseProtection, Persis</span><br><span class="line">tentVolumeClaimResize, RuntimeClass, CertificateApproval, CertificateSigning, CertificateSubjectRestriction, DefaultIngressClass, MutatingAdmissionWebhook, ValidatingAdmissionWebhook, ResourceQuota&quot;</span><br><span class="line">&gt;&gt;&gt; len(a.split(&quot;,&quot;))</span><br><span class="line">17</span><br></pre></td></tr></table></figure>
+
+<p>也可以用–enable-admission-plugins开启额外的”准入控制器”。</p>
+<p>这些”准入控制器”介绍可以查看 <a target="_blank" rel="noopener" href="https://kubernetes.io/zh-cn/docs/reference/access-authn-authz/admission-controllers/">使用准入控制器</a> 文档。在我的实验环境中，可以看到额外开启了<code>NodeRestriction准入控制器</code>，它实现了apiserver对kubelet请求的权限控制。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">root@ip-172-31-14-33:~# ps aux|grep kube-apis</span><br><span class="line">root      9567  4.8  7.8 1381988 613048 ?      Ssl  03:49  17:48 kube-apiserver ... --enable-admission-plugins&#x3D;NodeRestriction ...</span><br></pre></td></tr></table></figure>
+
+<h2 id="从源码浅析”准入控制器”"><a href="#从源码浅析”准入控制器”" class="headerlink" title="从源码浅析”准入控制器”"></a>从源码浅析”准入控制器”</h2><p>我们可以通过”断点调试”结合源码分析，验证前面说的两个结论：</p>
+<ul>
+<li>请求先经过认证、鉴权，然后经过”准入控制器”</li>
+<li>默认开启17个”准入控制器”；加上NodeRestriction就是18个</li>
+</ul>
+<p>“认证、日志审计、鉴权”在apiserver中都是以filter的形式存在，而”准入控制器”有点像包装了一层servlet。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">func DefaultBuildHandlerChain(apiHandler http.Handler, c *Config) http.Handler &#123;</span><br><span class="line">	handler :&#x3D; filterlatency.TrackCompleted(apiHandler)</span><br><span class="line">	handler &#x3D; genericapifilters.WithAuthorization(handler, c.Authorization.Authorizer, c.Serializer) &#x2F;&#x2F; 鉴权</span><br><span class="line">	...</span><br><span class="line">	handler &#x3D; genericapifilters.WithAudit(handler, c.AuditBackend, c.AuditPolicyChecker, c.LongRunningFunc)  &#x2F;&#x2F; 日志审计</span><br><span class="line">	...</span><br><span class="line">  handler &#x3D; genericapifilters.WithAuthentication(handler, c.Authentication.Authenticator, failedHandler, c.Authentication.APIAudiences) &#x2F;&#x2F; 认证</span><br><span class="line">	...</span><br><span class="line">	return handler</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>finishRequest函数中会开goroutine调用”准入控制器”<br><img src="https://user-images.githubusercontent.com/1846319/172763360-893e4afd-b937-410f-acbf-f225c1ffd82d.png" alt="img"></p>
+<p>可以看到 admissionHandler切片长度是18，17个”默认开启的准入控制器”加上NodeRestriction<br><img src="https://user-images.githubusercontent.com/1846319/172758085-52f6bde8-6d68-43c8-9f11-32408207b966.png" alt="img"></p>
+<p>部分控制器代码在plugin/pkg/admission目录中，会实现Admit接口<br><img src="https://user-images.githubusercontent.com/1846319/173340117-3b177dd1-60d5-466c-b82e-f4c09a4962d3.png" alt="img"></p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><ul>
+<li>请求先经过认证、鉴权，然后经过”准入控制器”</li>
+<li>默认开启17个”准入控制器”；NodeRestriction不是默认开启的</li>
+</ul>
+<p>默认开启的”准入控制器”中有两个很特殊的，ValidatingAdmissionWebhook和MutatingAdmissionWebhook。这两个控制器让apiserver有了更多的可扩展性，实现了”动态准入控制”。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2022-05-01-%E4%B8%80%E6%AC%A1%E4%BB%B2%E8%A3%81%E7%BB%8F%E5%8E%86/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2022-05-01-%E4%B8%80%E6%AC%A1%E4%BB%B2%E8%A3%81%E7%BB%8F%E5%8E%86/" class="post-title-link" itemprop="url">未命名</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2022-05-01 11:43:41" itemprop="dateCreated datePublished" datetime="2022-05-01T11:43:41+08:00">2022-05-01</time>
+    </span>
+      <span class="post-meta-item">
+        <span class="post-meta-item-icon">
+          <i class="far fa-calendar-check"></i>
+        </span>
+        <span class="post-meta-item-text">更新于</span>
+        <time title="修改时间：2022-06-13 23:00:12" itemprop="dateModified" datetime="2022-06-13T23:00:12+08:00">2022-06-13</time>
+      </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <!-- * 谁
+  * 公司：hr
+  * 我、同事
+  * 仲裁院
+  * 律师：同学、仲裁员律师
+
+文章主旨：给遇到裁员的人一个经验、劳动合同中的坑。给胡千做宣传 -->
+
+<hr>
+<h2 id="title-一次仲裁经历"><a href="#title-一次仲裁经历" class="headerlink" title="title: 一次仲裁经历"></a>title: 一次仲裁经历</h2><p>2022年4月8号，在海淀区劳动人事争议仲裁院，我这一趟”感受劳动法保护之旅”终于完结，在仲裁庭和上家公司达成和解。</p>
+<p>我为什么想要仲裁呢？一个原因是公司给的赔偿方案是N+1，而我是想要2N+年终奖，另一个原因是我想感受下”劳动法对咱劳动者的保护”，刚好我也不太着急找工作，所以有时间仲裁。</p>
+<p>在决定仲裁后，我被拉进了一个仲裁微信群，群里有接近20个人。群里有些同事可能有些经验，会在群里说”保存绩效截图证据”这种注意事项。不幸的是，没两天群就解散了。私信问了一个群里活跃的同事，她说因为绩效在被裁前还没出来，所以他们好几个人就不仲裁了、拿了N+1。于是我就一个人去仲裁。</p>
+<p>仲裁时间周期比较长，从12.27号到4.8号仲裁开庭，总共去了五次，分别是递交申请材料、调解、拿举证通知、递交和交换举证材料、仲裁开庭。</p>
+<p>仲裁过程比较简单，没有花一毛钱，我也没有请律师。仲裁厅是有律师可以咨询的，排队取号就行也不用花钱，不过服务态度一般。</p>
+<p>仲裁厅的人特别热情，我在写第一次申请材料时不知道怎么写清楚”诉求中的事实和理由”，就用手机搜索，被巡视的工作人员瞟到后，过来给我说，”别网上瞎搜了，来，我告诉你这个怎么填”，然后就呱唧给我说一通。我当时心里想着”仲裁厅可真不错啊”，感觉来对地方了。</p>
+<p>但是到了仲裁开庭时，就没有这么好的感受了。调解员把公司hr支出去后，单独和我谈话：如果我和公司达不成和解，后面就要去法院，这样结果得等到明年去了；即使上了法院，也不一定就能拿到年终奖；不要想着完全按劳动法来。</p>
+<p>我感觉年终奖可能确实难拿。上家公司关于年终奖的说明是写在录用函里而不是劳动合同里，并且写的是”年终奖是浮动的，公司有最终解释权”，同时hr说他们自己都没有年终奖、在职的部门同事也说没有年终奖。看了下我现在公司的劳动合同，把年终奖是写到合同里了，没有”浮动，绩效”这些字眼，挺好。</p>
+<p>再来说说N+1、2N中税的问题。N+1中的N叫做离职补偿金，有一个免税额度，因为上限是本市年度平均工资的三倍，比较高，所以可以认为N是不交税的。N+1中的1叫做代通知金，是要交税的。2N其中一个N是要交税的。</p>
+<p>前几天看到一个知乎热帖下的回答 <a target="_blank" rel="noopener" href="https://www.zhihu.com/question/530759555/answer/2464814635?utm_source=wechat_session&utm_medium=social&utm_oi=27700794228736&utm_content=group2_Answer&utm_campaign=shareopn">女子拒调岗「高管」变「客服」被开除，公司被判赔 59 万，如何从法律角度解读？</a> ，感觉相对于仲裁来说，诉讼真是花时间啊。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2022-04-23-%E9%9D%A2%E5%90%91%E6%8E%A5%E5%8F%A3%E7%BC%96%E7%A8%8B/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2022-04-23-%E9%9D%A2%E5%90%91%E6%8E%A5%E5%8F%A3%E7%BC%96%E7%A8%8B/" class="post-title-link" itemprop="url">面向接口编程的三个例子</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2022-04-23 22:04:52" itemprop="dateCreated datePublished" datetime="2022-04-23T22:04:52+08:00">2022-04-23</time>
+    </span>
+      <span class="post-meta-item">
+        <span class="post-meta-item-icon">
+          <i class="far fa-calendar-check"></i>
+        </span>
+        <span class="post-meta-item-text">更新于</span>
+        <time title="修改时间：2022-06-13 22:59:19" itemprop="dateModified" datetime="2022-06-13T22:59:19+08:00">2022-06-13</time>
+      </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>在用go操作mysql数据库时会经常见到类似下面的代码，空导入”go-sql-driver/mysql”</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">import (</span><br><span class="line">	&quot;database&#x2F;sql&quot;</span><br><span class="line">	&quot;time&quot;</span><br><span class="line"></span><br><span class="line">	_ &quot;github.com&#x2F;go-sql-driver&#x2F;mysql&quot;   &#x2F;&#x2F; 空导入</span><br><span class="line">)</span><br><span class="line"></span><br><span class="line">&#x2F;&#x2F; ...</span><br><span class="line"></span><br><span class="line">db, err :&#x3D; sql.Open(&quot;mysql&quot;, &quot;user:password@&#x2F;dbname&quot;)</span><br></pre></td></tr></table></figure>
+
+<p>我之前对上面代码有点疑问：空导入有什么意义吗？</p>
+<p>后面知道go在导入包时，会执行包中的init函数，所以上面的空导入会执行 <a target="_blank" rel="noopener" href="https://github.com/go-sql-driver/mysql/blob/v1.6.0/driver.go">github.com/go-sql-driver/mysql/driver.go</a> 中的init函数来注册驱动</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">func init() &#123;</span><br><span class="line">	sql.Register(&quot;mysql&quot;, &amp;MySQLDriver&#123;&#125;)</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>再后来，见到好多次类似”注册模式”的写法，逐渐能从中体会到”面向接口编程”的思想。然后就多了一个好处：在做代码审计时，因为了解这种”业务套路”，所以更容易理解代码逻辑；</p>
+<p>下面分享三个用到这种模式的例子，分别是go sql库、go swagger库、python flask库</p>
+<h1 id="分析"><a href="#分析" class="headerlink" title="分析"></a>分析</h1><ul>
+<li><p>这种”注册模式”是什么？</p>
+<p>包含有三个角色：</p>
+<ul>
+<li>接口层：定义接口、提供”注册实例接口”、提供”获取服务”或者”功能接口”</li>
+<li>服务提供者：实现接口、注册”接口实现”</li>
+<li>服务使用者：调用”获取服务接口”</li>
+</ul>
+<p>这个结论是我根据三个例子总结出来的，下面来具体看看三个角色的功能</p>
+</li>
+</ul>
+<h1 id="go-sql"><a href="#go-sql" class="headerlink" title="go sql"></a>go sql</h1><ul>
+<li><p>是什么？</p>
+<p>  见 <a target="_blank" rel="noopener" href="https://github.com/go-sql-driver/mysql">https://github.com/go-sql-driver/mysql</a> 文档中的例子，用户可以使用驱动名获取到”包含驱动实例的对象”</p>
+  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">db, err :&#x3D; sql.Open(&quot;mysql&quot;, &quot;user:password@&#x2F;dbname&quot;) &#x2F;&#x2F; db中包含驱动实现</span><br></pre></td></tr></table></figure>
+
+<p>这里”用户”就是”服务使用者”。</p>
+<p>“接口层”是”database/sql”库，它在 <a target="_blank" rel="noopener" href="https://github.com/golang/go/blob/go1.17.9/src/database/sql/driver/driver.go">database/sql/driver/driver.go</a> 文件中定义了接口，”驱动”需要实现下面的Open方法</p>
+  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">type Driver interface &#123;</span><br><span class="line">	...</span><br><span class="line">	Open(name string) (Conn, error)</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>  <a target="_blank" rel="noopener" href="https://github.com/golang/go/blob/go1.17.9/src/database/sql/sql.go">database/sql/sql.go</a>中提供”注册实例接口”，”驱动”可以调用Register函数注册。</p>
+  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">func Register(name string, driver driver.Driver) &#123;</span><br><span class="line">	driversMu.Lock()</span><br><span class="line">	defer driversMu.Unlock()</span><br><span class="line">	if driver &#x3D;&#x3D; nil &#123;</span><br><span class="line">		panic(&quot;sql: Register driver is nil&quot;)</span><br><span class="line">	&#125;</span><br><span class="line">	if _, dup :&#x3D; drivers[name]; dup &#123;</span><br><span class="line">		panic(&quot;sql: Register called twice for driver &quot; + name)</span><br><span class="line">	&#125;</span><br><span class="line">	drivers[name] &#x3D; driver</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>  <a target="_blank" rel="noopener" href="https://github.com/golang/go/blob/go1.17.9/src/database/sql/sql.go">database/sql/sql.go</a>中提供”获取服务接口”，”用户”可以调用Open函数获取DB实例</p>
+  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">func Open(driverName, dataSourceName string) (*DB, error) &#123;</span><br><span class="line">	driversMu.RLock()</span><br><span class="line">	driveri, ok :&#x3D; drivers[driverName]</span><br><span class="line">	driversMu.RUnlock()</span><br><span class="line">	...</span><br><span class="line"></span><br><span class="line">	return OpenDB(dsnConnector&#123;dsn: dataSourceName, driver: driveri&#125;), nil</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>  “服务提供者”就是”驱动”，这里就是 <a target="_blank" rel="noopener" href="https://github.com/go-sql-driver/mysql/blob/v1.6.0/driver.go">github.com/go-sql-driver/mysql</a></p>
+<p>  它实现了Driver接口</p>
+  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">type MySQLDriver struct&#123;&#125;</span><br><span class="line">...</span><br><span class="line">func (d MySQLDriver) Open(dsn string) (driver.Conn, error) &#123;</span><br><span class="line">	cfg, err :&#x3D; ParseDSN(dsn)</span><br><span class="line">	if err !&#x3D; nil &#123;</span><br><span class="line">		return nil, err</span><br><span class="line">	&#125;</span><br><span class="line">	c :&#x3D; &amp;connector&#123;</span><br><span class="line">		cfg: cfg,</span><br><span class="line">	&#125;</span><br><span class="line">	return c.Connect(context.Background())</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>  并且调用Register方法注册”接口实现”，代码见<a target="_blank" rel="noopener" href="https://github.com/go-sql-driver/mysql/blob/v1.6.0/driver.go">github.com/go-sql-driver/mysql/driver.go</a></p>
+  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">func init() &#123;</span><br><span class="line">	sql.Register(&quot;mysql&quot;, &amp;MySQLDriver&#123;&#125;)</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+</li>
+</ul>
+<h1 id="swagger"><a href="#swagger" class="headerlink" title="swagger"></a>swagger</h1><ul>
+<li><p>是什么？</p>
+<p>在审计 <a target="_blank" rel="noopener" href="https://github.com/pingcap/tidb-dashboard">tidb-dashboard</a> 项目时，关注到<a target="_blank" rel="noopener" href="https://github.com/swaggo/swag">swagger</a>。</p>
+<p>tidb-dashboard用swagger来提供在线的api文档服务。</p>
+</li>
+<li><p>服务使用者</p>
+<p>  “服务使用者”，这里是tidb-dashboard</p>
+<p><a target="_blank" rel="noopener" href="https://github.com/pingcap/tidb-dashboard/blob/v2022.03.31.1/pkg/swaggerserver/handler.go">tidb-dashboard</a></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">func Handler() http.Handler &#123;</span><br><span class="line">	return httpSwagger.Handler()</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>如果跟进方法，就会看到调用<code>swag.ReadDoc()</code>方法，这个方法就是”接口层”提供的”获取服务接口”。</p>
+</li>
+<li><p>接口层</p>
+<p>  “接口层”就是swagger库，在 <a target="_blank" rel="noopener" href="https://github.com/swaggo/swag/blob/v1.8.1/swagger.go">swagger.go</a> 文件中</p>
+<p>定义接口</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;&#x2F; Swagger is an interface to read swagger document.</span><br><span class="line">type Swagger interface &#123;</span><br><span class="line">	ReadDoc() string</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>提供”注册实例接口”</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;&#x2F; Register registers swagger for given name.</span><br><span class="line">func Register(name string, swagger Swagger) &#123;</span><br><span class="line">  ...</span><br><span class="line">	swags[name] &#x3D; swagger</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>提供”获取服务接口”</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">func ReadDoc(optionalName ...string) (string, error) &#123;</span><br><span class="line">	...</span><br><span class="line">	swag, ok :&#x3D; swags[name]</span><br><span class="line">	...</span><br><span class="line">	return swag.ReadDoc(), nil</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>服务提供者</p>
+<p>  “服务提供者”这里是用户自己。这里用法有点特殊，tidb-dashboard仓库中没有”服务实现”相关代码，在编译tidb-dashboard项目时会生成代码。</p>
+<p>生成后的代码我放在了<a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/5ae3ce4940831464d43945f42c68b4c0">gist</a>。</p>
+<p>可以看到它实现了Swagger接口</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">type s struct&#123;&#125;</span><br><span class="line"></span><br><span class="line">func (s *s) ReadDoc() string &#123;</span><br><span class="line">	...</span><br><span class="line"></span><br><span class="line">	return tpl.String()</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>注册接口</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">func init() &#123;</span><br><span class="line">	swag.Register(swag.Name, &amp;s&#123;&#125;)</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>和第一个例子的区别</p>
+<p>区别在于，这个例子中，”服务提供者”和”服务使用者”都是用户自己。</p>
+<p>那么为什么不直接自己调自己，还经过”接口层”呢？</p>
+</li>
+</ul>
+<h1 id="python-flask扩展"><a href="#python-flask扩展" class="headerlink" title="python flask扩展"></a>python flask扩展</h1><ul>
+<li><p>是什么？</p>
+<p>用户可以用flask框架的cors扩展来做跨域请求时的限制。</p>
+<p><a target="_blank" rel="noopener" href="https://github.com/corydolphin/flask-cors">插件文档</a>中的例子如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">from flask import Flask</span><br><span class="line">from flask_cors import CORS</span><br><span class="line"></span><br><span class="line">app &#x3D; Flask(__name__)</span><br><span class="line">CORS(app)</span><br><span class="line"></span><br><span class="line">@app.route(&quot;&#x2F;&quot;)</span><br><span class="line">def helloWorld():</span><br><span class="line">  return &quot;Hello, cross-origin-world!&quot;</span><br></pre></td></tr></table></figure>
+
+<p>这里”服务使用者”不需要找”接口层”要”服务实例”</p>
+</li>
+<li><p>接口层</p>
+<p>  在<a target="_blank" rel="noopener" href="https://github.com/pallets/flask/blob/main/src/flask/scaffold.py">flask框架</a>中定义了一个函数<code>AfterRequestCallable</code>类型</p>
+<p>  提供”注册实例接口”，如下，只是把函数放进了列表中</p>
+  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">@setupmethod</span><br><span class="line">def after_request(self, f: AfterRequestCallable) -&gt; AfterRequestCallable:</span><br><span class="line">	..</span><br><span class="line">		self.after_request_funcs.setdefault(None, []).append(f)</span><br><span class="line">		return f</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>服务提供者</p>
+<p>cors插件在flask框架基础上，提供了cors相关的安全能力。</p>
+<p>  在 <a target="_blank" rel="noopener" href="https://github.com/corydolphin/flask-cors/blob/master/flask_cors/extension.py">flask_cors/extension.py</a> 中</p>
+<p>  实现接口：cors_after_request函数是<code>AfterRequestCallable</code>类型具体的实现</p>
+  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">def make_after_request_function(resources):</span><br><span class="line">   def cors_after_request(resp):</span><br><span class="line">       ...</span><br><span class="line">       normalized_path &#x3D; unquote_plus(request.path)</span><br><span class="line">       for res_regex, res_options in resources:</span><br><span class="line">           if try_match(normalized_path, res_regex):</span><br><span class="line">               ...</span><br><span class="line">       ...</span><br><span class="line">       return resp</span><br><span class="line">   return cors_after_request</span><br></pre></td></tr></table></figure>
+
+<p>  注册接口：在CORS实例化时，会注册实例提供安全能力</p>
+  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">class CORS(object):</span><br><span class="line">    ...</span><br><span class="line"></span><br><span class="line">    def __init__(self, app&#x3D;None, **kwargs):</span><br><span class="line">        ...</span><br><span class="line">        self.init_app(app, **kwargs)</span><br><span class="line"></span><br><span class="line">    def init_app(self, app, **kwargs):</span><br><span class="line">        ...</span><br><span class="line">        cors_after_request &#x3D; make_after_request_function(resources)</span><br><span class="line">        app.after_request(cors_after_request)   # 有点注册一个中间件的感觉</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>和前面两个例子的区别</p>
+<p>细品的话，可以看到这个例子和前两个例子又有很多不同：</p>
+<ul>
+<li>没有显式的”接口定义”，毕竟python没有接口关键字<ul>
+<li>注册的是”函数”，而不是”对象”</li>
+</ul>
+</li>
+<li>“接口层”不提供”获取服务”，”服务使用者”也不需要”获取服务”</li>
+<li>由”服务使用者”注册”接口实例”，而不是”服务提供者”注册接口实例</li>
+</ul>
+<p>可以想一想为什么会有这些区别，能把这些区别”修改”回去吗？比如如果我是cors扩展库作者，我就不能在cors库里自动注册服务，让库的使用者少写几行代码吗？</p>
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>通过分析这三个”注册模式”的例子，我自己对”面向接口编程”有点感觉。后面感觉这种思想很基础、很常见、很实用，比如rpc、spring ioc容器、微服务的服务注册等都和这个”注册模式”很像。</p>
+<p>如果你觉得疑惑，或者觉得我写得比较怪，推荐你找一个你熟悉的库自己分析一下。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2022-04-07-web%E6%A1%86%E6%9E%B6%E7%9A%84%E8%AF%B7%E6%B1%82%E4%B8%8A%E4%B8%8B%E6%96%87/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2022-04-07-web%E6%A1%86%E6%9E%B6%E7%9A%84%E8%AF%B7%E6%B1%82%E4%B8%8A%E4%B8%8B%E6%96%87/" class="post-title-link" itemprop="url">web框架的请求上下文</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2022-04-07 19:45:56" itemprop="dateCreated datePublished" datetime="2022-04-07T19:45:56+08:00">2022-04-07</time>
+    </span>
+      <span class="post-meta-item">
+        <span class="post-meta-item-icon">
+          <i class="far fa-calendar-check"></i>
+        </span>
+        <span class="post-meta-item-text">更新于</span>
+        <time title="修改时间：2022-06-13 23:00:47" itemprop="dateModified" datetime="2022-06-13T23:00:47+08:00">2022-06-13</time>
+      </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>最近在研究web框架时，对”请求上下文”这个基础概念有了更多的了解，因此记录一下，包括以下内容：</p>
+<ul>
+<li>“请求上下文”是什么？</li>
+<li>web框架(flask和gin)实现”请求上下文”的区别？</li>
+<li>“线程私有数据”是什么？</li>
+</ul>
+<h1 id="学习过程"><a href="#学习过程" class="headerlink" title="学习过程"></a>学习过程</h1><ul>
+<li><p>“请求上下文”是什么？</p>
+<p>根据 <a target="_blank" rel="noopener" href="https://geektutu.com/post/gee-day2.html">Go语言动手写Web框架 - Gee第二天 上下文Context</a> 和 <a target="_blank" rel="noopener" href="https://time.geekbang.org/column/article/418283">Context：请求控制器，让每个请求都在掌控之中</a> 两篇文章，可以知道从”框架开发者”的角度看，”请求上下文”包括：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 请求对象：包括请求方法、路径、请求头等内容</span><br><span class="line">* 响应对象：可以用来返回http响应</span><br><span class="line">* 工具函数：可以用来更方便地操作&quot;请求对象&quot;和&quot;响应对象&quot;</span><br></pre></td></tr></table></figure>
+
+<p>那么web框架怎么让”框架的使用者”拿到”请求上下文”呢？</p>
+</li>
+<li><p>“框架的使用者怎么”拿到”请求上下文”？</p>
+<p>flask框架中请求上下文是一个全局变量，而gin框架中请求上下文被当作参数传递。</p>
+<p>根据<a target="_blank" rel="noopener" href="https://flask.palletsprojects.com/en/2.1.x/quickstart/#accessing-request-data">flask文档</a>知道request对象包含有请求信息，可以如下获取</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">from flask import request</span><br><span class="line"></span><br><span class="line">@app.route(&#39;&#x2F;login&#39;, methods&#x3D;[&#39;POST&#39;, &#39;GET&#39;])</span><br><span class="line">def login():</span><br><span class="line">    ...</span><br><span class="line">    if request.method &#x3D;&#x3D; &#39;POST&#39;:</span><br><span class="line">        if valid_login(request.form[&#39;username&#39;],</span><br><span class="line">                       request.form[&#39;password&#39;]):</span><br></pre></td></tr></table></figure>
+
+<p>根据<a target="_blank" rel="noopener" href="https://pkg.go.dev/github.com/gin-gonic/gin#section-readme">gin文档</a>知道gin.Context实例c中包含有请求信息，可以如下获取</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"> router :&#x3D; gin.Default()</span><br><span class="line"></span><br><span class="line">router.GET(&quot;&#x2F;welcome&quot;, func(c *gin.Context) &#123;</span><br><span class="line">	firstname :&#x3D; c.DefaultQuery(&quot;firstname&quot;, &quot;Guest&quot;)</span><br><span class="line">	lastname :&#x3D; c.Query(&quot;lastname&quot;) &#x2F;&#x2F; shortcut for c.Request.URL.Query().Get(&quot;lastname&quot;)</span><br><span class="line"></span><br><span class="line">	c.String(http.StatusOK, &quot;Hello %s %s&quot;, firstname, lastname)</span><br><span class="line">&#125;)</span><br></pre></td></tr></table></figure>
+
+<p>从上面的使用方法可以看出来，flask和gin框架实现”请求上下文”有一些区别：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* gin框架中&quot;框架使用者&quot;需要把&quot;请求上下文&quot;当作参数，显示地传递</span><br><span class="line">* flask框架中&quot;框架使用者&quot;只需要request这个全局变量，就能获得&quot;请求上下文&quot;</span><br></pre></td></tr></table></figure>
+
+<p>于是就有两个问题：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* flask的request是个全局变量，那&quot;基于多线程实现&quot;的服务端同时收到多个请求时，request怎么能代表当前线程处理的请求呢？</span><br><span class="line">* flask似乎对&quot;框架使用者&quot;来说更方便，毕竟不需要多传递一个参数。那为什么gin框架不也这么设计呢？</span><br></pre></td></tr></table></figure>
+
+<p>第一个问题其实涉及到”线程私有数据”的概念</p>
+</li>
+</ul>
+<h1 id="线程私有数据"><a href="#线程私有数据" class="headerlink" title="线程私有数据"></a>线程私有数据</h1><ul>
+<li><p>是什么？</p>
+<p>举个例子，下面代码中新线程看不到主线程的mydata变量，因为mydata是”主线程”和”新线程”的私有数据”</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">import threading</span><br><span class="line">from threading import local</span><br><span class="line"></span><br><span class="line">mydata &#x3D; local()</span><br><span class="line">mydata.number &#x3D; 42</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def f():</span><br><span class="line">    if getattr(mydata, &quot;number&quot;, None) is not None:</span><br><span class="line">        print(mydata.number)    # 这里会打印42吗？</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">thread &#x3D; threading.Thread(target&#x3D;f)</span><br><span class="line">thread.start()</span><br><span class="line">thread.join()</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>threading.local是怎么实现的？</p>
+<p>从<a target="_blank" rel="noopener" href="https://github.com/python/cpython/blob/main/Lib/_threading_local.py">源码</a>中可以看到localdict是实际存放数据的对象，每个线程对应一个localdict。</p>
+<p>线程在读写”线程私有数据”时，会找到自己的localdict。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line">class _localimpl:</span><br><span class="line">  ...</span><br><span class="line"></span><br><span class="line">  def get_dict(self):</span><br><span class="line">      &quot;&quot;&quot;Return the dict for the current thread. Raises KeyError if none</span><br><span class="line">      defined.&quot;&quot;&quot;</span><br><span class="line">      thread &#x3D; current_thread()</span><br><span class="line">      return self.dicts[id(thread)][1]    # id(thread)是当前线程对象内存地址，每个线程应该是唯一的</span><br><span class="line"></span><br><span class="line">  def create_dict(self):</span><br><span class="line">      &quot;&quot;&quot;Create a new dict for the current thread, and return it.&quot;&quot;&quot;</span><br><span class="line">      localdict &#x3D; &#123;&#125;</span><br><span class="line">      key &#x3D; self.key</span><br><span class="line">      thread &#x3D; current_thread()</span><br><span class="line">      idt &#x3D; id(thread)    # id(thread)是当前线程对象内存地址，每个线程应该是唯一的</span><br><span class="line">      ...</span><br><span class="line">      self.dicts[idt] &#x3D; wrthread, localdict</span><br><span class="line">      return localdict</span><br><span class="line"></span><br><span class="line">  from threading import current_thread, RLock</span><br></pre></td></tr></table></figure>
+
+<p>那flask框架是用了threading.local吗？</p>
+</li>
+<li><p>flask框架用了threading.local吗？</p>
+<p>先说结论：flask的request对象不是基于”threading.local”，而是”contextvars.ContextVar”，后者可以实现”协程私有数据”</p>
+<p>下面代码运行结果中，task1函数不会打印hello，可以看出来ContextVar是实现”协程私有数据”。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br></pre></td><td class="code"><pre><span class="line">from greenlet import greenlet</span><br><span class="line">from contextvars import ContextVar</span><br><span class="line">from greenlet import getcurrent as get_ident</span><br><span class="line"></span><br><span class="line">var &#x3D; ContextVar(&quot;var&quot;)</span><br><span class="line">var.set(&quot;hello&quot;)</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def p(s):</span><br><span class="line">    print(s, get_ident())</span><br><span class="line"></span><br><span class="line">    try:</span><br><span class="line">        print(var.get())</span><br><span class="line">    except LookupError:</span><br><span class="line">        pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def task1():</span><br><span class="line">    p(&quot;task1&quot;)    # 不会打印hello</span><br><span class="line">    # gr2.switch()</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"># 测试ContextVar能否支持&quot;协程私有数据&quot;</span><br><span class="line">p(&quot;main&quot;)</span><br><span class="line">gr1 &#x3D; greenlet(task1)</span><br><span class="line">gr1.switch()</span><br><span class="line"></span><br><span class="line"># 测试ContextVar能否支持&quot;线程私有数据&quot;，结论是支持</span><br><span class="line"># import threading</span><br><span class="line"># p(&quot;main&quot;)</span><br><span class="line"># thread &#x3D; threading.Thread(target&#x3D;task1)</span><br><span class="line"># thread.start()</span><br><span class="line"># thread.join()</span><br></pre></td></tr></table></figure>
+
+<p>从<a target="_blank" rel="noopener" href="https://github.com/pallets/flask/blob/main/src/flask/globals.py">flask/globals.py</a>中可以看到request是werkzeug库的Local类型</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">_request_ctx_stack &#x3D; LocalStack()</span><br><span class="line">...</span><br><span class="line">request: &quot;Request&quot; &#x3D; LocalProxy(partial(_lookup_req_object, &quot;request&quot;))  # type: ignore</span><br></pre></td></tr></table></figure>
+
+<p>而从<a target="_blank" rel="noopener" href="https://github.com/pallets/werkzeug/blob/main/src/werkzeug/local.py">werkzeug/local.py源码</a> 可以看出来werkzeug库的Local是基于contextvars.ContextVar实现的</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">class Local:</span><br><span class="line">  ...</span><br><span class="line"></span><br><span class="line">  def __init__(self) -&gt; None:</span><br><span class="line">      object.__setattr__(self, &quot;_storage&quot;, ContextVar(&quot;local_storage&quot;)) # 基于contextvars.ContextVar</span><br></pre></td></tr></table></figure>
+
+<p>所以，flask并没有用threading.local，而是werkzeug库的Local类型。也因此在”多线程”或者”多协程”环境下，flask的request全局变量能够代表到当前线程或者协程处理的请求。</p>
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>web框架让”框架使用者”拿到”请求对象”有两种方式，包括”参数传递”、”全局变量”。</p>
+<p>实现”全局变量”这种方式时，因为web服务可能是在多线程或者多协程的环境，所以需要每个线程或者协程使用”全局变量”时互不干扰，就涉及到”线程私有数据”的概念。</p>
+<p>SpringWeb中在使用”RequestContextHolder.getRequestAttributes()静态方法”获取请求时，也是类似的业务逻辑。</p>
+<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a target="_blank" rel="noopener" href="https://geektutu.com/post/gee-day2.html">Go语言动手写Web框架 - Gee第二天 上下文Context</a><br><a target="_blank" rel="noopener" href="https://cizixs.com/2017/01/13/flask-insight-context/">flask 源码解析：上下文</a></p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -295,7 +805,7 @@
       <span class="post-meta-item-text">发表于</span>
       
 
-      <time title="创建时间：2022-03-12 17:34:49 / 修改时间：17:35:37" itemprop="dateCreated datePublished" datetime="2022-03-12T17:34:49+08:00">2022-03-12</time>
+      <time title="创建时间：2022-03-12 17:34:49 / 修改时间：17:41:18" itemprop="dateCreated datePublished" datetime="2022-03-12T17:34:49+08:00">2022-03-12</time>
     </span>
 
   
@@ -309,7 +819,7 @@
     
     <div class="post-body" itemprop="articleBody">
           <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>最近的工作内容会涉及到很多项目的”code review”，侧重发现”安全漏洞”。</p>
-<p>阅读代码时有时感觉有点费劲，我想原因一方面是对项目使用的”语言、库、框架”不熟悉，另一方面可能是缺少”设计模式”的知识，导致读一些框架代码时总是感觉”数据流”有些绕，所以我想学下”设计模式”提高代码审计的效率。</p>
+<p>阅读代码有时感觉有点费劲，我想原因一方面是对项目使用的”语言、库、框架”不熟悉，另一方面可能是缺少”设计模式”的知识，导致读一些框架代码时总是感觉”数据流”有些绕，所以我想学下”设计模式”提高代码审计的效率。</p>
 <p>本文分析<a target="_blank" rel="noopener" href="https://github.com/gin-gonic/gin">gin框架</a>的Run方法，看看是否用到了什么设计模式。</p>
 <h1 id="分析"><a href="#分析" class="headerlink" title="分析"></a>分析</h1><ul>
 <li><p>gin是什么？</p>
@@ -892,536 +1402,8 @@
 
 
 
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E7%BB%86%E5%93%81%E6%9F%90%E8%AF%AD%E4%B9%89waf%E7%9A%84xss%E9%98%B2%E6%8A%A4(4)/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E7%BB%86%E5%93%81%E6%9F%90%E8%AF%AD%E4%B9%89waf%E7%9A%84xss%E9%98%B2%E6%8A%A4(4)/" class="post-title-link" itemprop="url">细品某语义waf的xss防护(4)</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>假设攻击场景如下</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">漏洞输出位置在JS环境中，如下面3种场景</span><br><span class="line"></span><br><span class="line">&lt;script&gt;</span><br><span class="line">  var a&#x3D;&quot;用户输出可控位置&quot;;   &#x2F;&#x2F; 1</span><br><span class="line"></span><br><span class="line">  func(&quot;用户输出可控位置&quot;);   &#x2F;&#x2F; 2</span><br><span class="line"></span><br><span class="line">  eval(&quot;用户输出可控位置&quot;);   &#x2F;&#x2F; 3</span><br><span class="line"></span><br><span class="line">&lt;&#x2F;script&gt;</span><br></pre></td></tr></table></figure>
-
-<p>在这个场景下，验证厂商的安全防护策略</p>
-<p>分析思路</p>
-<ul>
-<li>判断支持哪几种引号的闭合</li>
-<li>对每类攻击场景单独测试，根据拦截情况推测安全防护策略</li>
-</ul>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><h2 id="判断支持哪几种引号的闭合"><a href="#判断支持哪几种引号的闭合" class="headerlink" title="判断支持哪几种引号的闭合"></a>判断支持哪几种引号的闭合</h2><p>现代的Javascript支持三种方式表示字符串</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">var a&#x3D;&#39;xx&#39;</span><br><span class="line">var a&#x3D;&quot;xx&quot;</span><br><span class="line">var a&#x3D;&#96;xx&#96;</span><br></pre></td></tr></table></figure>
-<p>因此同一个攻击场景会因为字符串写法细分成三类。</p>
-<p>测试payload是否被拦截</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">&#96;-alert(1)-&#96;   没有拦截     说明不支持拦截 var a&#x3D;&#96;&#96;-alert(1)-&#96;&#96;;  这种攻击</span><br><span class="line">&quot;-alert(1)-&quot;   拦截</span><br><span class="line">&#39;-alert(1)-&#39;   拦截</span><br></pre></td></tr></table></figure>
-
-<p>小结：</p>
-<ul>
-<li><p>支持单引号、双引号，不支持反引号</p>
-</li>
-<li><p>不支持防护下面的攻击场景</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">var a&#x3D;&#96;用户输出可控位置&#96;;</span><br><span class="line">func(&#96;用户输出可控位置&#96;);</span><br><span class="line">eval(&#96;用户输出可控位置&#96;);</span><br></pre></td></tr></table></figure>
-
-</li>
-</ul>
-<h2 id="单独测试"><a href="#单独测试" class="headerlink" title="单独测试"></a>单独测试</h2><ul>
-<li><p>var a=”用户输出可控位置”;</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">&quot;;xxx.alert(1);&#x2F;&#x2F;   拦截</span><br><span class="line">&quot;;xxx.xxalert(1);&#x2F;&#x2F;  不拦截</span><br></pre></td></tr></table></figure>
-
-<p>小结：</p>
-<ul>
-<li>解析js &amp;&amp; 存在”对象.函数()”形式或者”函数()”函数形式的函数调用 &amp;&amp; 函数名在黑名单中 则拦截</li>
-</ul>
-</li>
-<li><p>eval(‘用户输出可控位置’);</p>
-<p>漏洞利用时，如果不闭合引号</p>
-  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">self[&quot;xxxx&quot;](1)    拦截</span><br><span class="line">selxfxx[&quot;alert&quot;](1)  不拦截</span><br><span class="line">selfxx[&quot;alert&quot;](1)  拦截</span><br><span class="line">self.xxx(1)    不拦截</span><br><span class="line"></span><br><span class="line">说明安全策略可能是：函数调用 &amp;&amp; 形式为&quot;对象[属性]()&quot; &amp;&amp; 对象名在黑名单中 (前缀匹配)</span><br></pre></td></tr></table></figure>
-
-<p>漏洞利用时，如果闭合引号，就和<code>func(&#39;用户输出可控位置&#39;)</code>攻击场景一样了</p>
-<p>小结：</p>
-<ul>
-<li>解析js &amp;&amp; 存在”对象.函数()”形式或者”函数()”函数形式的函数调用 &amp;&amp; 函数名是否在黑名单中   则拦截   (之前测试<code>&lt;svg/onload=&quot;用户输出点&quot;&gt;</code>场景得出结论，在这里也适用)</li>
-<li>解析js &amp;&amp; 函数调用 &amp;&amp; 形式为<code>对象[属性]()</code> &amp;&amp; 对象名在黑名单中 (前缀匹配)   则拦截</li>
-</ul>
-</li>
-</ul>
-<ul>
-<li><p>func(‘用户输出可控位置’);</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;&#39;-alert(1)&#x2F;&#x2F;   拦截</span><br><span class="line">a&#x3D;&#39;-alert(1)-   拦截</span><br></pre></td></tr></table></figure>
-
-<p>小结： 解析js &amp;&amp; 存在”对象.函数()”形式或者”函数()”函数形式的函数调用 &amp;&amp; 函数名在黑名单中  则拦截</p>
-</li>
-</ul>
-<h2 id="不能解释的奇怪现象"><a href="#不能解释的奇怪现象" class="headerlink" title="不能解释的奇怪现象"></a>不能解释的奇怪现象</h2><ul>
-<li><p>测试过程中 <code>&quot;;alert(&#39;)</code> payload 被拦截</p>
-<p>按照我的经验，<code>&quot;;alert(&#39;)</code> payload无论对应到哪一类攻击场景都不会是正确的js语法，因此不应该被语义waf拦截。</p>
-<p>虽然 “;alert(‘)  payload在下面场景下可以弹框</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">&lt;script&gt;</span><br><span class="line">var a&#x3D;&quot;用户输出&#39;);   &#x2F;&#x2F; var a&#x3D;&quot;&quot;;alert(&#39;)&#39;);</span><br><span class="line">&lt;&#x2F;script&gt;</span><br></pre></td></tr></table></figure>
-
-<p>但是几乎不可能有开发写出上面的代码。</p>
-<p>所以，有两个问题：</p>
-<ol>
-<li>这个payload是否有对应的漏洞场景？</li>
-<li>如果有对应的漏洞场景，对应的漏洞代码会长什么样？</li>
-</ol>
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><ul>
-<li>可能的安全策略：<ul>
-<li>解析js &amp;&amp; 存在”对象.函数()”形式或者”函数()”函数形式的函数调用 &amp;&amp; 函数名在黑名单中  则拦截</li>
-<li>解析js &amp;&amp; 函数调用 &amp;&amp; 形式为<code>对象[属性]()</code> &amp;&amp; 对象名在黑名单中 (前缀匹配)   则拦截</li>
-</ul>
-</li>
-<li>有一些payload被拦截的原因目前无法解释</li>
-</ul>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E7%BB%86%E5%93%81%E6%9F%90%E8%AF%AD%E4%B9%89waf%E7%9A%84xss%E9%98%B2%E6%8A%A4(3)/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E7%BB%86%E5%93%81%E6%9F%90%E8%AF%AD%E4%B9%89waf%E7%9A%84xss%E9%98%B2%E6%8A%A4(3)/" class="post-title-link" itemprop="url">细品某语义waf的xss防护(3)</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><ul>
-<li>经过前期调研，标签中下面的危险属性可以用来做xss攻击：<ul>
-<li>href属性</li>
-<li>src属性</li>
-<li>on事件属性</li>
-<li>srcdoc属性</li>
-<li>xlink:href</li>
-<li>action</li>
-<li>formaction</li>
-<li>data (object标签)</li>
-</ul>
-</li>
-</ul>
-<p>假设攻击场景如下</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">漏洞输出位置是 &lt;标签 危险属性&#x3D;&quot;用户输出可控位置&quot;&gt;，比如：</span><br><span class="line">&lt;a href&#x3D;&quot;用户输出可控位置&quot;&gt;</span><br><span class="line">&lt;script src&#x3D;&quot;用户输出可控位置&quot;&gt;</span><br><span class="line"></span><br><span class="line">攻击者不闭合属性值时利用xss攻击,如:</span><br><span class="line">&lt;a href&#x3D;&quot;javascript:alert(&#39;xss&#39;)&quot;&gt;</span><br></pre></td></tr></table></figure>
-
-<p>经过前期调研，在属性值中有下面这些利用方式：</p>
-<ul>
-<li>javascript:js代码</li>
-<li>js代码   （on事件属性）</li>
-<li>data:text/html</li>
-<li>script脚本地址 (script标签的src属性)</li>
-</ul>
-<p>在这个场景下，不考虑其他的利用手段，验证厂商语义waf的安全防护策略</p>
-<p>分析思路：</p>
-<ul>
-<li>针对在属性中每一种利用方式测试，根据拦截情况推测安全防护策略</li>
-</ul>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><h2 id="javascript-js代码"><a href="#javascript-js代码" class="headerlink" title="javascript:js代码"></a>javascript:js代码</h2><p>攻击场景是</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;a&#x2F;href&#x3D;&quot;用户输出可控点&quot;&gt;&lt;&#x2F;a&gt;</span><br></pre></td></tr></table></figure>
-
-<p>测试过程</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;javascript:console.xxx()   拦截</span><br><span class="line">a&#x3D;javascript:console.log(111);xx&#123;&#96;faji(   不拦截  说明判断了js语法是否正确</span><br><span class="line">a&#x3D;javascript:xxx.consol(11)  不拦截</span><br><span class="line">a&#x3D;javascript:xxx.console(11)  拦截   说明危险对象和危险函数一样，在同一个黑名单里。</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:xxx.consoleeee(11)    拦截</span><br><span class="line">a&#x3D;javascript:xxx.xxxconsoleeee(11) 不拦截  说明判断是否在黑名单中采用前缀判断</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:xxxxx()   不拦截</span><br><span class="line">a&#x3D;javascript:alertxxx(11) 拦截</span><br><span class="line">a&#x3D;javascript:alert()   拦截   说明逻辑是 是否存在函数调用 &amp;&amp; 函数名是否在黑名单中</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:a&#x3D;alert;a(1);  拦截</span><br><span class="line">a&#x3D;javascript:a&#x3D;alert;b(1);  拦截   似乎逻辑是 危险函数赋值 &amp;&amp; 调用函数</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:a&#x3D;console;b&#96;1&#96;;  拦截</span><br><span class="line">a&#x3D;javascript:a&#x3D;console;b(1);  拦截</span><br><span class="line">a&#x3D;javascript:a&#x3D;&#x2F;**&#x2F;console;b&#96;1&#96;;   拦截 可以确认拦截逻辑是  危险函数赋值 &amp;&amp; 调用函数</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:alert(&quot;1&quot;)  拦截</span><br><span class="line">a&#x3D;javascript:alert?.(&quot;1&quot;)  应该拦截，但是没有拦截。  说明这里做了js语法解析，且解析器没有支持最新的js语法</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:console()  不拦截</span><br><span class="line">a&#x3D;javascript:console();xxx.xx()  拦截    </span><br><span class="line">a&#x3D;javascript:consolexxaa();xxx.xx 不拦截   说明只有存在 对象.函数()形式的函数调用 &amp;&amp; 对象名在黑名单中  </span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:window&#x3D;xxx;xxx.xx()   不拦截</span><br><span class="line">a&#x3D;javascript:xxx&#x3D;window;xxx.xx()   拦截    可以确认拦截逻辑是 危险对象赋值 &amp;&amp; 调用函数</span><br></pre></td></tr></table></figure>
-
-<p>小结：</p>
-<ul>
-<li>解析js &amp;&amp; 是否存在”函数()”形式的函数调用 &amp;&amp; 获取调用函数名 &amp;&amp; 函数名在黑名单中（前缀匹配） 则拦截</li>
-<li>解析js &amp;&amp; 是否存在”对象.函数()”形式的函数调用 &amp;&amp; 获取函数名、对象名 &amp;&amp; 将危险对象名扩充到黑名单中 &amp;&amp; (函数名在黑名单中 || 对象名在对象黑名单中)   则拦截</li>
-<li>解析js &amp;&amp; (危险对象赋值 || 危险函数赋值) &amp;&amp; 调用函数    则拦截</li>
-</ul>
-<h2 id="js代码"><a href="#js代码" class="headerlink" title="js代码"></a>js代码</h2><p>攻击场景是</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;svg&#x2F;onload&#x3D;&quot;用户输出点&quot;&gt;</span><br></pre></td></tr></table></figure>
-
-<p>测试过程</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;alert()   拦截</span><br><span class="line">a&#x3D;xxxxx()   不拦截  说明逻辑是 是否存在函数调用 &amp;&amp; 函数名是否在黑名单中</span><br><span class="line">a&#x3D;x&#x3D;alert;x(1);   应该拦截，但是没有拦截。   说明这里没有&quot;危险函数赋值 &amp;&amp; 调用函数&quot;的检测逻辑</span><br><span class="line">a&#x3D;console.log(11)   应该拦截，但是也没有拦截   说明没有拦截&quot;危险对象&quot;</span><br><span class="line">xxxx.alert(11)   拦截    确认逻辑是 是否存在函数调用 &amp;&amp; 函数名是否在黑名单中</span><br></pre></td></tr></table></figure>
-
-<p>小结:</p>
-<ul>
-<li>解析js &amp;&amp; 存在”对象.函数()”形式或者”函数()”函数形式的函数调用 &amp;&amp; 函数名是否在黑名单中   则拦截</li>
-</ul>
-<h2 id="data-text-html"><a href="#data-text-html" class="headerlink" title="data:text/html"></a>data:text/html</h2><p>攻击场景是</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;iframe src&#x3D;&quot;用户输出可控点&quot;&gt;</span><br></pre></td></tr></table></figure>
-<p>测试过程</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">data:text&#x2F;html;base64;PGltZy9vbmxvYWQ9eHg  不拦截</span><br><span class="line"></span><br><span class="line">data:text&#x2F;html;base64,PHN2Zy9vbmxvYWQ9YWxlcnQoMSk+   应该拦截，但是没有拦截. 说明不拦截这种利用场景</span><br></pre></td></tr></table></figure>
-<p>小结：不拦截</p>
-<h2 id="script脚本地址-script标签"><a href="#script脚本地址-script标签" class="headerlink" title="script脚本地址 (script标签)"></a>script脚本地址 (script标签)</h2><p>攻击场景是</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;script src&#x3D;&quot;用户输出点&quot;&gt;</span><br></pre></td></tr></table></figure>
-
-<p>测试过程</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">http:&#x2F;&#x2F;xxx.com&#x2F;a.js  应该拦截，但是没有拦截. 说明不拦截这种攻击场景</span><br></pre></td></tr></table></figure>
-<p>小结：不拦截</p>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>拦截策略，可能是：</p>
-<ul>
-<li>解析js &amp;&amp; 是否存在”函数()”形式的函数调用 &amp;&amp; 获取调用函数名 &amp;&amp; 函数名在黑名单中（前缀匹配） 则拦截</li>
-<li>解析js &amp;&amp; 是否存在”对象.函数()”形式的函数调用 &amp;&amp; 获取函数名、对象名 &amp;&amp; 将危险对象名扩充到黑名单中 &amp;&amp; (函数名在黑名单中 || 对象名在对象黑名单中)   则拦截</li>
-<li>解析js &amp;&amp; (危险对象赋值 || 危险函数赋值) &amp;&amp; 调用函数    则拦截</li>
-<li>解析js &amp;&amp; 存在”对象.函数()”形式或者”函数()”函数形式的函数调用 &amp;&amp; 函数名是否在黑名单中   则拦截</li>
-</ul>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E9%AA%8C%E8%AF%81pf_ring%E6%80%A7%E8%83%BD/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E9%AA%8C%E8%AF%81pf_ring%E6%80%A7%E8%83%BD/" class="post-title-link" itemprop="url">验证pf_ring性能</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>本实验主要为了验证<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/kernel">pf_ring.ko</a>内核模块是否能够提升抓包率。</p>
-<p>实验思路很多参考自 <a target="_blank" rel="noopener" href="http://cea.ceaj.org/CN/article/downloadArticleFile.do?attachType=PDF&id=30309">PF_RING与NAPI结合的捕包性能优化和仿真.pdf</a></p>
-<p>通过分析源码得知：</p>
-<ul>
-<li>pf_ring.ko未加载到内核时，<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/libpcap-1.9.1">libpcap</a> 会使用PCAP_MMAP方式来抓包</li>
-<li>pf_ring.ko加载到内核时，<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/libpcap-1.9.1">libpcap</a> 会通过<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/lib">libpfring</a>配合pf_ring.ko内核模块来抓包</li>
-<li>pf_ring基本没有对 <a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/tcpdump-4.9.3">tcpdump</a> 做改动</li>
-</ul>
-<p>实验思路：</p>
-<ul>
-<li>使用pf_ring项目中的tcpdump抓包，计算抓包率</li>
-<li>使用pktgen发包</li>
-<li>在”加载pf_ring.ko”和”不加载pf_ring.ko”两种场景下分别测试三次</li>
-</ul>
-<p>实验环境：</p>
-<table>
-<thead>
-<tr>
-<th>机器用途</th>
-<th>配置</th>
-<th>操作系统</th>
-<th>备注</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>发包机</td>
-<td>2核4G、pps 40w</td>
-<td>CentOS 7.5</td>
-<td>云虚机</td>
-</tr>
-<tr>
-<td>收包机</td>
-<td>2核4G、pps 40w</td>
-<td>CentOS 7.5</td>
-<td>云虚机</td>
-</tr>
-</tbody></table>
-<h1 id="过程"><a href="#过程" class="headerlink" title="过程"></a>过程</h1><h2 id="准备测试环境"><a href="#准备测试环境" class="headerlink" title="准备测试环境"></a>准备测试环境</h2><ul>
-<li><p>收包机器编译安装tcpdump</p>
-<p>安装依赖</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">yum install flex bison kernel-headers kernel-devel gcc stress -y</span><br></pre></td></tr></table></figure>
-
-<p>依次编译<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/kernel">pf_ring.ko</a>、<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/lib">libpfring</a>、<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/libpcap-1.9.1">libpcap</a>、<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/tcpdump-4.9.3">tcpdump</a></p>
-</li>
-<li><p>发包机器编写发包脚本</p>
-<p>此bash脚本配置来自网络</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line"># 定义一个工具函数，方便后面配置各种测试选项</span><br><span class="line">function pgset() &#123;</span><br><span class="line">    local result</span><br><span class="line"># 定义一个工具函数，方便后面配置各种测试选项</span><br><span class="line">    echo $1 &gt; $PGDEV</span><br><span class="line"></span><br><span class="line">    result&#x3D;&#96;cat $PGDEV | fgrep &quot;Result: OK:&quot;&#96;</span><br><span class="line">    if [ &quot;$result&quot; &#x3D; &quot;&quot; ]; then</span><br><span class="line">         cat $PGDEV | fgrep Result:</span><br><span class="line">    fi</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"># 为0号线程绑定eth0网卡</span><br><span class="line">PGDEV&#x3D;&#x2F;proc&#x2F;net&#x2F;pktgen&#x2F;kpktgend_0</span><br><span class="line"></span><br><span class="line">pgset &quot;rem_device_all&quot;   # 清空网卡绑定</span><br><span class="line">pgset &quot;add_device eth0&quot;  # 添加eth0网卡</span><br><span class="line"></span><br><span class="line"># 配置eth0网卡的测试选项</span><br><span class="line">PGDEV&#x3D;&#x2F;proc&#x2F;net&#x2F;pktgen&#x2F;eth0</span><br><span class="line">pgset &quot;count 2000&quot;    # 总发包数量</span><br><span class="line">pgset &quot;delay 0&quot;       # 不同包之间的发送延迟(单位纳秒)</span><br><span class="line">pgset &quot;clone_skb 0&quot;      # SKB包复制</span><br><span class="line">pgset &quot;pkt_size 64&quot;      # 网络包大小</span><br><span class="line">pgset &quot;dst 172.16.32.12&quot; # 目的IP</span><br><span class="line">pgset &quot;dst_mac fa:28:00:06:df:6c&quot;  # 目的MAC</span><br><span class="line"></span><br><span class="line"># 启动测试</span><br><span class="line">PGDEV&#x3D;&#x2F;proc&#x2F;net&#x2F;pktgen&#x2F;pgctrl</span><br><span class="line">pgset &quot;start&quot;</span><br></pre></td></tr></table></figure>
-
-<p>modprobe pktgen</p>
-</li>
-<li><p>人为调高收包机cpu利用率</p>
-<p>为什么要调高呢？因为实验过程中发现，如果不调高，即使收包机pps达到最大值40w，机器cpu仍然很低、tcpdump不会丢包，这样就看不出来效果。</p>
-<p>怎么调高cpu利用率？可以使用 <code>stress -c 2</code> 命令 故意占用cpu。</p>
-</li>
-</ul>
-<h2 id="观察测试数据"><a href="#观察测试数据" class="headerlink" title="观察测试数据"></a>观察测试数据</h2><ul>
-<li><p>发包为<code>pgset &quot;pkt_size 64&quot;</code>时，收包机的收包率</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4265694 packets captured</span><br><span class="line">4268967 packets received by filter</span><br><span class="line">3273 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4190808 packets captured</span><br><span class="line">4196105 packets received by filter</span><br><span class="line">5297 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4192817 packets captured</span><br><span class="line">4197737 packets received by filter</span><br><span class="line">4920 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# insmod ..&#x2F;..&#x2F;kernel&#x2F;pf_ring.ko</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4212730 packets captured</span><br><span class="line">4212730 packets received by filter</span><br><span class="line">0 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4217341 packets captured</span><br><span class="line">4217341 packets received by filter</span><br><span class="line">0 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4358870 packets captured</span><br><span class="line">4358870 packets received by filter</span><br><span class="line">0 packets dropped by kernel</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>测试数据汇总</p>
-<p>| 包大小 | 是否加载pf_ring.ko | captured | received | dropped |<br>| - | - | - | - | - | - |<br>| 64 | 否 | 4265694 | 4268967 | 3273 |<br>| 64 | 否 | 4192817 | 4197737 | 4920 |<br>| 64 | 否 | 4190808 | 4196105 | 5297 |<br>| 64 | 是 | 4212730 | 4212730 | 0 |<br>| 64 | 是 | 4217341 | 4217341 | 0 |<br>| 64 | 是 | 4358870 | 4358870 | 0 |<br>| 1500 | 否 | 2113248 | 2421024 | 307776 |<br>| 1500 | 否 | 1988029 | 2370209 | 382180 |<br>| 1500 | 否 | 2121627 | 2424882 | 303255 |<br>| 1500 | 是 | 2382563 | 2382563 | 0 |<br>| 1500 | 是 | 2422587 | 2422587 | 0 |<br>| 1500 | 是 | 2479560 | 2479560 | 0 |</p>
-<p><code>pgset &quot;pkt_size 64&quot;</code>命令调整包大小</p>
-<p>可以看到上面收包机tcpdump的数据：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 加载pf_ring.ko内核模块前，六次都有丢包</span><br><span class="line">* 加载pf_ring.ko内核模块后，六次都没有丢包</span><br><span class="line">* 大包时，丢包更严重</span><br></pre></td></tr></table></figure>
-
-<p>所以可以得出结论：</p>
-<ul>
-<li>pf_ring版本的tcpdump抓包率更高</li>
-</ul>
-</li>
-</ul>
-<h1 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h1><ul>
-<li>pf_ring版本的tcpdump抓包率更高</li>
-</ul>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E9%AA%8C%E8%AF%81%E6%98%AF%E5%90%A6%E5%AD%98%E5%9C%A8%E5%86%99%E6%96%87%E4%BB%B6%E6%BC%8F%E6%B4%9E%E5%B0%8F%E6%8A%80%E5%B7%A7/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E9%AA%8C%E8%AF%81%E6%98%AF%E5%90%A6%E5%AD%98%E5%9C%A8%E5%86%99%E6%96%87%E4%BB%B6%E6%BC%8F%E6%B4%9E%E5%B0%8F%E6%8A%80%E5%B7%A7/" class="post-title-link" itemprop="url">验证是否存在写文件漏洞小技巧</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>在安全黑盒测试时遇到一个疑似能写任意文件的漏洞点，想要验证漏洞是否存在。</p>
-<p>这里就猜测后端代码可能如下：存在可能的任意写文件漏洞，可写的内容部分可控、服务权限未知</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">content &#x3D; &quot;something start&quot; + &quot;用户可控的内容&quot; + &quot;something end&quot;</span><br><span class="line">f &#x3D; open(&quot;用户指定的文件路径&quot;, &quot;w&quot;)</span><br><span class="line">f.write(content)</span><br></pre></td></tr></table></figure>
-
-<p>最开始用”写入ping dnslog命令到crontab”来验证写文件漏洞是否存在，不过验证失败了，可能因为下面两个原因：</p>
-<ul>
-<li>目标机器没启动cron服务</li>
-<li>服务身份可能不是root，没有权限写 /var/spool/cron目录和/etc/crontab</li>
-</ul>
-<p>也可以写内容到 .bashrc、web路径、常用文件（比如bash、ping等），但这些方式都有一点限制：</p>
-<ul>
-<li>/root/.bashrc因为服务身份不一定是root，所以可能写入失败</li>
-<li>.bashrc需要登陆到机器才能触发</li>
-<li>web路径位置未知</li>
-<li>写常用文件(比如bash、ping等)可能影响目标系统的稳定性，并且需要等待目标操作才能触发</li>
-</ul>
-<p>我这里只想要快速验证”写文件漏洞”是否存在，确认存在后，再来尝试上述或者别的方法来做漏洞利用。</p>
-<p>为了验证”写文件漏洞”是否存在，我的思路是 能不能找到一个特殊文件，写内容到此文件会造成延时或者产生dnslog。</p>
-<p>我能想到的特殊文件包括：</p>
-<ul>
-<li>管道文件</li>
-<li>/dev/tcp/{host}/{ip}</li>
-<li>socket文件</li>
-<li>标准描述符  (/proc/self/fd/0、/proc/self/fd/1)</li>
-</ul>
-<p>下面就是验证这些文件，哪个符合需求</p>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
-<li><p>管道文件</p>
-<p>思路：找到系统上默认的管道文件，并且验证写入文件是否阻塞</p>
-<ol>
-<li><p>找出系统默认的管道文件</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">find &#x2F; -type p</span><br></pre></td></tr></table></figure>
-
-<p> 可以看到CentOS 7.9系统默认存在一些管道文件</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;run&#x2F;dmeventd-client</span><br><span class="line">&#x2F;run&#x2F;dmeventd-server</span><br><span class="line">&#x2F;run&#x2F;systemd&#x2F;ask-password-block&#x2F;136:4</span><br><span class="line">&#x2F;run&#x2F;systemd&#x2F;sessions&#x2F;1.ref</span><br><span class="line">&#x2F;run&#x2F;systemd&#x2F;initctl&#x2F;fifo</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>验证上面的管道文件，有一个可以利用</p>
-<p> <code>echo 1 &gt; /run/systemd/ask-password-block/136:4</code>  会阻塞</p>
-<p> 这个文件在其他系统文件名略微有点不同，并且只有root用户可以读写</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">另一个CentOS7.9: &#x2F;run&#x2F;systemd&#x2F;ask-password-block&#x2F;136:0</span><br><span class="line">ubuntu：&#x2F;run&#x2F;systemd&#x2F;ask-password-block&#x2F;136:2</span><br></pre></td></tr></table></figure>
-
-</li>
-</ol>
-<p>小结：可以用 /run/systemd/ask-password-block/136:{id} 文件来探测是否存在文件写漏洞，前提是服务有root权限</p>
-</li>
-</ul>
-<ul>
-<li><p>/dev/tcp/{host}/{ip}</p>
-<p>在bash反弹shell中会用到这个。</p>
-<p>它不是文件，只是bash解释器会对/dev/tcp对特殊处理，代表了一个tcp socket。</p>
-<p>所以它不满足需求。</p>
-</li>
-<li><p>socket文件</p>
-<p>操作socket文件不是open、write、close这一套流程，所以肯定不行。</p>
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><ul>
-<li>可以用 /run/systemd/ask-password-block/136:{id} 文件来探测是否存在文件写漏洞，前提是服务有root权限。</li>
-</ul>
-<p>最后，感谢和我讨论这个小问题的朋友。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
   <nav class="pagination">
-    <span class="page-number current">1</span><a class="page-number" href="/page/2/">2</a><span class="space">&hellip;</span><a class="page-number" href="/page/5/">5</a><a class="extend next" rel="next" href="/page/2/"><i class="fa fa-angle-right" aria-label="下一页"></i></a>
+    <span class="page-number current">1</span><a class="page-number" href="/page/2/">2</a><span class="space">&hellip;</span><a class="page-number" href="/page/6/">6</a><a class="extend next" rel="next" href="/page/2/"><i class="fa fa-angle-right" aria-label="下一页"></i></a>
   </nav>
 
 </div>

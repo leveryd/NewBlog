@@ -125,12 +125,12 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">48</span>
+          <span class="site-state-item-count">52</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
       <div class="site-state-item site-state-tags">
-        <span class="site-state-item-count">21</span>
+        <span class="site-state-item-count">22</span>
         <span class="site-state-item-name">标签</span>
       </div>
   </nav>
@@ -168,7 +168,7 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E9%AA%8C%E8%AF%81%E7%BC%BA%E9%A1%B5%E4%B8%AD%E6%96%AD%E6%9C%BA%E5%88%B6/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E7%BB%86%E5%93%81%E6%9F%90%E8%AF%AD%E4%B9%89waf%E7%9A%84xss%E9%98%B2%E6%8A%A4(3)/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -181,7 +181,7 @@
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E9%AA%8C%E8%AF%81%E7%BC%BA%E9%A1%B5%E4%B8%AD%E6%96%AD%E6%9C%BA%E5%88%B6/" class="post-title-link" itemprop="url">验证缺页中断机制</a>
+          <a href="/2021-12-26-%E7%BB%86%E5%93%81%E6%9F%90%E8%AF%AD%E4%B9%89waf%E7%9A%84xss%E9%98%B2%E6%8A%A4(3)/" class="post-title-link" itemprop="url">细品某语义waf的xss防护(3)</a>
         </h2>
 
         <div class="post-meta-container">
@@ -205,43 +205,211 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>在x86系列的cpu上开启分页机制后，指令涉及到”内存读写”操作时，用到的”内存地址”都是”虚拟地址”。”mmu硬件”会按照”分段”、”分页”的计算规则，将”虚拟地址”转换成”物理地址”。最终指令可以对”物理地址”读写数据。</p>
-<p>上面这段关于内存的”理论知识”，我觉得如果可以实践看一看，就能多一些”感觉”。</p>
-<p>本文记录我对下面两个结论的调试和验证过程，也是我对极客时间的<a target="_blank" rel="noopener" href="https://time.geekbang.org/column/intro/100078401?tab=catalog">操作系统实战 45 讲</a>课程中”内存管理”章节的部分学习和实践，基于<a target="_blank" rel="noopener" href="https://gitee.com/lmos/cosmos/tree/master/lesson25~26/Cosmos">第26课代码</a>。</p>
-<p>“mmu硬件”在转换”虚拟地址”时有可能发生”缺页异常”，包括：</p>
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><ul>
+<li>经过前期调研，标签中下面的危险属性可以用来做xss攻击：<ul>
+<li>href属性</li>
+<li>src属性</li>
+<li>on事件属性</li>
+<li>srcdoc属性</li>
+<li>xlink:href</li>
+<li>action</li>
+<li>formaction</li>
+<li>data (object标签)</li>
+</ul>
+</li>
+</ul>
+<p>假设攻击场景如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">漏洞输出位置是 &lt;标签 危险属性&#x3D;&quot;用户输出可控位置&quot;&gt;，比如：</span><br><span class="line">&lt;a href&#x3D;&quot;用户输出可控位置&quot;&gt;</span><br><span class="line">&lt;script src&#x3D;&quot;用户输出可控位置&quot;&gt;</span><br><span class="line"></span><br><span class="line">攻击者不闭合属性值时利用xss攻击,如:</span><br><span class="line">&lt;a href&#x3D;&quot;javascript:alert(&#39;xss&#39;)&quot;&gt;</span><br></pre></td></tr></table></figure>
+
+<p>经过前期调研，在属性值中有下面这些利用方式：</p>
 <ul>
-<li>访问”未向内核申请的虚拟地址”会导致”缺页异常”</li>
-<li>当第一次访问申请的虚拟地址时，也会产生”缺页异常”；第二次访问同样的虚拟地址时，不会产生”缺页异常”</li>
+<li>javascript:js代码</li>
+<li>js代码   （on事件属性）</li>
+<li>data:text/html</li>
+<li>script脚本地址 (script标签的src属性)</li>
 </ul>
-<h1 id="验证过程"><a href="#验证过程" class="headerlink" title="验证过程"></a>验证过程</h1><ul>
-<li><p>访问”未向内核申请的虚拟地址”会导致”缺页异常”</p>
-<p>按照理论来说：访问未申请的虚拟地址时，”mmu硬件”在转换”虚拟地址”时会发出”缺页异常”（可能因为找不到对应的”页表项”）</p>
-<p>在验证这个理论前，先介绍一下cosmos(课程自制的内核系统名称)相关的代码，以方便读者大概理解文中出现的函数作用</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">void test_vadr()</span><br><span class="line">&#123;</span><br><span class="line">	adr_t vadr &#x3D; vma_new_vadrs(&amp;initmmadrsdsc, NULL, 0x1000, 0, 0);  &#x2F;&#x2F; 0x1000是想要申请的空间大小，vadr是申请的内存地址</span><br><span class="line">	if(NULL &#x3D;&#x3D; vadr)</span><br><span class="line">	&#123;</span><br><span class="line">		kprint(&quot;分配虚拟地址空间失败\n&quot;);</span><br><span class="line">	&#125;</span><br><span class="line">  ...</span><br><span class="line">	hal_memset((void*)vadr, 0, 0x1000);  &#x2F;&#x2F; 初始化刚申请的内存为0</span><br><span class="line">	...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-<p>上面<code>test_vadr</code>是cosmos中用来验证”虚拟内存”相关功能的测试函数。</p>
-<p>在cosmos中，想要使用虚拟空间，需要先调用<code>vma_new_vadrs</code>申请一个虚拟地址。</p>
-<p>cosmos相关代码介绍完毕，下面用gdb调试课程代码，来实际验证一下”理论”：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line">(gdb) break test_vadr   &#x2F;&#x2F; 在 test_vadr 函数下断点（选择在test_vadr函数下断点，是因为此时 虚拟内存管理、物理内存管理、缺页异常处理 等功能都已经实现）</span><br><span class="line">Breakpoint 1 at 0xffff80000202444a: file ..&#x2F;kernel&#x2F;krlvadrsmem.c, line 289.</span><br><span class="line">(gdb) continue</span><br><span class="line">Continuing.</span><br><span class="line"></span><br><span class="line">Breakpoint 1, test_vadr () at ..&#x2F;kernel&#x2F;krlvadrsmem.c:289</span><br><span class="line">289	&#123;</span><br><span class="line">(gdb) break krluserspace_accessfailed   &#x2F;&#x2F; 在 krluserspace_accessfailed 函数下断点</span><br><span class="line">Breakpoint 2 at 0xffff800002026588: file ..&#x2F;kernel&#x2F;krlvadrsmem.c, line 1145.</span><br><span class="line">(gdb) call hal_memset(0x400,0,0x1)  &#x2F;&#x2F; 调用hal_memset函数，向 0x400地址 写一个字节内容</span><br><span class="line"></span><br><span class="line">Breakpoint 2, krluserspace_accessfailed (fairvadrs&#x3D;0) at ..&#x2F;kernel&#x2F;krlvadrsmem.c:1145 &#x2F;&#x2F;</span><br><span class="line">...</span><br><span class="line">(gdb) where   &#x2F;&#x2F; 可以看到 当前代码在..&#x2F;kernel&#x2F;krlvadrsmem.c文件1145行的krluserspace_accessfailed</span><br><span class="line">#0  krluserspace_accessfailed (fairvadrs&#x3D;0) at ..&#x2F;kernel&#x2F;krlvadrsmem.c:1145</span><br><span class="line">#1  0xffff8000020135d2 in hal_fault_allocator (faultnumb&#x3D;14, krnlsframp&#x3D;0xffff80000008fe18)</span><br><span class="line">    at ..&#x2F;hal&#x2F;x86&#x2F;halintupt.c:171</span><br><span class="line">#2  0xffff80000200d830 in exc_page_fault ()</span><br><span class="line">...</span><br><span class="line">(gdb) continue</span><br><span class="line">Continuing.</span><br><span class="line">^C      &#x2F;&#x2F; 因为在这里卡死了，所以我按了ctrl+c</span><br><span class="line">Program received signal SIGINT, Interrupt.</span><br><span class="line">hal_sysdie (errmsg&#x3D;0xffff80000203a237 &quot;缺页处理失败\n&quot;) at ..&#x2F;hal&#x2F;x86&#x2F;halcpuctrl.c:185</span><br><span class="line">185	        ;</span><br></pre></td></tr></table></figure>
-<p>从上面的调试信息可以看出来：cpu在执行<code>hal_memset</code>函数访问<code>0x400</code>虚拟地址时，跳到了<code>krluserspace_accessfailed</code>函数，最后卡死在<code>halcpuctrl.c</code>第185行</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/144075113-24fdf0f1-74ac-4223-9a09-d6c71ed0993a.png" alt="image"></p>
-<p>这里的<code>0x400</code>地址不是通过<code>vma_new_vadrs</code>申请的地址。</p>
-<p><code>krluserspace_accessfailed</code>函数只有cpu遇到中断并且中断号为14（也就是”缺页异常”）的时候才会被调用</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;&#x2F; 异常处理</span><br><span class="line">void hal_fault_allocator(uint_t faultnumb, void *krnlsframp) &#x2F;&#x2F;eax,edx</span><br><span class="line">&#123;</span><br><span class="line">    ...</span><br><span class="line">    if (faultnumb &#x3D;&#x3D; 14)        &#x2F;&#x2F; 缺页异常 中断号是14</span><br><span class="line">    &#123;</span><br><span class="line">        ...</span><br><span class="line">        if (krluserspace_accessfailed(fairvadrs) !&#x3D; 0)</span><br><span class="line">       &#123;</span><br><span class="line">           system_error(&quot;缺页处理失败\n&quot;);</span><br><span class="line">       &#125;</span><br><span class="line">        ...</span><br><span class="line">    &#125;</span><br><span class="line">    ...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>在这个场景下，不考虑其他的利用手段，验证厂商语义waf的安全防护策略</p>
+<p>分析思路：</p>
+<ul>
+<li>针对在属性中每一种利用方式测试，根据拦截情况推测安全防护策略</li>
+</ul>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><h2 id="javascript-js代码"><a href="#javascript-js代码" class="headerlink" title="javascript:js代码"></a>javascript:js代码</h2><p>攻击场景是</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;a&#x2F;href&#x3D;&quot;用户输出可控点&quot;&gt;&lt;&#x2F;a&gt;</span><br></pre></td></tr></table></figure>
 
-<p>所以可以推测出来：访问<code>0x400</code>时，mmu硬件发出了”缺页中断”，接着cpu处理”缺页中断”就会到<code>krluserspace_accessfailed</code>函数，因为<code>krluserspace_accessfailed</code>函数处理”页表映射”失败，所以会调用<code>system_error</code>函数，最终执行<code>for循环</code>卡死。</p>
-<p>这样可以看出来理论没有问题。</p>
+<p>测试过程</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;javascript:console.xxx()   拦截</span><br><span class="line">a&#x3D;javascript:console.log(111);xx&#123;&#96;faji(   不拦截  说明判断了js语法是否正确</span><br><span class="line">a&#x3D;javascript:xxx.consol(11)  不拦截</span><br><span class="line">a&#x3D;javascript:xxx.console(11)  拦截   说明危险对象和危险函数一样，在同一个黑名单里。</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:xxx.consoleeee(11)    拦截</span><br><span class="line">a&#x3D;javascript:xxx.xxxconsoleeee(11) 不拦截  说明判断是否在黑名单中采用前缀判断</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:xxxxx()   不拦截</span><br><span class="line">a&#x3D;javascript:alertxxx(11) 拦截</span><br><span class="line">a&#x3D;javascript:alert()   拦截   说明逻辑是 是否存在函数调用 &amp;&amp; 函数名是否在黑名单中</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:a&#x3D;alert;a(1);  拦截</span><br><span class="line">a&#x3D;javascript:a&#x3D;alert;b(1);  拦截   似乎逻辑是 危险函数赋值 &amp;&amp; 调用函数</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:a&#x3D;console;b&#96;1&#96;;  拦截</span><br><span class="line">a&#x3D;javascript:a&#x3D;console;b(1);  拦截</span><br><span class="line">a&#x3D;javascript:a&#x3D;&#x2F;**&#x2F;console;b&#96;1&#96;;   拦截 可以确认拦截逻辑是  危险函数赋值 &amp;&amp; 调用函数</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:alert(&quot;1&quot;)  拦截</span><br><span class="line">a&#x3D;javascript:alert?.(&quot;1&quot;)  应该拦截，但是没有拦截。  说明这里做了js语法解析，且解析器没有支持最新的js语法</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:console()  不拦截</span><br><span class="line">a&#x3D;javascript:console();xxx.xx()  拦截    </span><br><span class="line">a&#x3D;javascript:consolexxaa();xxx.xx 不拦截   说明只有存在 对象.函数()形式的函数调用 &amp;&amp; 对象名在黑名单中  </span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:window&#x3D;xxx;xxx.xx()   不拦截</span><br><span class="line">a&#x3D;javascript:xxx&#x3D;window;xxx.xx()   拦截    可以确认拦截逻辑是 危险对象赋值 &amp;&amp; 调用函数</span><br></pre></td></tr></table></figure>
+
+<p>小结：</p>
+<ul>
+<li>解析js &amp;&amp; 是否存在”函数()”形式的函数调用 &amp;&amp; 获取调用函数名 &amp;&amp; 函数名在黑名单中（前缀匹配） 则拦截</li>
+<li>解析js &amp;&amp; 是否存在”对象.函数()”形式的函数调用 &amp;&amp; 获取函数名、对象名 &amp;&amp; 将危险对象名扩充到黑名单中 &amp;&amp; (函数名在黑名单中 || 对象名在对象黑名单中)   则拦截</li>
+<li>解析js &amp;&amp; (危险对象赋值 || 危险函数赋值) &amp;&amp; 调用函数    则拦截</li>
+</ul>
+<h2 id="js代码"><a href="#js代码" class="headerlink" title="js代码"></a>js代码</h2><p>攻击场景是</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;svg&#x2F;onload&#x3D;&quot;用户输出点&quot;&gt;</span><br></pre></td></tr></table></figure>
+
+<p>测试过程</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;alert()   拦截</span><br><span class="line">a&#x3D;xxxxx()   不拦截  说明逻辑是 是否存在函数调用 &amp;&amp; 函数名是否在黑名单中</span><br><span class="line">a&#x3D;x&#x3D;alert;x(1);   应该拦截，但是没有拦截。   说明这里没有&quot;危险函数赋值 &amp;&amp; 调用函数&quot;的检测逻辑</span><br><span class="line">a&#x3D;console.log(11)   应该拦截，但是也没有拦截   说明没有拦截&quot;危险对象&quot;</span><br><span class="line">xxxx.alert(11)   拦截    确认逻辑是 是否存在函数调用 &amp;&amp; 函数名是否在黑名单中</span><br></pre></td></tr></table></figure>
+
+<p>小结:</p>
+<ul>
+<li>解析js &amp;&amp; 存在”对象.函数()”形式或者”函数()”函数形式的函数调用 &amp;&amp; 函数名是否在黑名单中   则拦截</li>
+</ul>
+<h2 id="data-text-html"><a href="#data-text-html" class="headerlink" title="data:text/html"></a>data:text/html</h2><p>攻击场景是</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;iframe src&#x3D;&quot;用户输出可控点&quot;&gt;</span><br></pre></td></tr></table></figure>
+<p>测试过程</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">data:text&#x2F;html;base64;PGltZy9vbmxvYWQ9eHg  不拦截</span><br><span class="line"></span><br><span class="line">data:text&#x2F;html;base64,PHN2Zy9vbmxvYWQ9YWxlcnQoMSk+   应该拦截，但是没有拦截. 说明不拦截这种利用场景</span><br></pre></td></tr></table></figure>
+<p>小结：不拦截</p>
+<h2 id="script脚本地址-script标签"><a href="#script脚本地址-script标签" class="headerlink" title="script脚本地址 (script标签)"></a>script脚本地址 (script标签)</h2><p>攻击场景是</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;script src&#x3D;&quot;用户输出点&quot;&gt;</span><br></pre></td></tr></table></figure>
+
+<p>测试过程</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">http:&#x2F;&#x2F;xxx.com&#x2F;a.js  应该拦截，但是没有拦截. 说明不拦截这种攻击场景</span><br></pre></td></tr></table></figure>
+<p>小结：不拦截</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>拦截策略，可能是：</p>
+<ul>
+<li>解析js &amp;&amp; 是否存在”函数()”形式的函数调用 &amp;&amp; 获取调用函数名 &amp;&amp; 函数名在黑名单中（前缀匹配） 则拦截</li>
+<li>解析js &amp;&amp; 是否存在”对象.函数()”形式的函数调用 &amp;&amp; 获取函数名、对象名 &amp;&amp; 将危险对象名扩充到黑名单中 &amp;&amp; (函数名在黑名单中 || 对象名在对象黑名单中)   则拦截</li>
+<li>解析js &amp;&amp; (危险对象赋值 || 危险函数赋值) &amp;&amp; 调用函数    则拦截</li>
+<li>解析js &amp;&amp; 存在”对象.函数()”形式或者”函数()”函数形式的函数调用 &amp;&amp; 函数名是否在黑名单中   则拦截</li>
+</ul>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E7%BB%86%E5%93%81%E6%9F%90%E8%AF%AD%E4%B9%89waf%E7%9A%84xss%E9%98%B2%E6%8A%A4(4)/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E7%BB%86%E5%93%81%E6%9F%90%E8%AF%AD%E4%B9%89waf%E7%9A%84xss%E9%98%B2%E6%8A%A4(4)/" class="post-title-link" itemprop="url">细品某语义waf的xss防护(4)</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>假设攻击场景如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">漏洞输出位置在JS环境中，如下面3种场景</span><br><span class="line"></span><br><span class="line">&lt;script&gt;</span><br><span class="line">  var a&#x3D;&quot;用户输出可控位置&quot;;   &#x2F;&#x2F; 1</span><br><span class="line"></span><br><span class="line">  func(&quot;用户输出可控位置&quot;);   &#x2F;&#x2F; 2</span><br><span class="line"></span><br><span class="line">  eval(&quot;用户输出可控位置&quot;);   &#x2F;&#x2F; 3</span><br><span class="line"></span><br><span class="line">&lt;&#x2F;script&gt;</span><br></pre></td></tr></table></figure>
+
+<p>在这个场景下，验证厂商的安全防护策略</p>
+<p>分析思路</p>
+<ul>
+<li>判断支持哪几种引号的闭合</li>
+<li>对每类攻击场景单独测试，根据拦截情况推测安全防护策略</li>
+</ul>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><h2 id="判断支持哪几种引号的闭合"><a href="#判断支持哪几种引号的闭合" class="headerlink" title="判断支持哪几种引号的闭合"></a>判断支持哪几种引号的闭合</h2><p>现代的Javascript支持三种方式表示字符串</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">var a&#x3D;&#39;xx&#39;</span><br><span class="line">var a&#x3D;&quot;xx&quot;</span><br><span class="line">var a&#x3D;&#96;xx&#96;</span><br></pre></td></tr></table></figure>
+<p>因此同一个攻击场景会因为字符串写法细分成三类。</p>
+<p>测试payload是否被拦截</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">&#96;-alert(1)-&#96;   没有拦截     说明不支持拦截 var a&#x3D;&#96;&#96;-alert(1)-&#96;&#96;;  这种攻击</span><br><span class="line">&quot;-alert(1)-&quot;   拦截</span><br><span class="line">&#39;-alert(1)-&#39;   拦截</span><br></pre></td></tr></table></figure>
+
+<p>小结：</p>
+<ul>
+<li><p>支持单引号、双引号，不支持反引号</p>
 </li>
-<li><p>访问”已申请的虚拟地址”</p>
-<p>按照理论：在第一次访问”已申请的虚拟地址”，因为”虚拟内存”和”物理内存”的映射关系还没写到”页表”中，所以”mmu硬件”在转换”虚拟地址”时会发出”缺页异常”，然后”缺页异常”处理程序会写这个映射关系到”页表”中；第二次访问同一个”已申请的虚拟地址”，因为”虚拟内存”和”物理内存”的映射关系已经写到”页表”，”mmu硬件”就可以正常转换，不会发出”缺页异常”。</p>
-<p>下面同样用gdb调试来验证一下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line">(gdb) continue</span><br><span class="line">Continuing.</span><br><span class="line"></span><br><span class="line">Breakpoint 1, test_vadr () at ..&#x2F;kernel&#x2F;krlvadrsmem.c:289</span><br><span class="line">289	&#123;</span><br><span class="line">(gdb) break krluserspace_accessfailed</span><br><span class="line">Breakpoint 2 at 0xffff800002026588: file ..&#x2F;kernel&#x2F;krlvadrsmem.c, line 1145.</span><br><span class="line">(gdb) x &#x2F;bx 0x40000</span><br><span class="line">0x40000:	Cannot access memory at address 0x40000</span><br><span class="line">(gdb) call vma_new_vadrs(&amp;initmmadrsdsc,0x40000,0x1000, 0, 0)   &#x2F;&#x2F; 向内核申请虚拟空间，地址是0x40000，大小是0x1000</span><br><span class="line">$1 &#x3D; 0</span><br><span class="line">(gdb) call hal_memset(0x40000,0,0x1)    &#x2F;&#x2F; 第一次访问0x40000时进入到&quot;中断处理函数&quot;</span><br><span class="line"></span><br><span class="line">Breakpoint 2, krluserspace_accessfailed (fairvadrs&#x3D;0) at ..&#x2F;kernel&#x2F;krlvadrsmem.c:1145</span><br><span class="line">...</span><br><span class="line">(gdb) finish</span><br><span class="line">Run till exit from #0  krluserspace_accessfailed (fairvadrs&#x3D;2097282) at ..&#x2F;kernel&#x2F;krlvadrsmem.c:1145</span><br><span class="line">...</span><br><span class="line">(gdb) finish</span><br><span class="line">Run till exit from #0  0xffff8000020135d2 in hal_fault_allocator (faultnumb&#x3D;14,</span><br><span class="line">    krnlsframp&#x3D;0xffff80000008fe18) at ..&#x2F;hal&#x2F;x86&#x2F;halintupt.c:171</span><br><span class="line">0xffff80000200d830 in exc_page_fault ()</span><br><span class="line">(gdb) finish</span><br><span class="line">Run till exit from #0  0xffff80000200d830 in exc_page_fault ()</span><br><span class="line">(gdb) where</span><br><span class="line">#0  test_vadr () at ..&#x2F;kernel&#x2F;krlvadrsmem.c:289</span><br><span class="line">...</span><br><span class="line">(gdb) call hal_memset(0x40000,0,0x1)    &#x2F;&#x2F; 第二次访问0x40000时没有产生&quot;中断&quot;</span><br><span class="line">(gdb) x &#x2F;bx 0x40000</span><br><span class="line">0x40000:	0x00</span><br></pre></td></tr></table></figure>
+<li><p>不支持防护下面的攻击场景</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">var a&#x3D;&#96;用户输出可控位置&#96;;</span><br><span class="line">func(&#96;用户输出可控位置&#96;);</span><br><span class="line">eval(&#96;用户输出可控位置&#96;);</span><br></pre></td></tr></table></figure>
 
-<p>从上面可以看到：调用<code>vma_new_vadrs</code>申请<code>0x40000</code>地址后，第一次调用<code>hal_memset</code>去访问<code>0x40000</code>时会进入到”缺页异常”处理程序(<code>krluserspace_accessfailed</code>函数)中，第二次再访问<code>0x40000</code>时就不会进入到”缺页异常”处理程序。</p>
 </li>
 </ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>通过调试，很容易对cosmos中”虚拟内存”访问时的业务流程做一点研究。</p>
-<p>同样我们可以通过”调试”去观察”分页”机制，来验证课程中的知识点。</p>
-<p>PS：后面会有一篇文章讲解怎么调试cosmos代码</p>
+<h2 id="单独测试"><a href="#单独测试" class="headerlink" title="单独测试"></a>单独测试</h2><ul>
+<li><p>var a=”用户输出可控位置”;</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">&quot;;xxx.alert(1);&#x2F;&#x2F;   拦截</span><br><span class="line">&quot;;xxx.xxalert(1);&#x2F;&#x2F;  不拦截</span><br></pre></td></tr></table></figure>
+
+<p>小结：</p>
+<ul>
+<li>解析js &amp;&amp; 存在”对象.函数()”形式或者”函数()”函数形式的函数调用 &amp;&amp; 函数名在黑名单中 则拦截</li>
+</ul>
+</li>
+<li><p>eval(‘用户输出可控位置’);</p>
+<p>漏洞利用时，如果不闭合引号</p>
+  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">self[&quot;xxxx&quot;](1)    拦截</span><br><span class="line">selxfxx[&quot;alert&quot;](1)  不拦截</span><br><span class="line">selfxx[&quot;alert&quot;](1)  拦截</span><br><span class="line">self.xxx(1)    不拦截</span><br><span class="line"></span><br><span class="line">说明安全策略可能是：函数调用 &amp;&amp; 形式为&quot;对象[属性]()&quot; &amp;&amp; 对象名在黑名单中 (前缀匹配)</span><br></pre></td></tr></table></figure>
+
+<p>漏洞利用时，如果闭合引号，就和<code>func(&#39;用户输出可控位置&#39;)</code>攻击场景一样了</p>
+<p>小结：</p>
+<ul>
+<li>解析js &amp;&amp; 存在”对象.函数()”形式或者”函数()”函数形式的函数调用 &amp;&amp; 函数名是否在黑名单中   则拦截   (之前测试<code>&lt;svg/onload=&quot;用户输出点&quot;&gt;</code>场景得出结论，在这里也适用)</li>
+<li>解析js &amp;&amp; 函数调用 &amp;&amp; 形式为<code>对象[属性]()</code> &amp;&amp; 对象名在黑名单中 (前缀匹配)   则拦截</li>
+</ul>
+</li>
+</ul>
+<ul>
+<li><p>func(‘用户输出可控位置’);</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;&#39;-alert(1)&#x2F;&#x2F;   拦截</span><br><span class="line">a&#x3D;&#39;-alert(1)-   拦截</span><br></pre></td></tr></table></figure>
+
+<p>小结： 解析js &amp;&amp; 存在”对象.函数()”形式或者”函数()”函数形式的函数调用 &amp;&amp; 函数名在黑名单中  则拦截</p>
+</li>
+</ul>
+<h2 id="不能解释的奇怪现象"><a href="#不能解释的奇怪现象" class="headerlink" title="不能解释的奇怪现象"></a>不能解释的奇怪现象</h2><ul>
+<li><p>测试过程中 <code>&quot;;alert(&#39;)</code> payload 被拦截</p>
+<p>按照我的经验，<code>&quot;;alert(&#39;)</code> payload无论对应到哪一类攻击场景都不会是正确的js语法，因此不应该被语义waf拦截。</p>
+<p>虽然 “;alert(‘)  payload在下面场景下可以弹框</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">&lt;script&gt;</span><br><span class="line">var a&#x3D;&quot;用户输出&#39;);   &#x2F;&#x2F; var a&#x3D;&quot;&quot;;alert(&#39;)&#39;);</span><br><span class="line">&lt;&#x2F;script&gt;</span><br></pre></td></tr></table></figure>
+
+<p>但是几乎不可能有开发写出上面的代码。</p>
+<p>所以，有两个问题：</p>
+<ol>
+<li>这个payload是否有对应的漏洞场景？</li>
+<li>如果有对应的漏洞场景，对应的漏洞代码会长什么样？</li>
+</ol>
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><ul>
+<li>可能的安全策略：<ul>
+<li>解析js &amp;&amp; 存在”对象.函数()”形式或者”函数()”函数形式的函数调用 &amp;&amp; 函数名在黑名单中  则拦截</li>
+<li>解析js &amp;&amp; 函数调用 &amp;&amp; 形式为<code>对象[属性]()</code> &amp;&amp; 对象名在黑名单中 (前缀匹配)   则拦截</li>
+</ul>
+</li>
+<li>有一些payload被拦截的原因目前无法解释</li>
+</ul>
 
       
     </div>
@@ -409,7 +577,7 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E6%8F%90%E9%AB%98%E6%BC%8F%E6%B4%9E%E9%AA%8C%E8%AF%81%E6%95%88%E7%8E%87%E7%9A%84%E5%B7%A5%E5%85%B7/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E9%AA%8C%E8%AF%81pf_ring%E6%80%A7%E8%83%BD/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -422,7 +590,7 @@
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E6%8F%90%E9%AB%98%E6%BC%8F%E6%B4%9E%E9%AA%8C%E8%AF%81%E6%95%88%E7%8E%87%E7%9A%84%E5%B7%A5%E5%85%B7/" class="post-title-link" itemprop="url">提高漏洞验证效率的工具</a>
+          <a href="/2021-12-26-%E9%AA%8C%E8%AF%81pf_ring%E6%80%A7%E8%83%BD/" class="post-title-link" itemprop="url">验证pf_ring性能</a>
         </h2>
 
         <div class="post-meta-container">
@@ -446,37 +614,303 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>某个xss漏洞点如下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">&lt;script&gt;</span><br><span class="line">x&#x3D;document.createElement(&quot;script&quot;);</span><br><span class="line">x.setAttribute(&quot;src&quot;, &quot;用户可控的地址&quot;);</span><br><span class="line">document.body.appendChild(x);</span><br><span class="line">&lt;&#x2F;script&gt;</span><br></pre></td></tr></table></figure>
-
-<p>虽然xss漏洞肯定是存在的，但是我不知道利用起来是不是会有问题，比如碰到csp等。</p>
-<p>所以我在”用户可控地址” 填入 “<a target="_blank" rel="noopener" href="http://x.x.x.x/1.js&quot;">http://x.x.x.x/1.js&quot;</a> 来验证，于是出现了点问题。</p>
-<p>第一个问题：https站点引入http静态资源时，浏览器控制台出现”混合内容”警告。似乎会影响js解析</p>
-<p>第二个问题：响应头的content-type需要是text/javascript，否则不能当作js解析</p>
-<p>所以我需要一个web服务：</p>
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>本实验主要为了验证<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/kernel">pf_ring.ko</a>内核模块是否能够提升抓包率。</p>
+<p>实验思路很多参考自 <a target="_blank" rel="noopener" href="http://cea.ceaj.org/CN/article/downloadArticleFile.do?attachType=PDF&id=30309">PF_RING与NAPI结合的捕包性能优化和仿真.pdf</a></p>
+<p>通过分析源码得知：</p>
 <ul>
-<li>支持https</li>
-<li>返回内容可以自定义</li>
-<li>响应头content-type可以自定义</li>
-<li>支持公网访问</li>
+<li>pf_ring.ko未加载到内核时，<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/libpcap-1.9.1">libpcap</a> 会使用PCAP_MMAP方式来抓包</li>
+<li>pf_ring.ko加载到内核时，<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/libpcap-1.9.1">libpcap</a> 会通过<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/lib">libpfring</a>配合pf_ring.ko内核模块来抓包</li>
+<li>pf_ring基本没有对 <a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/tcpdump-4.9.3">tcpdump</a> 做改动</li>
 </ul>
-<p>自己去搭这样一个服务也不难，但是如果有现成的岂不是更好，省时省力。</p>
-<p>根据历史经验，我知道有两种平台似乎可以解决我的这个小需求：</p>
+<p>实验思路：</p>
 <ul>
-<li>类似 pastebin 的平台，可以通过短链接访问</li>
-<li>xss平台</li>
+<li>使用pf_ring项目中的tcpdump抓包，计算抓包率</li>
+<li>使用pktgen发包</li>
+<li>在”加载pf_ring.ko”和”不加载pf_ring.ko”两种场景下分别测试三次</li>
 </ul>
-<h1 id="测试这些平台是否好用"><a href="#测试这些平台是否好用" class="headerlink" title="测试这些平台是否好用"></a>测试这些平台是否好用</h1><p><a target="_blank" rel="noopener" href="http://ix.io/">http://ix.io</a> : 不支持https</p>
-<p><a target="_blank" rel="noopener" href="http://pastebin.com/">http://pastebin.com</a>: 不支持设置content-type</p>
-<p>搜索到的很多xss平台，都需要邀请码。甚至有的注册成功了，但是使用起来有问题。</p>
-<p>再比如 xssye.com 这个xss平台我很久以前用过。今天登陆提示账号密码登陆不上，申请密码找回提示邮箱和账号对不上，重新注册又提示”需要注册邀请码”。</p>
-<p>总之试了几个，感觉用着比较难受。这些xss平台看前段页面似乎都是一套代码，也不确定是否可能存在漏洞。</p>
-<h1 id="有没有稳定好用的服务"><a href="#有没有稳定好用的服务" class="headerlink" title="有没有稳定好用的服务"></a>有没有稳定好用的服务</h1><p>想起来云上的文件存储服务，刚好是满足我自己的需求的。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">➜  ~ curl https:&#x2F;&#x2F;webbackup-3knjfg4bxz.bj.bcebos.com&#x2F;1.js</span><br><span class="line">alert(1);</span><br></pre></td></tr></table></figure>
+<p>实验环境：</p>
+<table>
+<thead>
+<tr>
+<th>机器用途</th>
+<th>配置</th>
+<th>操作系统</th>
+<th>备注</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>发包机</td>
+<td>2核4G、pps 40w</td>
+<td>CentOS 7.5</td>
+<td>云虚机</td>
+</tr>
+<tr>
+<td>收包机</td>
+<td>2核4G、pps 40w</td>
+<td>CentOS 7.5</td>
+<td>云虚机</td>
+</tr>
+</tbody></table>
+<h1 id="过程"><a href="#过程" class="headerlink" title="过程"></a>过程</h1><h2 id="准备测试环境"><a href="#准备测试环境" class="headerlink" title="准备测试环境"></a>准备测试环境</h2><ul>
+<li><p>收包机器编译安装tcpdump</p>
+<p>安装依赖</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">yum install flex bison kernel-headers kernel-devel gcc stress -y</span><br></pre></td></tr></table></figure>
 
-<p>另外云上的函数服务，还可以写代码对响应做更精细的控制。</p>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>云上的 文件存储、函数服务 等很适合快速在公网提供https服务，而且相对于个人自己搭建的服务要稳定省心得多，推荐使用。</p>
-<p>当然云上也有很坑的服务，就不说了。</p>
+<p>依次编译<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/kernel">pf_ring.ko</a>、<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/lib">libpfring</a>、<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/libpcap-1.9.1">libpcap</a>、<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/tcpdump-4.9.3">tcpdump</a></p>
+</li>
+<li><p>发包机器编写发包脚本</p>
+<p>此bash脚本配置来自网络</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line"># 定义一个工具函数，方便后面配置各种测试选项</span><br><span class="line">function pgset() &#123;</span><br><span class="line">    local result</span><br><span class="line"># 定义一个工具函数，方便后面配置各种测试选项</span><br><span class="line">    echo $1 &gt; $PGDEV</span><br><span class="line"></span><br><span class="line">    result&#x3D;&#96;cat $PGDEV | fgrep &quot;Result: OK:&quot;&#96;</span><br><span class="line">    if [ &quot;$result&quot; &#x3D; &quot;&quot; ]; then</span><br><span class="line">         cat $PGDEV | fgrep Result:</span><br><span class="line">    fi</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"># 为0号线程绑定eth0网卡</span><br><span class="line">PGDEV&#x3D;&#x2F;proc&#x2F;net&#x2F;pktgen&#x2F;kpktgend_0</span><br><span class="line"></span><br><span class="line">pgset &quot;rem_device_all&quot;   # 清空网卡绑定</span><br><span class="line">pgset &quot;add_device eth0&quot;  # 添加eth0网卡</span><br><span class="line"></span><br><span class="line"># 配置eth0网卡的测试选项</span><br><span class="line">PGDEV&#x3D;&#x2F;proc&#x2F;net&#x2F;pktgen&#x2F;eth0</span><br><span class="line">pgset &quot;count 2000&quot;    # 总发包数量</span><br><span class="line">pgset &quot;delay 0&quot;       # 不同包之间的发送延迟(单位纳秒)</span><br><span class="line">pgset &quot;clone_skb 0&quot;      # SKB包复制</span><br><span class="line">pgset &quot;pkt_size 64&quot;      # 网络包大小</span><br><span class="line">pgset &quot;dst 172.16.32.12&quot; # 目的IP</span><br><span class="line">pgset &quot;dst_mac fa:28:00:06:df:6c&quot;  # 目的MAC</span><br><span class="line"></span><br><span class="line"># 启动测试</span><br><span class="line">PGDEV&#x3D;&#x2F;proc&#x2F;net&#x2F;pktgen&#x2F;pgctrl</span><br><span class="line">pgset &quot;start&quot;</span><br></pre></td></tr></table></figure>
+
+<p>modprobe pktgen</p>
+</li>
+<li><p>人为调高收包机cpu利用率</p>
+<p>为什么要调高呢？因为实验过程中发现，如果不调高，即使收包机pps达到最大值40w，机器cpu仍然很低、tcpdump不会丢包，这样就看不出来效果。</p>
+<p>怎么调高cpu利用率？可以使用 <code>stress -c 2</code> 命令 故意占用cpu。</p>
+</li>
+</ul>
+<h2 id="观察测试数据"><a href="#观察测试数据" class="headerlink" title="观察测试数据"></a>观察测试数据</h2><ul>
+<li><p>发包为<code>pgset &quot;pkt_size 64&quot;</code>时，收包机的收包率</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4265694 packets captured</span><br><span class="line">4268967 packets received by filter</span><br><span class="line">3273 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4190808 packets captured</span><br><span class="line">4196105 packets received by filter</span><br><span class="line">5297 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4192817 packets captured</span><br><span class="line">4197737 packets received by filter</span><br><span class="line">4920 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# insmod ..&#x2F;..&#x2F;kernel&#x2F;pf_ring.ko</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4212730 packets captured</span><br><span class="line">4212730 packets received by filter</span><br><span class="line">0 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4217341 packets captured</span><br><span class="line">4217341 packets received by filter</span><br><span class="line">0 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4358870 packets captured</span><br><span class="line">4358870 packets received by filter</span><br><span class="line">0 packets dropped by kernel</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>测试数据汇总</p>
+<p>| 包大小 | 是否加载pf_ring.ko | captured | received | dropped |<br>| - | - | - | - | - | - |<br>| 64 | 否 | 4265694 | 4268967 | 3273 |<br>| 64 | 否 | 4192817 | 4197737 | 4920 |<br>| 64 | 否 | 4190808 | 4196105 | 5297 |<br>| 64 | 是 | 4212730 | 4212730 | 0 |<br>| 64 | 是 | 4217341 | 4217341 | 0 |<br>| 64 | 是 | 4358870 | 4358870 | 0 |<br>| 1500 | 否 | 2113248 | 2421024 | 307776 |<br>| 1500 | 否 | 1988029 | 2370209 | 382180 |<br>| 1500 | 否 | 2121627 | 2424882 | 303255 |<br>| 1500 | 是 | 2382563 | 2382563 | 0 |<br>| 1500 | 是 | 2422587 | 2422587 | 0 |<br>| 1500 | 是 | 2479560 | 2479560 | 0 |</p>
+<p><code>pgset &quot;pkt_size 64&quot;</code>命令调整包大小</p>
+<p>可以看到上面收包机tcpdump的数据：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 加载pf_ring.ko内核模块前，六次都有丢包</span><br><span class="line">* 加载pf_ring.ko内核模块后，六次都没有丢包</span><br><span class="line">* 大包时，丢包更严重</span><br></pre></td></tr></table></figure>
+
+<p>所以可以得出结论：</p>
+<ul>
+<li>pf_ring版本的tcpdump抓包率更高</li>
+</ul>
+</li>
+</ul>
+<h1 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h1><ul>
+<li>pf_ring版本的tcpdump抓包率更高</li>
+</ul>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E9%AA%8C%E8%AF%81%E6%98%AF%E5%90%A6%E5%AD%98%E5%9C%A8%E5%86%99%E6%96%87%E4%BB%B6%E6%BC%8F%E6%B4%9E%E5%B0%8F%E6%8A%80%E5%B7%A7/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E9%AA%8C%E8%AF%81%E6%98%AF%E5%90%A6%E5%AD%98%E5%9C%A8%E5%86%99%E6%96%87%E4%BB%B6%E6%BC%8F%E6%B4%9E%E5%B0%8F%E6%8A%80%E5%B7%A7/" class="post-title-link" itemprop="url">验证是否存在写文件漏洞小技巧</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>在安全黑盒测试时遇到一个疑似能写任意文件的漏洞点，想要验证漏洞是否存在。</p>
+<p>这里就猜测后端代码可能如下：存在可能的任意写文件漏洞，可写的内容部分可控、服务权限未知</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">content &#x3D; &quot;something start&quot; + &quot;用户可控的内容&quot; + &quot;something end&quot;</span><br><span class="line">f &#x3D; open(&quot;用户指定的文件路径&quot;, &quot;w&quot;)</span><br><span class="line">f.write(content)</span><br></pre></td></tr></table></figure>
+
+<p>最开始用”写入ping dnslog命令到crontab”来验证写文件漏洞是否存在，不过验证失败了，可能因为下面两个原因：</p>
+<ul>
+<li>目标机器没启动cron服务</li>
+<li>服务身份可能不是root，没有权限写 /var/spool/cron目录和/etc/crontab</li>
+</ul>
+<p>也可以写内容到 .bashrc、web路径、常用文件（比如bash、ping等），但这些方式都有一点限制：</p>
+<ul>
+<li>/root/.bashrc因为服务身份不一定是root，所以可能写入失败</li>
+<li>.bashrc需要登陆到机器才能触发</li>
+<li>web路径位置未知</li>
+<li>写常用文件(比如bash、ping等)可能影响目标系统的稳定性，并且需要等待目标操作才能触发</li>
+</ul>
+<p>我这里只想要快速验证”写文件漏洞”是否存在，确认存在后，再来尝试上述或者别的方法来做漏洞利用。</p>
+<p>为了验证”写文件漏洞”是否存在，我的思路是 能不能找到一个特殊文件，写内容到此文件会造成延时或者产生dnslog。</p>
+<p>我能想到的特殊文件包括：</p>
+<ul>
+<li>管道文件</li>
+<li>/dev/tcp/{host}/{ip}</li>
+<li>socket文件</li>
+<li>标准描述符  (/proc/self/fd/0、/proc/self/fd/1)</li>
+</ul>
+<p>下面就是验证这些文件，哪个符合需求</p>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
+<li><p>管道文件</p>
+<p>思路：找到系统上默认的管道文件，并且验证写入文件是否阻塞</p>
+<ol>
+<li><p>找出系统默认的管道文件</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">find &#x2F; -type p</span><br></pre></td></tr></table></figure>
+
+<p> 可以看到CentOS 7.9系统默认存在一些管道文件</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;run&#x2F;dmeventd-client</span><br><span class="line">&#x2F;run&#x2F;dmeventd-server</span><br><span class="line">&#x2F;run&#x2F;systemd&#x2F;ask-password-block&#x2F;136:4</span><br><span class="line">&#x2F;run&#x2F;systemd&#x2F;sessions&#x2F;1.ref</span><br><span class="line">&#x2F;run&#x2F;systemd&#x2F;initctl&#x2F;fifo</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>验证上面的管道文件，有一个可以利用</p>
+<p> <code>echo 1 &gt; /run/systemd/ask-password-block/136:4</code>  会阻塞</p>
+<p> 这个文件在其他系统文件名略微有点不同，并且只有root用户可以读写</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">另一个CentOS7.9: &#x2F;run&#x2F;systemd&#x2F;ask-password-block&#x2F;136:0</span><br><span class="line">ubuntu：&#x2F;run&#x2F;systemd&#x2F;ask-password-block&#x2F;136:2</span><br></pre></td></tr></table></figure>
+
+</li>
+</ol>
+<p>小结：可以用 /run/systemd/ask-password-block/136:{id} 文件来探测是否存在文件写漏洞，前提是服务有root权限</p>
+</li>
+</ul>
+<ul>
+<li><p>/dev/tcp/{host}/{ip}</p>
+<p>在bash反弹shell中会用到这个。</p>
+<p>它不是文件，只是bash解释器会对/dev/tcp对特殊处理，代表了一个tcp socket。</p>
+<p>所以它不满足需求。</p>
+</li>
+<li><p>socket文件</p>
+<p>操作socket文件不是open、write、close这一套流程，所以肯定不行。</p>
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><ul>
+<li>可以用 /run/systemd/ask-password-block/136:{id} 文件来探测是否存在文件写漏洞，前提是服务有root权限。</li>
+</ul>
+<p>最后，感谢和我讨论这个小问题的朋友。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E9%AA%8C%E8%AF%81%E7%BC%BA%E9%A1%B5%E4%B8%AD%E6%96%AD%E6%9C%BA%E5%88%B6/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E9%AA%8C%E8%AF%81%E7%BC%BA%E9%A1%B5%E4%B8%AD%E6%96%AD%E6%9C%BA%E5%88%B6/" class="post-title-link" itemprop="url">验证缺页中断机制</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>在x86系列的cpu上开启分页机制后，指令涉及到”内存读写”操作时，用到的”内存地址”都是”虚拟地址”。”mmu硬件”会按照”分段”、”分页”的计算规则，将”虚拟地址”转换成”物理地址”。最终指令可以对”物理地址”读写数据。</p>
+<p>上面这段关于内存的”理论知识”，我觉得如果可以实践看一看，就能多一些”感觉”。</p>
+<p>本文记录我对下面两个结论的调试和验证过程，也是我对极客时间的<a target="_blank" rel="noopener" href="https://time.geekbang.org/column/intro/100078401?tab=catalog">操作系统实战 45 讲</a>课程中”内存管理”章节的部分学习和实践，基于<a target="_blank" rel="noopener" href="https://gitee.com/lmos/cosmos/tree/master/lesson25~26/Cosmos">第26课代码</a>。</p>
+<p>“mmu硬件”在转换”虚拟地址”时有可能发生”缺页异常”，包括：</p>
+<ul>
+<li>访问”未向内核申请的虚拟地址”会导致”缺页异常”</li>
+<li>当第一次访问申请的虚拟地址时，也会产生”缺页异常”；第二次访问同样的虚拟地址时，不会产生”缺页异常”</li>
+</ul>
+<h1 id="验证过程"><a href="#验证过程" class="headerlink" title="验证过程"></a>验证过程</h1><ul>
+<li><p>访问”未向内核申请的虚拟地址”会导致”缺页异常”</p>
+<p>按照理论来说：访问未申请的虚拟地址时，”mmu硬件”在转换”虚拟地址”时会发出”缺页异常”（可能因为找不到对应的”页表项”）</p>
+<p>在验证这个理论前，先介绍一下cosmos(课程自制的内核系统名称)相关的代码，以方便读者大概理解文中出现的函数作用</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">void test_vadr()</span><br><span class="line">&#123;</span><br><span class="line">	adr_t vadr &#x3D; vma_new_vadrs(&amp;initmmadrsdsc, NULL, 0x1000, 0, 0);  &#x2F;&#x2F; 0x1000是想要申请的空间大小，vadr是申请的内存地址</span><br><span class="line">	if(NULL &#x3D;&#x3D; vadr)</span><br><span class="line">	&#123;</span><br><span class="line">		kprint(&quot;分配虚拟地址空间失败\n&quot;);</span><br><span class="line">	&#125;</span><br><span class="line">  ...</span><br><span class="line">	hal_memset((void*)vadr, 0, 0x1000);  &#x2F;&#x2F; 初始化刚申请的内存为0</span><br><span class="line">	...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>上面<code>test_vadr</code>是cosmos中用来验证”虚拟内存”相关功能的测试函数。</p>
+<p>在cosmos中，想要使用虚拟空间，需要先调用<code>vma_new_vadrs</code>申请一个虚拟地址。</p>
+<p>cosmos相关代码介绍完毕，下面用gdb调试课程代码，来实际验证一下”理论”：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line">(gdb) break test_vadr   &#x2F;&#x2F; 在 test_vadr 函数下断点（选择在test_vadr函数下断点，是因为此时 虚拟内存管理、物理内存管理、缺页异常处理 等功能都已经实现）</span><br><span class="line">Breakpoint 1 at 0xffff80000202444a: file ..&#x2F;kernel&#x2F;krlvadrsmem.c, line 289.</span><br><span class="line">(gdb) continue</span><br><span class="line">Continuing.</span><br><span class="line"></span><br><span class="line">Breakpoint 1, test_vadr () at ..&#x2F;kernel&#x2F;krlvadrsmem.c:289</span><br><span class="line">289	&#123;</span><br><span class="line">(gdb) break krluserspace_accessfailed   &#x2F;&#x2F; 在 krluserspace_accessfailed 函数下断点</span><br><span class="line">Breakpoint 2 at 0xffff800002026588: file ..&#x2F;kernel&#x2F;krlvadrsmem.c, line 1145.</span><br><span class="line">(gdb) call hal_memset(0x400,0,0x1)  &#x2F;&#x2F; 调用hal_memset函数，向 0x400地址 写一个字节内容</span><br><span class="line"></span><br><span class="line">Breakpoint 2, krluserspace_accessfailed (fairvadrs&#x3D;0) at ..&#x2F;kernel&#x2F;krlvadrsmem.c:1145 &#x2F;&#x2F;</span><br><span class="line">...</span><br><span class="line">(gdb) where   &#x2F;&#x2F; 可以看到 当前代码在..&#x2F;kernel&#x2F;krlvadrsmem.c文件1145行的krluserspace_accessfailed</span><br><span class="line">#0  krluserspace_accessfailed (fairvadrs&#x3D;0) at ..&#x2F;kernel&#x2F;krlvadrsmem.c:1145</span><br><span class="line">#1  0xffff8000020135d2 in hal_fault_allocator (faultnumb&#x3D;14, krnlsframp&#x3D;0xffff80000008fe18)</span><br><span class="line">    at ..&#x2F;hal&#x2F;x86&#x2F;halintupt.c:171</span><br><span class="line">#2  0xffff80000200d830 in exc_page_fault ()</span><br><span class="line">...</span><br><span class="line">(gdb) continue</span><br><span class="line">Continuing.</span><br><span class="line">^C      &#x2F;&#x2F; 因为在这里卡死了，所以我按了ctrl+c</span><br><span class="line">Program received signal SIGINT, Interrupt.</span><br><span class="line">hal_sysdie (errmsg&#x3D;0xffff80000203a237 &quot;缺页处理失败\n&quot;) at ..&#x2F;hal&#x2F;x86&#x2F;halcpuctrl.c:185</span><br><span class="line">185	        ;</span><br></pre></td></tr></table></figure>
+<p>从上面的调试信息可以看出来：cpu在执行<code>hal_memset</code>函数访问<code>0x400</code>虚拟地址时，跳到了<code>krluserspace_accessfailed</code>函数，最后卡死在<code>halcpuctrl.c</code>第185行</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/144075113-24fdf0f1-74ac-4223-9a09-d6c71ed0993a.png" alt="image"></p>
+<p>这里的<code>0x400</code>地址不是通过<code>vma_new_vadrs</code>申请的地址。</p>
+<p><code>krluserspace_accessfailed</code>函数只有cpu遇到中断并且中断号为14（也就是”缺页异常”）的时候才会被调用</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;&#x2F; 异常处理</span><br><span class="line">void hal_fault_allocator(uint_t faultnumb, void *krnlsframp) &#x2F;&#x2F;eax,edx</span><br><span class="line">&#123;</span><br><span class="line">    ...</span><br><span class="line">    if (faultnumb &#x3D;&#x3D; 14)        &#x2F;&#x2F; 缺页异常 中断号是14</span><br><span class="line">    &#123;</span><br><span class="line">        ...</span><br><span class="line">        if (krluserspace_accessfailed(fairvadrs) !&#x3D; 0)</span><br><span class="line">       &#123;</span><br><span class="line">           system_error(&quot;缺页处理失败\n&quot;);</span><br><span class="line">       &#125;</span><br><span class="line">        ...</span><br><span class="line">    &#125;</span><br><span class="line">    ...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>所以可以推测出来：访问<code>0x400</code>时，mmu硬件发出了”缺页中断”，接着cpu处理”缺页中断”就会到<code>krluserspace_accessfailed</code>函数，因为<code>krluserspace_accessfailed</code>函数处理”页表映射”失败，所以会调用<code>system_error</code>函数，最终执行<code>for循环</code>卡死。</p>
+<p>这样可以看出来理论没有问题。</p>
+</li>
+<li><p>访问”已申请的虚拟地址”</p>
+<p>按照理论：在第一次访问”已申请的虚拟地址”，因为”虚拟内存”和”物理内存”的映射关系还没写到”页表”中，所以”mmu硬件”在转换”虚拟地址”时会发出”缺页异常”，然后”缺页异常”处理程序会写这个映射关系到”页表”中；第二次访问同一个”已申请的虚拟地址”，因为”虚拟内存”和”物理内存”的映射关系已经写到”页表”，”mmu硬件”就可以正常转换，不会发出”缺页异常”。</p>
+<p>下面同样用gdb调试来验证一下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line">(gdb) continue</span><br><span class="line">Continuing.</span><br><span class="line"></span><br><span class="line">Breakpoint 1, test_vadr () at ..&#x2F;kernel&#x2F;krlvadrsmem.c:289</span><br><span class="line">289	&#123;</span><br><span class="line">(gdb) break krluserspace_accessfailed</span><br><span class="line">Breakpoint 2 at 0xffff800002026588: file ..&#x2F;kernel&#x2F;krlvadrsmem.c, line 1145.</span><br><span class="line">(gdb) x &#x2F;bx 0x40000</span><br><span class="line">0x40000:	Cannot access memory at address 0x40000</span><br><span class="line">(gdb) call vma_new_vadrs(&amp;initmmadrsdsc,0x40000,0x1000, 0, 0)   &#x2F;&#x2F; 向内核申请虚拟空间，地址是0x40000，大小是0x1000</span><br><span class="line">$1 &#x3D; 0</span><br><span class="line">(gdb) call hal_memset(0x40000,0,0x1)    &#x2F;&#x2F; 第一次访问0x40000时进入到&quot;中断处理函数&quot;</span><br><span class="line"></span><br><span class="line">Breakpoint 2, krluserspace_accessfailed (fairvadrs&#x3D;0) at ..&#x2F;kernel&#x2F;krlvadrsmem.c:1145</span><br><span class="line">...</span><br><span class="line">(gdb) finish</span><br><span class="line">Run till exit from #0  krluserspace_accessfailed (fairvadrs&#x3D;2097282) at ..&#x2F;kernel&#x2F;krlvadrsmem.c:1145</span><br><span class="line">...</span><br><span class="line">(gdb) finish</span><br><span class="line">Run till exit from #0  0xffff8000020135d2 in hal_fault_allocator (faultnumb&#x3D;14,</span><br><span class="line">    krnlsframp&#x3D;0xffff80000008fe18) at ..&#x2F;hal&#x2F;x86&#x2F;halintupt.c:171</span><br><span class="line">0xffff80000200d830 in exc_page_fault ()</span><br><span class="line">(gdb) finish</span><br><span class="line">Run till exit from #0  0xffff80000200d830 in exc_page_fault ()</span><br><span class="line">(gdb) where</span><br><span class="line">#0  test_vadr () at ..&#x2F;kernel&#x2F;krlvadrsmem.c:289</span><br><span class="line">...</span><br><span class="line">(gdb) call hal_memset(0x40000,0,0x1)    &#x2F;&#x2F; 第二次访问0x40000时没有产生&quot;中断&quot;</span><br><span class="line">(gdb) x &#x2F;bx 0x40000</span><br><span class="line">0x40000:	0x00</span><br></pre></td></tr></table></figure>
+
+<p>从上面可以看到：调用<code>vma_new_vadrs</code>申请<code>0x40000</code>地址后，第一次调用<code>hal_memset</code>去访问<code>0x40000</code>时会进入到”缺页异常”处理程序(<code>krluserspace_accessfailed</code>函数)中，第二次再访问<code>0x40000</code>时就不会进入到”缺页异常”处理程序。</p>
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>通过调试，很容易对cosmos中”虚拟内存”访问时的业务流程做一点研究。</p>
+<p>同样我们可以通过”调试”去观察”分页”机制，来验证课程中的知识点。</p>
+<p>PS：后面会有一篇文章讲解怎么调试cosmos代码</p>
 
       
     </div>
@@ -755,7 +1189,7 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E6%AD%A3%E5%88%99%E8%A1%A8%E8%BE%BE%E5%BC%8F%E5%8E%9F%E7%90%86%E4%B8%8EReDos%E6%94%BB%E5%87%BB/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E6%8F%90%E9%AB%98%E6%BC%8F%E6%B4%9E%E9%AA%8C%E8%AF%81%E6%95%88%E7%8E%87%E7%9A%84%E5%B7%A5%E5%85%B7/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -768,7 +1202,7 @@
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E6%AD%A3%E5%88%99%E8%A1%A8%E8%BE%BE%E5%BC%8F%E5%8E%9F%E7%90%86%E4%B8%8EReDos%E6%94%BB%E5%87%BB/" class="post-title-link" itemprop="url">正则表达式原理与ReDos攻击</a>
+          <a href="/2021-12-26-%E6%8F%90%E9%AB%98%E6%BC%8F%E6%B4%9E%E9%AA%8C%E8%AF%81%E6%95%88%E7%8E%87%E7%9A%84%E5%B7%A5%E5%85%B7/" class="post-title-link" itemprop="url">提高漏洞验证效率的工具</a>
         </h2>
 
         <div class="post-meta-container">
@@ -792,234 +1226,37 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>在研究 <a target="_blank" rel="noopener" href="https://owasp.org/www-community/attacks/Regular_expression_Denial_of_Service_-_ReDoS">ReDos攻击</a> 时，涉及到两个问题</p>
-<ol>
-<li>实现正则表达式的算法，比如NFA和DFA是什么？</li>
-<li>我们用的编程语言如Python、PHP等的正则功能是怎么实现的？</li>
-</ol>
-<h1 id="研究过程"><a href="#研究过程" class="headerlink" title="研究过程"></a>研究过程</h1><h2 id="正则表达式算法"><a href="#正则表达式算法" class="headerlink" title="正则表达式算法"></a>正则表达式算法</h2><p>关于NFA和DFA的讲解和实现，推荐读者看  <a target="_blank" rel="noopener" href="https://time.geekbang.org/column/article/137286?utm_term=zeusULN89&utm_source=app&utm_medium=geektime&utm_campaign=314-presell&utm_content=diyijijiacan0601">16 | NFA和DFA：如何自己实现一个正则表达式工具？</a> 这篇文章，讲得深入浅出，并配有Java代码demo。</p>
-<p>我用Python实现了课程的内容，代码在 <a target="_blank" rel="noopener" href="https://github.com/leveryd/PlayWithCompiler/blob/master/algorithm/regex.py">regex</a>。</p>
-<p>这一部分我想说的是：</p>
-<p>在研究ReDos攻击时，我们只要知道”NFA算法中回溯可能会造成计算量暴增，从而导致ReDos”这个结论就可以。</p>
-<p>不过知道一些算法原理，我感觉可以在我们验证语言是采用哪种算法时心里更有底一些。想要自动化检测可能产生ReDos的正则时，对正则原理也需要知道。</p>
-<h2 id="编程语言的正则是怎么实现的？"><a href="#编程语言的正则是怎么实现的？" class="headerlink" title="编程语言的正则是怎么实现的？"></a>编程语言的正则是怎么实现的？</h2><p>我测试了下面几个语言的正则，我自己把他们划分成两类：</p>
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>某个xss漏洞点如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">&lt;script&gt;</span><br><span class="line">x&#x3D;document.createElement(&quot;script&quot;);</span><br><span class="line">x.setAttribute(&quot;src&quot;, &quot;用户可控的地址&quot;);</span><br><span class="line">document.body.appendChild(x);</span><br><span class="line">&lt;&#x2F;script&gt;</span><br></pre></td></tr></table></figure>
+
+<p>虽然xss漏洞肯定是存在的，但是我不知道利用起来是不是会有问题，比如碰到csp等。</p>
+<p>所以我在”用户可控地址” 填入 “<a target="_blank" rel="noopener" href="http://x.x.x.x/1.js&quot;">http://x.x.x.x/1.js&quot;</a> 来验证，于是出现了点问题。</p>
+<p>第一个问题：https站点引入http静态资源时，浏览器控制台出现”混合内容”警告。似乎会影响js解析</p>
+<p>第二个问题：响应头的content-type需要是text/javascript，否则不能当作js解析</p>
+<p>所以我需要一个web服务：</p>
 <ul>
-<li>第一类<ul>
-<li>C  (pcre库)</li>
-<li>Lua</li>
-<li>Nginx (ngx.re模块)</li>
-<li>PHP</li>
+<li>支持https</li>
+<li>返回内容可以自定义</li>
+<li>响应头content-type可以自定义</li>
+<li>支持公网访问</li>
 </ul>
-</li>
-<li>第二类<ul>
-<li>Python</li>
-</ul>
-</li>
-</ul>
-<p>测试代码我放在了 <a target="_blank" rel="noopener" href="https://github.com/leveryd/regex_test">regex_test</a></p>
-<p>我划分这两类仅仅依据”是否依赖PCRE库”</p>
-<h3 id="第一类"><a href="#第一类" class="headerlink" title="第一类"></a>第一类</h3><p>先说结论：依赖PCRE实现的正则只要配置好最大回溯次数的，就没有ReDos问题。</p>
-<p>我把”基于PCRE库实现的正则功能”的算到了第一类中，<code>PCRE</code>的详细介绍可以查看man手册。</p>
-<p>PCRE库是有两套API接口的。执行<code>man pcrematching</code>命令可以在man帮助手册查看到算法相关的描述。</p>
-<p>一套是基于NFA算法，调用pcre_exec等函数来做正则匹配；另一套是基于DFA算法，调用pcre_dfa_exec等函数来做正则匹配。</p>
-<p>默认用的都是NFA算法，但是PCRE库提供配置选项，可以控制最大回溯次数，超过了回溯次数后就不匹配了。</p>
-<p>其他语言也同样有配置选项来控制最大回溯次数，比如</p>
-<pre><code>PHP的pcre扩展中, 提供了俩个设置项
-
-  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">pcre.backtrack_limit &#x2F;&#x2F;最大回溯数</span><br><span class="line">pcre.recursion_limit &#x2F;&#x2F;最大嵌套数</span><br></pre></td></tr></table></figure>
-
-Nginx提供 `lua_regex_match_limit` 指令限制回溯次数</code></pre>
-<h3 id="第二类"><a href="#第二类" class="headerlink" title="第二类"></a>第二类</h3><p>先说结论：这一类语言如果没有”最大回溯次数的配置”选项，很容易出现ReDos问题。</p>
-<p>我把”自己实现正则算法”的归在了第二类。</p>
-<p>这里我只看了Python语言的re模块。</p>
-<p>CPython的re模块在c层面相关的文件有</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">Modules&#x2F;_sre.c</span><br><span class="line">Modules&#x2F;sre_lib.h</span><br></pre></td></tr></table></figure>
-<p>具体的代码逻辑也没有细看，根据测试结果来看re模块也应该是NFA算法，且源码中没有看到调用PCRE的api所以应该不是基于PCRE实现的。</p>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>通过写一个小的正则解析器demo可以理解DFA和NFA的原理和区别，NFA转换成DFA后状态机就不存在回溯了，所以DFA算法没有ReDos问题。</p>
-<p>基于PCRE实现的正则基本都有配置选项限制回溯次数，所以出现ReDos的概率会小很多。</p>
-<p>像CPython re模块这种自己实现NFA算法的，又没有控制回溯次数的，就很有可能出现ReDos问题。比如<a target="_blank" rel="noopener" href="https://bugs.python.org/issue39503">CVE-2020-8492</a>、<a target="_blank" rel="noopener" href="https://github.com/python/cpython/commit/0902a2d6b2d1d9dbde36aeaaccf1788ceaa97143">CVE-2018-1060/CVE-2018-1061</a></p>
-<p>为了自动化检测ReDos问题，我们可以基于如<a target="_blank" rel="noopener" href="https://github.com/superhuman/rxxr2">rxxr2</a>类似的工具开发。这些工具有没有一些漏报的情况，就需要另外研究了。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E7%A5%9E%E5%A5%87%E7%9A%84javascript-%E4%B8%8D%E7%94%A8%E6%8B%AC%E5%8F%B7%E5%B8%A6%E5%8F%82%E6%89%A7%E8%A1%8C%E5%87%BD%E6%95%B0/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E7%A5%9E%E5%A5%87%E7%9A%84javascript-%E4%B8%8D%E7%94%A8%E6%8B%AC%E5%8F%B7%E5%B8%A6%E5%8F%82%E6%89%A7%E8%A1%8C%E5%87%BD%E6%95%B0/" class="post-title-link" itemprop="url">神奇的javascript-不用括号带参执行函数</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>两周前，我遇到一个挺有意思的xss，过滤了很多符号，包括<code>&lt;&gt;=()`[]</code>等。</p>
-<p>我将此问题抽象成<a target="_blank" rel="noopener" href="https://04bdb3a0.o53.xyz/a1e60ae3-4bac-4012-a0f3-5b7018677979.php?a=1">ctf题目</a>，题目源码公开在 <a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/40fcaed60727b6163b034145e332640f">github</a>。</p>
-<p>前两天在 <a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/40fcaed60727b6163b034145e332640f">题目评论</a> 中看到有师傅把答案贴出来了，我就说一下这个案例。</p>
-<h1 id="测试时遇到的问题"><a href="#测试时遇到的问题" class="headerlink" title="测试时遇到的问题"></a>测试时遇到的问题</h1><p>实际测试时遇到的问题，也是题目中有两个比较难的地方：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* javascript不用 &lt;&gt;&#x3D;()&#96;[] 等符号，怎么调用函数？</span><br><span class="line">* javascript不用 &lt;&gt;&#x3D;()&#96;[] 等符号，怎么调用函数，并且带上参数？</span><br></pre></td></tr></table></figure>
-
-<p>第一个问题简单一点：在发生类型转换时，会执行valueOf或者toString属性值指向的函数。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">1-&#123;valueOf:function()&#123;alert(1)&#125;&#125;</span><br></pre></td></tr></table></figure>
-
-<p>第二个问题难一点，需要对this的用法比较熟悉。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">在函数外部,this指向window对象</span><br><span class="line"></span><br><span class="line">在函数内部：</span><br><span class="line"></span><br><span class="line">* 普通调用时</span><br><span class="line">  * strict模式下，this指向undeined</span><br><span class="line">  * 非strict模式下，this指向当前对象</span><br></pre></td></tr></table></figure>
-
-<p>还有一些方式改变this指向的对象，包括：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 调用call函数、apply函数等指定对象</span><br><span class="line">* new构造函数</span><br></pre></td></tr></table></figure>
-
-<p>this涉及的情况比较多，也比较反直觉，这里就不多说了。可以看 <a target="_blank" rel="noopener" href="https://time.geekbang.org/column/article/113399">11 | this：从JavaScript执行上下文的视角讲清楚this</a> 这篇文章。</p>
-<h1 id="题目解法"><a href="#题目解法" class="headerlink" title="题目解法"></a>题目解法</h1><p>我的解法和 @rmb122 师傅一样：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">https:&#x2F;&#x2F;04bdb3a0.o53.xyz&#x2F;a1e60ae3-4bac-4012-a0f3-5b7018677979.php?a&#x3D;xx%27-&#123;valueOf:test.a,%27call%27:%22%27%22%2blocation.hash&#125;-%27#&#39;;hello(&#39;a&#39;,&#39;b&#39;,&#39;c&#39;);&#x2F;&#x2F;</span><br></pre></td></tr></table></figure>
-
-<p>我也把题目发给我做前端开发的朋友，他的解法如下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">https:&#x2F;&#x2F;04bdb3a0.o53.xyz&#x2F;a1e60ae3-4bac-4012-a0f3-5b7018677979.php?a&#x3D;%27%2B&#123;toString:%20test.a,call:%20%27hello%27%2B[...hello%2B%27%27][29]%2B%22%27a%27,%22%2B%22%27b%27,%22%2B%22%27c%27%22%2B[...hello%2B%27%27][56]&#125;%2B%27</span><br></pre></td></tr></table></figure>
-
-<p>中间有个小插曲：在朋友把他的解法发我后，我在代码中添加了对[]符号的过滤，因为我碰到的实际案例中也过滤了[]符号。</p>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>虽然当时绕过了xss的过滤，也清楚触发流程，但是我不明白为什么会这么触发。</p>
-<p>所以补了一下和此题相关的语法及概念，包括以下内容：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 类型转换</span><br><span class="line">* this是什么</span><br><span class="line">* 函数是一等公民</span><br></pre></td></tr></table></figure>
-
-<p>由这个问题想到，是否其他语言有类似场景？比如某个对象可控时，对它做运算会导致函数调用。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">obj &#x3D; &#123;&quot;可控key&quot;:&quot;可控value&quot;&#125;</span><br><span class="line"></span><br><span class="line">操作 obj</span><br></pre></td></tr></table></figure>
-
-<p>这是一个木有答案的问题。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E7%BB%86%E5%93%81%E6%9F%90%E8%AF%AD%E4%B9%89waf%E7%9A%84xss%E9%98%B2%E6%8A%A4(1)/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E7%BB%86%E5%93%81%E6%9F%90%E8%AF%AD%E4%B9%89waf%E7%9A%84xss%E9%98%B2%E6%8A%A4(1)/" class="post-title-link" itemprop="url">细品某语义waf的xss防护(1)</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>假设攻击场景如下</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">xss漏洞输出位置如下:</span><br><span class="line"></span><br><span class="line">  &lt;div&gt;用户输出可控位置&lt;&#x2F;div&gt;</span><br><span class="line"></span><br><span class="line">攻击者准备利用on事件来执行js,比如</span><br><span class="line"></span><br><span class="line">  &lt;div&gt;&lt;svg onload&#x3D;&quot;alert(&#39;xss&#39;);&quot;&gt;&lt;&#x2F;div&gt;   利用onload属性</span><br></pre></td></tr></table></figure>
-
-<p>验证在这个场景下厂商的安全防护策略</p>
-<p>分析思路：</p>
-<ol>
-<li>改变payload，根据拦截情况推测安全防护策略</li>
-</ol>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;&lt;xxx&#x2F;onmouseover&#x3D;&quot;xxx.xxx&#x3D;aaaa&quot;&gt;  不拦截</span><br><span class="line">a&#x3D;&lt;img&#x2F;onmouseover&#x3D;&quot;xxx.xxx&#x3D;aaaa&quot;&gt;  拦截</span><br></pre></td></tr></table></figure>
-<p>说明区分了认识的标签和不认识的标签</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">&#39;a&#x3D;&lt;div&#x2F;oxx&#x3D;&quot;xxx.xxx&#x3D;aaaa&quot;&gt;&#39;    不拦截</span><br><span class="line">&#39;a&#x3D;&lt;div&#x2F;onxx&#x3D;&quot;xxx.xxx&#x3D;aaaa&quot;&gt;&#39;   拦截</span><br></pre></td></tr></table></figure>
-<p>拦截on事件，只要以on开头就拦截</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;&lt;xxx&#x2F;onmouseover&#x3D;&quot;xxx.xxx&#x3D;aaaa(&#39;&#39;;&quot;&gt;   on属性值中少一个右括号就不拦截，说明判断js语法是否正确</span><br><span class="line">a&#x3D;&lt;xxx&#x2F;onmouseover&#x3D;&quot;xxx.xxx&#x3D;aaaa(&#39;&#39;);&quot;&gt;   拦截</span><br><span class="line">a&#x3D;&lt;xxx&#x2F;onmouseover&#x3D;&quot;xxx.xxx&#x3D;aaaa;&quot;&gt;   不拦截</span><br></pre></td></tr></table></figure>
-<p>未知标签 &amp;&amp; on事件 &amp;&amp; 解析on属性中js &amp;&amp; on属性中调用了函数   则拦截</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;&lt;xxx&#x2F;onxxx&#x3D;a();&gt;     不拦截</span><br><span class="line">a&#x3D;&lt;xxx&#x2F;onxxx&#x3D;xxxxx;a();&gt;   拦截</span><br></pre></td></tr></table></figure>
-<p>on属性值需要大于一定长度</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;&lt;img&#x2F;onxxxx&#x3D;&quot;aaa&quot;&gt;  不拦截</span><br><span class="line"></span><br><span class="line">a&#x3D;&lt;img&#x2F;onxxxx&#x3D;&quot;aaaaaaa&quot;&gt;   拦截</span><br></pre></td></tr></table></figure>
-<p>已知标签on属性值大于一定长度则拦截</p>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>存在HTML解析和JS解析</p>
-<p>安全防护策略可能是：</p>
+<p>自己去搭这样一个服务也不难，但是如果有现成的岂不是更好，省时省力。</p>
+<p>根据历史经验，我知道有两种平台似乎可以解决我的这个小需求：</p>
 <ul>
-<li>HTML解析 &amp;&amp; 未知标签 &amp;&amp; on事件 &amp;&amp; on属性值大于一定长度 &amp;&amp; 对on属性值做JS解析 &amp;&amp; on属性中调用了函数   则拦截</li>
-<li>HTML解析 &amp;&amp; 已知标签 &amp;&amp; on事件 &amp;&amp; on属性值大于一定长度  则拦截</li>
+<li>类似 pastebin 的平台，可以通过短链接访问</li>
+<li>xss平台</li>
 </ul>
+<h1 id="测试这些平台是否好用"><a href="#测试这些平台是否好用" class="headerlink" title="测试这些平台是否好用"></a>测试这些平台是否好用</h1><p><a target="_blank" rel="noopener" href="http://ix.io/">http://ix.io</a> : 不支持https</p>
+<p><a target="_blank" rel="noopener" href="http://pastebin.com/">http://pastebin.com</a>: 不支持设置content-type</p>
+<p>搜索到的很多xss平台，都需要邀请码。甚至有的注册成功了，但是使用起来有问题。</p>
+<p>再比如 xssye.com 这个xss平台我很久以前用过。今天登陆提示账号密码登陆不上，申请密码找回提示邮箱和账号对不上，重新注册又提示”需要注册邀请码”。</p>
+<p>总之试了几个，感觉用着比较难受。这些xss平台看前段页面似乎都是一套代码，也不确定是否可能存在漏洞。</p>
+<h1 id="有没有稳定好用的服务"><a href="#有没有稳定好用的服务" class="headerlink" title="有没有稳定好用的服务"></a>有没有稳定好用的服务</h1><p>想起来云上的文件存储服务，刚好是满足我自己的需求的。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">➜  ~ curl https:&#x2F;&#x2F;webbackup-3knjfg4bxz.bj.bcebos.com&#x2F;1.js</span><br><span class="line">alert(1);</span><br></pre></td></tr></table></figure>
+
+<p>另外云上的函数服务，还可以写代码对响应做更精细的控制。</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>云上的 文件存储、函数服务 等很适合快速在公网提供https服务，而且相对于个人自己搭建的服务要稳定省心得多，推荐使用。</p>
+<p>当然云上也有很坑的服务，就不说了。</p>
 
       
     </div>
@@ -1151,7 +1388,7 @@ Nginx提供 `lua_regex_match_limit` 指令限制回溯次数</code></pre>
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E7%94%A8strace%E5%AE%9A%E4%BD%8Dbug/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E6%AD%A3%E5%88%99%E8%A1%A8%E8%BE%BE%E5%BC%8F%E5%8E%9F%E7%90%86%E4%B8%8EReDos%E6%94%BB%E5%87%BB/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -1164,7 +1401,7 @@ Nginx提供 `lua_regex_match_limit` 指令限制回溯次数</code></pre>
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E7%94%A8strace%E5%AE%9A%E4%BD%8Dbug/" class="post-title-link" itemprop="url">用strace定位bug</a>
+          <a href="/2021-12-26-%E6%AD%A3%E5%88%99%E8%A1%A8%E8%BE%BE%E5%BC%8F%E5%8E%9F%E7%90%86%E4%B8%8EReDos%E6%94%BB%E5%87%BB/" class="post-title-link" itemprop="url">正则表达式原理与ReDos攻击</a>
         </h2>
 
         <div class="post-meta-container">
@@ -1188,185 +1425,53 @@ Nginx提供 `lua_regex_match_limit` 指令限制回溯次数</code></pre>
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>今年年初(<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/mp/profile_ext?action=home&__biz=MzkzMzI3OTczNA==&scene=124#wechat_redirect">2021年我的学习计划</a>)我就计划补一下”操作系统”这门计算机专业课.</p>
-<p>最近我就在学一门网课，是极客时间的<a target="_blank" rel="noopener" href="https://time.geekbang.org/column/intro/100078401?tab=catalog">操作系统实战 45 讲</a>，感觉还可以：代码量是1w行多点，课程我就把它当做一个45讲的代码说明文档。</p>
-<p>网上也有一些类似的”实验教学”，比如：</p>
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>在研究 <a target="_blank" rel="noopener" href="https://owasp.org/www-community/attacks/Regular_expression_Denial_of_Service_-_ReDoS">ReDos攻击</a> 时，涉及到两个问题</p>
+<ol>
+<li>实现正则表达式的算法，比如NFA和DFA是什么？</li>
+<li>我们用的编程语言如Python、PHP等的正则功能是怎么实现的？</li>
+</ol>
+<h1 id="研究过程"><a href="#研究过程" class="headerlink" title="研究过程"></a>研究过程</h1><h2 id="正则表达式算法"><a href="#正则表达式算法" class="headerlink" title="正则表达式算法"></a>正则表达式算法</h2><p>关于NFA和DFA的讲解和实现，推荐读者看  <a target="_blank" rel="noopener" href="https://time.geekbang.org/column/article/137286?utm_term=zeusULN89&utm_source=app&utm_medium=geektime&utm_campaign=314-presell&utm_content=diyijijiacan0601">16 | NFA和DFA：如何自己实现一个正则表达式工具？</a> 这篇文章，讲得深入浅出，并配有Java代码demo。</p>
+<p>我用Python实现了课程的内容，代码在 <a target="_blank" rel="noopener" href="https://github.com/leveryd/PlayWithCompiler/blob/master/algorithm/regex.py">regex</a>。</p>
+<p>这一部分我想说的是：</p>
+<p>在研究ReDos攻击时，我们只要知道”NFA算法中回溯可能会造成计算量暴增，从而导致ReDos”这个结论就可以。</p>
+<p>不过知道一些算法原理，我感觉可以在我们验证语言是采用哪种算法时心里更有底一些。想要自动化检测可能产生ReDos的正则时，对正则原理也需要知道。</p>
+<h2 id="编程语言的正则是怎么实现的？"><a href="#编程语言的正则是怎么实现的？" class="headerlink" title="编程语言的正则是怎么实现的？"></a>编程语言的正则是怎么实现的？</h2><p>我测试了下面几个语言的正则，我自己把他们划分成两类：</p>
 <ul>
-<li><a target="_blank" rel="noopener" href="https://github.com/chyyuu/os_kernel_lab">kernel实验</a></li>
-<li><a target="_blank" rel="noopener" href="https://github.com/sunym1993/flash-linux0.11-talk">linux0.11内核解读</a></li>
-<li><a target="_blank" rel="noopener" href="https://reactos.org/">reactos-操作系统</a></li>
+<li>第一类<ul>
+<li>C  (pcre库)</li>
+<li>Lua</li>
+<li>Nginx (ngx.re模块)</li>
+<li>PHP</li>
 </ul>
-<p>目前我学习<a target="_blank" rel="noopener" href="https://gitee.com/lmos/cosmos">操作系统实战</a>有两个学习目标：</p>
-<ul>
-<li>完全理解<a target="_blank" rel="noopener" href="https://gitee.com/lmos/cosmos/tree/master/lesson13/Cosmos">第十三课的代码</a>：十三课之前的内容包括了整个机器初始化过程</li>
-<li>完全理解<a target="_blank" rel="noopener" href="https://gitee.com/lmos/cosmos/tree/master/lesson25~26/Cosmos">第二十六课的代码</a>：比”十三课”内容多了”进程”和”内存”</li>
-</ul>
-<p>本文记录我在学习时遇到的第一个小问题：编译”第十三课的代码”时遇到一个报错</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/141682853-e5976402-09ba-4478-aae6-4406e44c7dc3.png" alt="image"></p>
-<p>问题解决思路：</p>
-<ul>
-<li>搞清楚”编译器”去哪里找”kernel.inc”文件</li>
-</ul>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
-<li><p>最简便的方法找到”kernel.inc”文件位置</p>
-<p>strace -f可以跟踪子进程的系统调用</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp Cosmos]# strace -f make 2&gt;&#x2F;tmp&#x2F;q.txt</span><br><span class="line">[root@instance-fj5pftdp Cosmos]# cat &#x2F;tmp&#x2F;q.txt</span><br><span class="line">...</span><br><span class="line">[pid 20451] open(&quot;kernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;includekernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;bastypeinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;halinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;knlinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;libinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;drvinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] write(2, &quot;..&#x2F;hal&#x2F;x86&#x2F;kernel.asm:6: &quot;, 25..&#x2F;hal&#x2F;x86&#x2F;kernel.asm:6: ) &#x3D; 25</span><br></pre></td></tr></table></figure>
-
-<p>可以发现 <code>../includekernel.inc</code>等路径少了一个<code>/</code>符号</p>
-<p>修改后，就编译成功了</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/141683341-8053e5e0-850c-437f-9105-94ae1a4809fe.png" alt="image"></p>
 </li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p><code>strace -f</code> 真香：不需要我去研究”代码”或者”编译器”是怎么包含”kernel.inc文件”。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%A6%82%E4%BD%95%E6%94%B9%E5%8F%98%E8%BF%9B%E7%A8%8B%E5%90%8D%E7%A7%B0/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E5%A6%82%E4%BD%95%E6%94%B9%E5%8F%98%E8%BF%9B%E7%A8%8B%E5%90%8D%E7%A7%B0/" class="post-title-link" itemprop="url">如何改变进程名称</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>之前在<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/pFpGujKnXMhOh5ef3Z9H2g">测试反弹shell</a>时，测试发现：某厂商会根判断程命令是否是bash、sh等脚本解释器，如果修改bash、sh等文件名后反弹shell，就会绕过厂商的反弹shell防护。</p>
-<blockquote>
-<p>需要注意的的是：”修改敏感文件名、复制敏感文件“本身非常有可能被hids当作一种”异常文件操作”行为。</p>
-</blockquote>
-<p>还有一些场景下也会涉及到”进程名称的修改”：比如某些恶意软件会修改进程名称，伪装成”内核线程”。</p>
-<p>所以可以说，在”进程名称的修改”这个点上是存在一些攻防对抗的。</p>
-<p>本文研究：</p>
-<ul>
-<li>除了直接修改程序文件名，还有哪些方式来修改进程名称？</li>
-<li>作为防守方，怎么发现和检测这些”修改方式”？</li>
-</ul>
-<p>本文应该适合 做应急响应、hids和”对linux后渗透感兴趣”的读者阅读，文章中给出了我对每种隐藏方式的效果验证，方便读者对隐藏效果做评估。</p>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
-<li><p>怎么查看”进程名称”？</p>
-<p>在 /proc/{pid} 目录下有好几个文件都存放有”进程名称”相关的信息，如下图：<br><img src="https://user-images.githubusercontent.com/1846319/131244474-9dbb39c7-ba13-4033-a213-809a7773e443.png" alt="image"></p>
-<p>更常见的情况下，我们是通过ps、top等命令来查看进程信息。</p>
-<p>ps命令也是基于 /proc/{pid}/stat、/proc/{pid}/status、/proc/{pid}/cmdline 等文件来获取进程信息。可以通过strace命令查看系统调用验证一下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# strace ps aux 2&gt;&amp;1 |grep proc |grep 29224</span><br><span class="line">stat(&quot;&#x2F;proc&#x2F;29224&quot;, &#123;st_mode&#x3D;S_IFDIR|0555, st_size&#x3D;0, ...&#125;) &#x3D; 0</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;stat&quot;, O_RDONLY)      &#x3D; 6</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;status&quot;, O_RDONLY)    &#x3D; 6</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;cmdline&quot;, O_RDONLY)   &#x3D; 6</span><br><span class="line">readlink(&quot;&#x2F;proc&#x2F;29224&#x2F;fd&#x2F;2&quot;, &quot;&#x2F;42&quot;, 127) &#x3D; 3</span><br><span class="line">[root@instance-fj5pftdp ~]#</span><br><span class="line">[root@instance-fj5pftdp ~]# strace ps -A 2&gt;&amp;1 |grep proc |grep 29224</span><br><span class="line">stat(&quot;&#x2F;proc&#x2F;29224&quot;, &#123;st_mode&#x3D;S_IFDIR|0555, st_size&#x3D;0, ...&#125;) &#x3D; 0</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;stat&quot;, O_RDONLY)      &#x3D; 6</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;status&quot;, O_RDONLY)    &#x3D; 6</span><br><span class="line">readlink(&quot;&#x2F;proc&#x2F;29224&#x2F;fd&#x2F;2&quot;, &quot;&#x2F;42&quot;, 127) &#x3D; 3</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>怎么修改”进程名称”？</p>
-<p>改变进程名包括以下方式：</p>
-<ul>
-<li>execve系统调用</li>
-<li>prctl系统调用</li>
-<li>修改进程argv</li>
-<li>软链接</li>
+<li>第二类<ul>
+<li>Python</li>
 </ul>
 </li>
 </ul>
-<h1 id="通过”execve系统调用”改变进程名称"><a href="#通过”execve系统调用”改变进程名称" class="headerlink" title="通过”execve系统调用”改变进程名称"></a>通过”execve系统调用”改变进程名称</h1><ul>
-<li><p>怎么通过”execve系统调用”可以改变进程名称？</p>
-<p>execve系统调用的第二个参数可以指定cmdline，如下：</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/131255950-11235b12-c64c-4572-8a0d-521a299b3ee6.png" alt="image"></p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">#include&lt;unistd.h&gt;</span><br><span class="line">int main()</span><br><span class="line">&#123;</span><br><span class="line">     char * execve_str[] &#x3D; &#123;&quot;test_sleep&quot;,&quot;10000&quot;&#125;;   &#x2F;&#x2F; 第一个参数会出现在&#x2F;pro&#x2F;&#123;pid&#125;&#x2F;cmdline</span><br><span class="line">     char * env[] &#x3D; &#123;NULL&#125;;</span><br><span class="line">     if (execve(&quot;&#x2F;usr&#x2F;bin&#x2F;sleep&quot;,execve_str,env) &lt;0 )&#123;</span><br><span class="line">         perror(&quot;error on exec&quot;);</span><br><span class="line">     &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>测试代码我放在了 <a target="_blank" rel="noopener" href="https://github.com/leveryd/regex_test">regex_test</a></p>
+<p>我划分这两类仅仅依据”是否依赖PCRE库”</p>
+<h3 id="第一类"><a href="#第一类" class="headerlink" title="第一类"></a>第一类</h3><p>先说结论：依赖PCRE实现的正则只要配置好最大回溯次数的，就没有ReDos问题。</p>
+<p>我把”基于PCRE库实现的正则功能”的算到了第一类中，<code>PCRE</code>的详细介绍可以查看man手册。</p>
+<p>PCRE库是有两套API接口的。执行<code>man pcrematching</code>命令可以在man帮助手册查看到算法相关的描述。</p>
+<p>一套是基于NFA算法，调用pcre_exec等函数来做正则匹配；另一套是基于DFA算法，调用pcre_dfa_exec等函数来做正则匹配。</p>
+<p>默认用的都是NFA算法，但是PCRE库提供配置选项，可以控制最大回溯次数，超过了回溯次数后就不匹配了。</p>
+<p>其他语言也同样有配置选项来控制最大回溯次数，比如</p>
+<pre><code>PHP的pcre扩展中, 提供了俩个设置项
 
-<p>更简便的方式是：通过bash的exec命令的<code>-a</code>参数改变进程名称</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">exec -a &quot;xxx&quot; sleep 10000</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>效果</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/131254028-441d0792-68b5-4eab-b2a2-6208fe6f2c70.png" alt="image"></p>
-<p>可以看到：<code>ps -A</code>可以看到sleep文件名信息，<code>ps aux</code>无法看到。</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/131253952-c2ea6b18-614f-4145-b7a5-c05b97235a29.png" alt="image"></p>
-<p>可以看到：只有cmdline被修改了。</p>
-</li>
-</ul>
-<h1 id="通过”prctl系统调用”改变进程名称"><a href="#通过”prctl系统调用”改变进程名称" class="headerlink" title="通过”prctl系统调用”改变进程名称"></a>通过”prctl系统调用”改变进程名称</h1><ul>
-<li><p>怎么通过”prctl系统调用”改变进程名称？</p>
-<p><a target="_blank" rel="noopener" href="https://www.freebuf.com/articles/system/250654.html">Linux进程隐藏：初级篇</a> 这篇文章有demo代码</p>
-</li>
-<li><p>效果<br><img src="https://user-images.githubusercontent.com/1846319/131256636-e9edd238-3856-4f90-a126-30570e44a472.png" alt="image"></p>
-<p>可以看到虽然stat、comm、status文件已经修改，但是cmdline、exe等文件仍然有原程序名信息。</p>
-</li>
-<li><p>怎么检测？</p>
-<p><a target="_blank" rel="noopener" href="https://github.com/bytedance/Elkeid/blob/main/driver/README-zh_CN.md">字节hids</a> hook了这个系统调用</p>
-</li>
-</ul>
-<h1 id="通过”修改进程argv-0-”隐藏进程名称"><a href="#通过”修改进程argv-0-”隐藏进程名称" class="headerlink" title="通过”修改进程argv[0]”隐藏进程名称"></a>通过”修改进程argv[0]”隐藏进程名称</h1><ul>
-<li><p>怎么通过”修改进程argv[0]”隐藏进程名称？</p>
-<p><a target="_blank" rel="noopener" href="https://www.freebuf.com/articles/system/250654.html">Linux进程隐藏：初级篇</a> 这篇文章有demo代码</p>
-</li>
-<li><p>谁用了这种方式？</p>
-<p>恶意软件<a target="_blank" rel="noopener" href="https://github.com/n1nj4sec/pupy/blob/unstable/pupy/packages/linux/all/hide_process.py">puppy</a> 就用到了这种方式修改进程名为”[kworker/2:0]”。</p>
-<blockquote>
-<p>“[XXXX]”这种进程名都是内核线程</p>
-</blockquote>
-<p><img src="https://user-images.githubusercontent.com/1846319/131245230-c8f97321-5d04-41f9-a347-f7a4f69e3794.png" alt="image"></p>
-</li>
-<li><p>效果</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/131253587-ec40a6c2-2b19-4df1-90d3-68a6772be975.png" alt="image"></p>
-<p>可以看到：只有cmdline被修改了。</p>
-</li>
-</ul>
-<h1 id="通过”软链接”改变进程名称"><a href="#通过”软链接”改变进程名称" class="headerlink" title="通过”软链接”改变进程名称"></a>通过”软链接”改变进程名称</h1><ul>
-<li><p>是什么？</p>
-<p>在 <a target="_blank" rel="noopener" href="https://cloud.tencent.com/developer/article/1609832">两个主题：躲避execve与分析/proc/目录</a> 这篇文章提到了：利用”软链接”可以改变进程信息，并且文件哈希和源文件不一致，这样可以用来躲避安全产品的监控。</p>
-</li>
-<li><p>效果<br><img src="https://user-images.githubusercontent.com/1846319/131256254-29bd80e0-8475-47f2-a13f-c6d4bfcc3b39.png" alt="image"></p>
-<p>可以看到：只有exe文件还有原程序信息，所以这种方式隐藏进程名的效果是最好的。</p>
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>可以有以下结论：</p>
-<ul>
-<li>单看四种隐藏方式，”软链接”这种方式隐蔽得最好；其他几种方式，comm、stat、cmdline、status文件中总会有原程序相关信息</li>
-<li>不论哪种方式，exe文件仍然有原程序相关信息</li>
-<li>像”prctl系统调用”这种方式应该避免使用</li>
-</ul>
+  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">pcre.backtrack_limit &#x2F;&#x2F;最大回溯数</span><br><span class="line">pcre.recursion_limit &#x2F;&#x2F;最大嵌套数</span><br></pre></td></tr></table></figure>
+
+Nginx提供 `lua_regex_match_limit` 指令限制回溯次数</code></pre>
+<h3 id="第二类"><a href="#第二类" class="headerlink" title="第二类"></a>第二类</h3><p>先说结论：这一类语言如果没有”最大回溯次数的配置”选项，很容易出现ReDos问题。</p>
+<p>我把”自己实现正则算法”的归在了第二类。</p>
+<p>这里我只看了Python语言的re模块。</p>
+<p>CPython的re模块在c层面相关的文件有</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">Modules&#x2F;_sre.c</span><br><span class="line">Modules&#x2F;sre_lib.h</span><br></pre></td></tr></table></figure>
+<p>具体的代码逻辑也没有细看，根据测试结果来看re模块也应该是NFA算法，且源码中没有看到调用PCRE的api所以应该不是基于PCRE实现的。</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>通过写一个小的正则解析器demo可以理解DFA和NFA的原理和区别，NFA转换成DFA后状态机就不存在回溯了，所以DFA算法没有ReDos问题。</p>
+<p>基于PCRE实现的正则基本都有配置选项限制回溯次数，所以出现ReDos的概率会小很多。</p>
+<p>像CPython re模块这种自己实现NFA算法的，又没有控制回溯次数的，就很有可能出现ReDos问题。比如<a target="_blank" rel="noopener" href="https://bugs.python.org/issue39503">CVE-2020-8492</a>、<a target="_blank" rel="noopener" href="https://github.com/python/cpython/commit/0902a2d6b2d1d9dbde36aeaaccf1788ceaa97143">CVE-2018-1060/CVE-2018-1061</a></p>
+<p>为了自动化检测ReDos问题，我们可以基于如<a target="_blank" rel="noopener" href="https://github.com/superhuman/rxxr2">rxxr2</a>类似的工具开发。这些工具有没有一些漏报的情况，就需要另外研究了。</p>
 
       
     </div>
@@ -1386,7 +1491,7 @@ Nginx提供 `lua_regex_match_limit` 指令限制回溯次数</code></pre>
 
 
   <nav class="pagination">
-    <a class="extend prev" rel="prev" href="/"><i class="fa fa-angle-left" aria-label="上一页"></i></a><a class="page-number" href="/">1</a><span class="page-number current">2</span><a class="page-number" href="/page/3/">3</a><span class="space">&hellip;</span><a class="page-number" href="/page/5/">5</a><a class="extend next" rel="next" href="/page/3/"><i class="fa fa-angle-right" aria-label="下一页"></i></a>
+    <a class="extend prev" rel="prev" href="/"><i class="fa fa-angle-left" aria-label="上一页"></i></a><a class="page-number" href="/">1</a><span class="page-number current">2</span><a class="page-number" href="/page/3/">3</a><span class="space">&hellip;</span><a class="page-number" href="/page/6/">6</a><a class="extend next" rel="next" href="/page/3/"><i class="fa fa-angle-right" aria-label="下一页"></i></a>
   </nav>
 
 </div>

