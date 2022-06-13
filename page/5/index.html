@@ -168,134 +168,6 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E4%BD%A0%E7%9A%84%E6%89%AB%E6%8F%8F%E5%99%A8%E5%8F%AF%E4%BB%A5%E7%BB%95%E8%BF%87%E9%98%B2%E7%81%AB%E5%A2%99%E4%B9%88%EF%BC%88%E4%B8%89%EF%BC%89/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E4%BD%A0%E7%9A%84%E6%89%AB%E6%8F%8F%E5%99%A8%E5%8F%AF%E4%BB%A5%E7%BB%95%E8%BF%87%E9%98%B2%E7%81%AB%E5%A2%99%E4%B9%88%EF%BC%88%E4%B8%89%EF%BC%89/" class="post-title-link" itemprop="url">你的扫描器可以绕过防火墙么（三）</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p><a target="_blank" rel="noopener" href="https://github.com/pyn3rd/papers/blob/master/KCon_2019_WAF.pdf">How to Break Through Cloud-Based WAF</a> 提到 “post请求体过大时会绕过某些waf”。</p>
-<p>刚好今天看到一个用此方法绕过的案例：<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/wvKfe4xxNXWEgtQE4PdTaQ">Java反序列化数据绕WAF之加大量脏数据</a></p>
-<p>这个绕过姿势记得在2017年就有人分享过，因为我对”因为性能原因所以导致waf放行”这个解释有点疑问，所以研究了一下。</p>
-<p>本文主要研究:</p>
-<ul>
-<li>为什么请求体过大时会绕过waf的防护？</li>
-<li>什么场景下可以使用这种绕过姿势攻击到后端服务？</li>
-<li>怎么测试？</li>
-</ul>
-<p>以下研究的waf都是基于openresty实现的。</p>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
-<li><p>openresty怎么读请求体？</p>
-<p><a target="_blank" rel="noopener" href="https://moonbingbing.gitbooks.io/openresty-best-practices/content/openresty/get_req_body.html">获取请求 body</a> 的代码：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">ngx.req.read_body()</span><br><span class="line">local data &#x3D; ngx.req.get_body_data()</span><br><span class="line">-- local file_name &#x3D; ngx.req.get_body_file()</span><br></pre></td></tr></table></figure>
-
-<p>根据 <a target="_blank" rel="noopener" href="https://github.com/openresty/lua-nginx-module#ngxreqread_body">openresty文档</a> 得知</p>
-<blockquote>
-<p>如果请求体存放到了临时文件，就应该调用 <code>ngx.req.get_body_file</code> 接口来获取临时文件名。</p>
-<p>如果请求体存放到内存中，就应该调用 <code>ngx.req.get_body_data</code> 接口来获取请求体。</p>
-</blockquote>
-<p><em>什么时候请求体会存放到临时文件呢？</em></p>
-<p> 有两个配置选项决定nginx是否会把请求体放到临时文件:</p>
-<blockquote>
-<p><a target="_blank" rel="noopener" href="http://nginx.org/en/docs/http/ngx_http_core_module.html#client_body_buffer_size">client_body_buffer_size</a>:如果请求体大小超过此值，就会把整个请求体或者请求体的一部分写到一个临时文件。</p>
-<p><a target="_blank" rel="noopener" href="http://nginx.org/en/docs/http/ngx_http_core_module.html#client_body_in_file_only">client_body_in_file_only</a>:此选项直接决定nginx是否将请求体放到文件中。</p>
-</blockquote>
-</li>
-<li><p>为什么请求体过大时会绕过waf的防护？</p>
-<p>请求体过大，超过 client_body_buffer_size 配置的值时，请求体会写到临时文件。</p>
-<p>而很多waf不处理临时文件。相当于拿到的请求体会为空。比如曾经很火的 <a target="_blank" rel="noopener" href="https://github.com/loveshell/ngx_lua_waf/blob/master/waf.lua">ngx_lua_waf</a> 就没有临时文件相关操作。</p>
-<p><em>那为啥waf作者没有处理临时文件呢？</em></p>
-<p>可能是忘了，也可能觉得损耗性能。这里的性能我理解主要是与 io、内存有关。</p>
-<p>在openresty中读文件可以有两个api：</p>
-<blockquote>
-<p> ngx_io.open，此api是非阻塞的</p>
-<p> io.open，此api是阻塞的</p>
-</blockquote>
-<p>如果使用<code>io.open</code>读”临时文件”，整个nginx worker就会卡在这个读文件步骤中，肯定会导致整个集群能服务的最大并发数变低。</p>
-<p>如果使用<code>lua-io-nginx-module</code>模块的<code>ngx_io.open</code>非阻塞api来代替<code>io.open</code>阻塞api来读文件，虽然不会阻塞整个nginx worker，但”读文件io操作”还是要和磁盘打交道，需要中断和多次内存拷贝，还是有性能损耗。</p>
-<p>并且，如果服务是将文件一次性读取到内存中时，那”不怀好意”的人多搞几个这样”post请求体过大”的请求，就有可能导致机器内存耗尽。</p>
-</li>
-<li><p>什么场景下可以使用这种绕过姿势？</p>
-<p>即使waf放行了，也需要后端支持这种超大的请求体。而不少服务对请求体大小是有限制的。</p>
-<p>比如nginx的<a target="_blank" rel="noopener" href="http://nginx.org/en/docs/http/ngx_http_core_module.html#client_max_body_size">client_max_body_size</a>:如果请求体大小超过此设置值，就会返回 413 (Request Entity Too Large)  错误。 此配置为0表示不限制请求体大小。</p>
-<p>再比如php的<a target="_blank" rel="noopener" href="https://www.php.net/manual/en/ini.core.php#ini.post-max-size">post-max-size</a>:如果请求体大小超过此设置值，<code>$_POST</code>和<code>$_FILES</code>会为空。</p>
-<p><em>所以满足以下条件时，应该可以利用成功</em>:</p>
-<blockquote>
-<p>请求体大小超过waf client_body_buffer_size配置限制，且waf没有处理临时文件</p>
-<p>请求体大小未超过后端服务的大小限制</p>
-</blockquote>
-</li>
-</ul>
-<h1 id="怎么测试"><a href="#怎么测试" class="headerlink" title="怎么测试"></a>怎么测试</h1><p>客户端的测试代码如下，需要看情况调整big_str的大小</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">import requests</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">host &#x3D; &quot;a.baidu.com&quot;</span><br><span class="line">url &#x3D; &quot;http:&#x2F;&#x2F;127.0.0.1:9998&#x2F;a.php&quot;</span><br><span class="line">payload &#x3D; &quot;..&#x2F;..&#x2F;..&#x2F;&quot;</span><br><span class="line">big_str &#x3D; &quot;A&quot;*1024*1024*200  # 200M</span><br><span class="line"></span><br><span class="line">headers &#x3D; &#123;&quot;Host&quot;: host, &quot;Content-Type&quot;: &quot;application&#x2F;x-www-form-urlencoded&quot;&#125;</span><br><span class="line">data &#x3D; &quot;a&#x3D;%s&amp;b&#x3D;%s&quot; % (big_str, payload)</span><br><span class="line"></span><br><span class="line">res &#x3D; requests.post(url, data&#x3D;data, headers&#x3D;headers)</span><br><span class="line">print(res.content.decode(&quot;utf8&quot;))</span><br><span class="line">print(res.status_code)</span><br></pre></td></tr></table></figure>
-
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>本文并没有研究waf厂商是怎么解决这个问题的，比如pdf提到的stream模式是怎么实现的、stream模式是否可以绕过。</p>
-<p>绕过waf防护的原因是请求体过大时会被存放到”临时文件”中，而不处理”临时文件”是出于io、内存等性能考虑。</p>
-<p>这种绕过姿势还需要”请求体大小未超过后端服务的大小限制”才能利用成功。</p>
-<p>另外 “post请求过大为什么会绕过waf”还有两个可能的原因：</p>
-<blockquote>
-<ul>
-<li>payload刚好被”tcp分片”</li>
-<li><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/jw0vPIvgCdt1090j3-Sxqw">正则回溯次数超过限制</a></li>
-</ul>
-</blockquote>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E4%BD%A0%E7%9A%84%E6%89%AB%E6%8F%8F%E5%99%A8%E5%8F%AF%E4%BB%A5%E7%BB%95%E8%BF%87%E9%98%B2%E7%81%AB%E5%A2%99%E4%B9%88%EF%BC%88%E4%BA%8C%EF%BC%89/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -385,6 +257,178 @@
 <h1 id="最后给自己的公众号打下广告"><a href="#最后给自己的公众号打下广告" class="headerlink" title="最后给自己的公众号打下广告"></a>最后给自己的公众号打下广告</h1><p>我在内部安全保障、安全产品两个方向有一些工作经验；在启明、百度等大厂也都呆过，也曾在房多多和安全团队一起做过从0到1的安全建设；在漏洞挖掘这一块虽然不是经验丰富，但之前也给”华为、阿里、360、百度、字节”等国内的大厂提交过一些高危严重漏洞（PS：并不代表我觉得这些src都非常好）；</p>
 <p>我后面会持续写 “安全产品”、”后端开发”、”有意思的安全问题/漏洞”，如果读者有什么想一起讨论的”题材”，欢迎在公众号后台留言；</p>
 <p>目前公众号一篇文章阅读量只有50-70，感觉太惨淡了。如果读者觉得我的文章有帮助，就希望能在公众号”点赞、在看、分享”，”点赞”和”在看”似乎也能增加一些曝光量。要不然文章就只能关注的人才能看得到。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E4%BD%A0%E7%9A%84%E6%89%AB%E6%8F%8F%E5%99%A8%E5%8F%AF%E4%BB%A5%E7%BB%95%E8%BF%87%E9%98%B2%E7%81%AB%E5%A2%99%E4%B9%88%EF%BC%88%E4%B8%80%EF%BC%89/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E4%BD%A0%E7%9A%84%E6%89%AB%E6%8F%8F%E5%99%A8%E5%8F%AF%E4%BB%A5%E7%BB%95%E8%BF%87%E9%98%B2%E7%81%AB%E5%A2%99%E4%B9%88%EF%BC%88%E4%B8%80%EF%BC%89/" class="post-title-link" itemprop="url">你的扫描器可以绕过防火墙么（一）</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>看过<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/qF7Jgiev5B7zLEHwGXry3A">从shiro-550漏洞品阿里云waf规则引擎</a>文章的，应该知道阿里云是怎么防护shiro反序列化漏洞的利用，那么我们有办法绕过防护么？</p>
+<p>先把上面的问题放一放，看看几个base64解码相关的case吧。</p>
+<p>base64解码时，不同语言的接口实现有略微区别，目前知道有两种”边界情况”：</p>
+<ul>
+<li>字符串中包含 <code>. %</code>  等符号时，是选择忽略这些符号，还是报错</li>
+<li>字符串中包含 <code>=</code> 符号，解析到<code>=</code>时，是认为解析完成了，还是忽略”等号”继续解析</li>
+</ul>
+<p>比如：<br>Python base64解码时，会忽略”=”号后面的字符串</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">import binascii</span><br><span class="line">binascii.a2b_base64(b&#39;aGVsbG8&#x3D;&#39;)       # b&#39;hello&#39; (valid)</span><br><span class="line">binascii.a2b_base64(b&#39;aGVsbG8&#x3D;&#x3D;&#39;)      # b&#39;hello&#39; (ignoring data)</span><br><span class="line">binascii.a2b_base64(b&#39;aGVsbG8&#x3D;python&#39;) # b&#39;hello&#39; (ignoring data)</span><br></pre></td></tr></table></figure>
+
+<p>PHP base64解码时，支持编码中有<code>. %</code>  等符号，会忽略这些符号</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">P.HNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg&#x3D;&#x3D;</span><br><span class="line">P%HNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg&#x3D;&#x3D;</span><br></pre></td></tr></table></figure>
+
+<p>我也是从别人给Python提交的<a target="_blank" rel="noopener" href="https://bugs.python.org/issue43086">这个bug</a> 学到的一些姿势。</p>
+<p>所以，我想研究以下问题：</p>
+<ul>
+<li>哪些语言受影响？</li>
+<li>会有什么影响？<ul>
+<li>什么时候会产生绕过？</li>
+<li>哪些waf可以绕过？</li>
+</ul>
+</li>
+</ul>
+<h1 id="哪些语言受影响？"><a href="#哪些语言受影响？" class="headerlink" title="哪些语言受影响？"></a>哪些语言受影响？</h1><ul>
+<li><p>测试思路</p>
+<p>有两个两个测试目标：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">1. 看看&quot;不同语言 对 &#x3D;&#x3D; 后面是否忽略&quot;</span><br><span class="line">2. 看看&quot;不同语言 对 . 号是否忽略&quot;</span><br></pre></td></tr></table></figure>
+
+<p>因此，对<code>hello</code>base64编码并做点变形，得到下面三个测试paylaod</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">aGVsbG8&#x3D;test</span><br><span class="line">aGVs.bG8</span><br><span class="line">aGVs.bG8&#x3D;</span><br></pre></td></tr></table></figure>
+
+<p>另外额外测一下shiro中base64的解码</p>
+</li>
+<li><p>测试的语言、版本、解码接口如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">php(7.3.11): base64_decode</span><br><span class="line"></span><br><span class="line">python(3.7): binascii.a2b_base64、base64.b64decode</span><br><span class="line"></span><br><span class="line">openresty(1.19): ngx.base64.decode_base64url</span><br><span class="line"></span><br><span class="line">java(jshell 14.0.1): Base64.getDecoder().decode</span><br><span class="line"></span><br><span class="line">shiro(1.5.1): org.apache.shiro.codec.Base64.decode</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>测试结果</p>
+<table>
+<thead>
+<tr>
+<th>payload</th>
+<th>php</th>
+<th>python</th>
+<th>openresty</th>
+<th>java</th>
+<th>shiro</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>aGVsbG8=test</code></td>
+<td>hello-z�</td>
+<td>hello</td>
+<td>hello</td>
+<td>抛异常</td>
+<td>hello-z�</td>
+</tr>
+<tr>
+<td><code>aGVs.bG8</code></td>
+<td>hello</td>
+<td>解码失败</td>
+<td>解码失败</td>
+<td>抛异常</td>
+<td>hel</td>
+</tr>
+<tr>
+<td><code>aGVs.bG8=</code></td>
+<td>hello</td>
+<td>hello</td>
+<td>解码失败</td>
+<td>抛异常</td>
+<td>hello</td>
+</tr>
+<tr>
+<td><code>aGVsbG8=</code></td>
+<td>hello</td>
+<td>hello</td>
+<td>hello</td>
+<td>hello</td>
+<td>hello</td>
+</tr>
+</tbody></table>
+</li>
+<li><p>结论</p>
+<ul>
+<li>php、python、openresty、shiro 都不同程度地受变形payload影响</li>
+</ul>
+</li>
+</ul>
+<h1 id="会有什么影响？"><a href="#会有什么影响？" class="headerlink" title="会有什么影响？"></a>会有什么影响？</h1><ul>
+<li><p>什么时候适用这种绕过方式？</p>
+<p>以下情况下会存在绕过：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">1. waf不能解码，后端可以解码</span><br><span class="line">2. waf解码后，只检测解码后的数据，不检测原始payload</span><br></pre></td></tr></table></figure>
+
+<p>第一种情况的例子：比如发送 <code>PHN.jcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==</code>，如果waf不能解码，就会放行。</p>
+<p>第二种情况的例子：发送<code>a=aGVsbG8=&#39; union select 1 and &#39;</code>，有可能waf解码成 “hello”，认为没有危害，也会放行</p>
+<p>第一种情况很常见，第二种情况目前还没有遇到案例。</p>
+</li>
+<li><p>哪些waf可以绕过？</p>
+<p>只测试了我心中的”最强王者”(阿里云waf和长亭云waf)，都存在第一种情况的绕过。</p>
+</li>
+</ul>
+<h1 id="规范"><a href="#规范" class="headerlink" title="规范"></a>规范</h1><ul>
+<li><p>规范中是怎么定义”base64解码时对非字母如何处理”？</p>
+<p><a target="_blank" rel="noopener" href="https://datatracker.ietf.org/doc/html/rfc4648#section-3.3">rfc规范</a> 中说的是，”没有特殊情况下，遇到非字母就应该报错并拒绝继续解码”。</p>
+<p>看<a target="_blank" rel="noopener" href="https://shiro.apache.org/static/1.3.0/apidocs/org/apache/shiro/codec/Base64.html">官方文档</a> shiro 是根据另外一个<a target="_blank" rel="noopener" href="https://www.ietf.org/rfc/rfc2045.txt">邮件相关的规范</a>来做的base64编解码。</p>
+</li>
+</ul>
+<h1 id="最后"><a href="#最后" class="headerlink" title="最后"></a>最后</h1><p>所以，现在你清楚怎么绕过shiro漏洞的防护了么？</p>
+<p>另外，如果读者有第二种情况绕过的案例，欢迎公众号后台私信我。</p>
 
       
     </div>
@@ -883,7 +927,7 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-WAF%E6%94%BB%E9%98%B2%E5%AE%9E%E8%B7%B5(4)/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-old_link/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -896,7 +940,7 @@
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-WAF%E6%94%BB%E9%98%B2%E5%AE%9E%E8%B7%B5(4)/" class="post-title-link" itemprop="url">WAF攻防实践(4)</a>
+          <a href="/2021-12-26-old_link/" class="post-title-link" itemprop="url">历史文章存档</a>
         </h2>
 
         <div class="post-meta-container">
@@ -920,63 +964,8 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>上周在做安全测试时，发现站点的xss能够插入标签，当我想用on事件来执行javascript脚本时，发现被waf拦截了。</p>
-<p>经常怼waf的，应该会碰到过，waf针对标签on属性名的拦截策略分为两种：</p>
-<ul>
-<li>on属性名在黑名单列表</li>
-<li>以on开头，且满足其他条件，比如字符串长度大于一定长度</li>
-</ul>
-<p>举个例子，payload包含<code>&lt;div onXXXXX=alert(1)&gt;</code>时，按照第一种策略，只有<code>onXXXXX</code>在黑名单列表中，才会被拦截。第二种策略就直接拦截了，因为<code>onXXXXX</code>以<code>on</code>开头，且还比较长。</p>
-<p>本文碰到的waf拦截策略是第一种，所以只要找到一个on属性不在黑名单列表中，就应该可以绕过。</p>
-<p>所以问题变成了：</p>
-<ul>
-<li>怎么找到所有的on属性？</li>
-<li>怎么判断哪个on属性没有被过滤？</li>
-<li>怎么利用未过滤的on事件？</li>
-</ul>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
-<li><p>怎么找到所有的on属性？</p>
-<p>前端遍历BOM对象document的属性即可</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">let results &#x3D; []</span><br><span class="line">for (let i in document)&#123;</span><br><span class="line">  if(i.startsWith(&quot;on&quot;))&#123;</span><br><span class="line">    results.push(i)</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br><span class="line">console.log(results)</span><br><span class="line">localStorage.onAttrs&#x3D;JSON.stringify(results)</span><br></pre></td></tr></table></figure>
-
-<p>因为results字符串非常长，会在chrome控制台会被截断，所以把它存到localStorage中，结果在 Chrome devtool -&gt; Application -&gt; Storage 中可以找到。</p>
-</li>
-<li><p>怎么判断哪个on属性没有被过滤？</p>
-<p>用burpsuite的intruder爆破模块过一遍，发现有两个属性没有拦截：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">ontransitionstart</span><br><span class="line">onbeforexrselect</span><br></pre></td></tr></table></figure>
-
-<p>这两个属性我之前也没见过，那怎么利用这两个属性执行js呢？</p>
-</li>
-<li><p>怎么利用<code>ontransitionstart</code>属性？</p>
-<p>根据<a target="_blank" rel="noopener" href="https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement/transitionstart_event">MDN-transitionstart文档</a>构造出利用方式：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">&lt;div class&#x3D;&quot;transition&quot; ontransitionstart&#x3D;&quot;alert(1)&quot;&gt;Hover over me&lt;&#x2F;div&gt;</span><br><span class="line"></span><br><span class="line">&lt;style&gt;</span><br><span class="line">.transition &#123;</span><br><span class="line">  width: 10000px;</span><br><span class="line">  height: 10000px;</span><br><span class="line">  background: rgba(255,0,0,1);</span><br><span class="line">  transition-property: transform, background;</span><br><span class="line">  transition-duration: 1s;</span><br><span class="line">  transition-delay: 1s;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">.transition:hover &#123;</span><br><span class="line">  transform: rotate(90deg);</span><br><span class="line">  background: rgba(255,0,0,0);</span><br><span class="line">&#125;</span><br><span class="line">&lt;&#x2F;style&gt;</span><br></pre></td></tr></table></figure>
-
-<p>虽然文档写的chrome和firefox都支持transitionstart事件，但是上面的利用payload实际测试结果：</p>
-<blockquote>
-<p>firefox可以、chrome不行</p>
-</blockquote>
-<p>chrome用addEventListener可以监听<code>transitionstart</code>事件，但不能用<code>ontransitionstart</code>来监听事件。这个原因不知道为啥。</p>
-</li>
-<li><p>怎么利用<code>onbeforexrselect</code>属性？</p>
-<p>根据<a target="_blank" rel="noopener" href="https://immersive-web.github.io/dom-overlays/">onbeforexrselect文档</a>来看，似乎<code>beforexrselect</code>事件还只是一个草案。</p>
-<p>也因为transitionstart事件已经能利用了，所以也没有再研究。</p>
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><ul>
-<li><p>从防守方来看，如果采用了on事件黑名单，就需要保证事件黑名单的全面。</p>
-</li>
-<li><p>chrome和firefox on属性有区别，或许可以作为一个区分浏览器的指纹特征（虽然感觉很不稳定）。</p>
-</li>
-<li><p>测试过程中，我还有一个疑问：不同元素之间的on属性是否会不同，比如div元素和document元素遍历出来的on属性是否会不同。有知道答案的读者可以后台告诉我。</p>
-</li>
-</ul>
-<h1 id="PS"><a href="#PS" class="headerlink" title="PS"></a>PS</h1><p>我个人把防火墙的绕过分为两个类别：</p>
-<ul>
-<li>架构层面的绕过，这种绕过不太关心具体的漏洞类型是xss还是sql注入</li>
-<li>漏洞类型相关的绕过</li>
-</ul>
-<p>第一种架构层面的绕过姿势比较难找，这种较为通用的绕过姿势，从攻击队视角来看我觉得比较适合扫描器来绕过防火墙。这也是<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/qAv2wspeuCfhCjTaz03hNg">你的扫描器可以绕过防火墙么</a>系列文章名称的由来。</p>
-<p>后面就都写到这个”waf攻防实践”系列里来。</p>
+          <p>2017-2019年的历史文章，共8篇</p>
+<p><a target="_blank" rel="noopener" href="https://leveryd.github.io/">https://leveryd.github.io/</a></p>
 
       
     </div>
@@ -1123,7 +1112,7 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-old_link/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-WAF%E6%94%BB%E9%98%B2%E5%AE%9E%E8%B7%B5(4)/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -1136,7 +1125,7 @@
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-old_link/" class="post-title-link" itemprop="url">历史文章存档</a>
+          <a href="/2021-12-26-WAF%E6%94%BB%E9%98%B2%E5%AE%9E%E8%B7%B5(4)/" class="post-title-link" itemprop="url">WAF攻防实践(4)</a>
         </h2>
 
         <div class="post-meta-container">
@@ -1160,8 +1149,63 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <p>2017-2019年的历史文章，共8篇</p>
-<p><a target="_blank" rel="noopener" href="https://leveryd.github.io/">https://leveryd.github.io/</a></p>
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>上周在做安全测试时，发现站点的xss能够插入标签，当我想用on事件来执行javascript脚本时，发现被waf拦截了。</p>
+<p>经常怼waf的，应该会碰到过，waf针对标签on属性名的拦截策略分为两种：</p>
+<ul>
+<li>on属性名在黑名单列表</li>
+<li>以on开头，且满足其他条件，比如字符串长度大于一定长度</li>
+</ul>
+<p>举个例子，payload包含<code>&lt;div onXXXXX=alert(1)&gt;</code>时，按照第一种策略，只有<code>onXXXXX</code>在黑名单列表中，才会被拦截。第二种策略就直接拦截了，因为<code>onXXXXX</code>以<code>on</code>开头，且还比较长。</p>
+<p>本文碰到的waf拦截策略是第一种，所以只要找到一个on属性不在黑名单列表中，就应该可以绕过。</p>
+<p>所以问题变成了：</p>
+<ul>
+<li>怎么找到所有的on属性？</li>
+<li>怎么判断哪个on属性没有被过滤？</li>
+<li>怎么利用未过滤的on事件？</li>
+</ul>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
+<li><p>怎么找到所有的on属性？</p>
+<p>前端遍历BOM对象document的属性即可</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">let results &#x3D; []</span><br><span class="line">for (let i in document)&#123;</span><br><span class="line">  if(i.startsWith(&quot;on&quot;))&#123;</span><br><span class="line">    results.push(i)</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br><span class="line">console.log(results)</span><br><span class="line">localStorage.onAttrs&#x3D;JSON.stringify(results)</span><br></pre></td></tr></table></figure>
+
+<p>因为results字符串非常长，会在chrome控制台会被截断，所以把它存到localStorage中，结果在 Chrome devtool -&gt; Application -&gt; Storage 中可以找到。</p>
+</li>
+<li><p>怎么判断哪个on属性没有被过滤？</p>
+<p>用burpsuite的intruder爆破模块过一遍，发现有两个属性没有拦截：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">ontransitionstart</span><br><span class="line">onbeforexrselect</span><br></pre></td></tr></table></figure>
+
+<p>这两个属性我之前也没见过，那怎么利用这两个属性执行js呢？</p>
+</li>
+<li><p>怎么利用<code>ontransitionstart</code>属性？</p>
+<p>根据<a target="_blank" rel="noopener" href="https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement/transitionstart_event">MDN-transitionstart文档</a>构造出利用方式：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">&lt;div class&#x3D;&quot;transition&quot; ontransitionstart&#x3D;&quot;alert(1)&quot;&gt;Hover over me&lt;&#x2F;div&gt;</span><br><span class="line"></span><br><span class="line">&lt;style&gt;</span><br><span class="line">.transition &#123;</span><br><span class="line">  width: 10000px;</span><br><span class="line">  height: 10000px;</span><br><span class="line">  background: rgba(255,0,0,1);</span><br><span class="line">  transition-property: transform, background;</span><br><span class="line">  transition-duration: 1s;</span><br><span class="line">  transition-delay: 1s;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">.transition:hover &#123;</span><br><span class="line">  transform: rotate(90deg);</span><br><span class="line">  background: rgba(255,0,0,0);</span><br><span class="line">&#125;</span><br><span class="line">&lt;&#x2F;style&gt;</span><br></pre></td></tr></table></figure>
+
+<p>虽然文档写的chrome和firefox都支持transitionstart事件，但是上面的利用payload实际测试结果：</p>
+<blockquote>
+<p>firefox可以、chrome不行</p>
+</blockquote>
+<p>chrome用addEventListener可以监听<code>transitionstart</code>事件，但不能用<code>ontransitionstart</code>来监听事件。这个原因不知道为啥。</p>
+</li>
+<li><p>怎么利用<code>onbeforexrselect</code>属性？</p>
+<p>根据<a target="_blank" rel="noopener" href="https://immersive-web.github.io/dom-overlays/">onbeforexrselect文档</a>来看，似乎<code>beforexrselect</code>事件还只是一个草案。</p>
+<p>也因为transitionstart事件已经能利用了，所以也没有再研究。</p>
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><ul>
+<li><p>从防守方来看，如果采用了on事件黑名单，就需要保证事件黑名单的全面。</p>
+</li>
+<li><p>chrome和firefox on属性有区别，或许可以作为一个区分浏览器的指纹特征（虽然感觉很不稳定）。</p>
+</li>
+<li><p>测试过程中，我还有一个疑问：不同元素之间的on属性是否会不同，比如div元素和document元素遍历出来的on属性是否会不同。有知道答案的读者可以后台告诉我。</p>
+</li>
+</ul>
+<h1 id="PS"><a href="#PS" class="headerlink" title="PS"></a>PS</h1><p>我个人把防火墙的绕过分为两个类别：</p>
+<ul>
+<li>架构层面的绕过，这种绕过不太关心具体的漏洞类型是xss还是sql注入</li>
+<li>漏洞类型相关的绕过</li>
+</ul>
+<p>第一种架构层面的绕过姿势比较难找，这种较为通用的绕过姿势，从攻击队视角来看我觉得比较适合扫描器来绕过防火墙。这也是<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/qAv2wspeuCfhCjTaz03hNg">你的扫描器可以绕过防火墙么</a>系列文章名称的由来。</p>
+<p>后面就都写到这个”waf攻防实践”系列里来。</p>
 
       
     </div>

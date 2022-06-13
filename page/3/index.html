@@ -591,149 +591,6 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%A6%82%E4%BD%95%E7%BB%93%E6%9D%9F%E5%92%8C%E6%9A%82%E5%81%9Cagent%E8%BF%9B%E7%A8%8B/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E5%A6%82%E4%BD%95%E7%BB%93%E6%9D%9F%E5%92%8C%E6%9A%82%E5%81%9Cagent%E8%BF%9B%E7%A8%8B/" class="post-title-link" itemprop="url">如何结束和暂停agent进程</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>就像 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/WQeOfZtyKndbDebe66-V_g">如何避免文件上报-制作大文件</a> 说的，hids agent会上报很多信息，安全防护策略也是围绕”agent上报的信息”制定的。</p>
-<p>那如果攻击者”结束、暂停agent进程”，导致agent功能废掉，是不是就能够绕过hids的防护呢？</p>
-<p>研究过程中，我发现并不能轻易地结束agent进程；”结束和暂停agent进程”会带来”心跳失联”的异常特征，可能引起”运营人员”的注意从而导致攻击行为暴露。</p>
-<p>本文主要讨论以下问题：</p>
-<ul>
-<li>怎么结束agent进程？</li>
-<li>怎么暂停agent进程？</li>
-<li>“心跳失联”</li>
-</ul>
-<h1 id="结束agent进程"><a href="#结束agent进程" class="headerlink" title="结束agent进程"></a>结束agent进程</h1><ul>
-<li><p>怎么结束agent进程？</p>
-<p>在linux上执行 <code>kill -SIGKILL 进程号</code> 是一定可以结束进程的，因为 SIGKILL信号不能被忽略或者做其他处理。</p>
-<p>但是我们杀掉hids agent进程后，agent进程会自动重启。</p>
-</li>
-<li><p>怎么实现”挂掉自动重启”？</p>
-<p>经过调研，”挂掉自动重启”机制在linux最常见的实现方式包括：</p>
-<blockquote>
-<p>通过 systemd、supervisord 等实现</p>
-<p>crond：通过计划任务</p>
-<p>watchdog</p>
-</blockquote>
-<p><a target="_blank" rel="noopener" href="https://github.com/bytedance/Elkeid/blob/main/server/docs/quick-start-zh_CN.md">字节hids文档</a> 推荐的也是”systemd”和”crond”这两种方式。</p>
-<p><img src="https://images.gitee.com/uploads/images/2021/0923/234007_74229bc1_83508.png" alt="字节hids文档" title="屏幕截图.png"></p>
-<p>有对supervisord、systemd实现原理感兴趣的，可以看最后一节。</p>
-</li>
-<li><p>怎么结束被systemd、supervisord管理的进程？</p>
-<p>supervisord和systemd等管理的进程可以通过”supervisorctl”和”systemctl”等命令关掉。</p>
-<p>这两命令实际也是通过”本地socket通信”告诉supervisord和systemd结束进程，所以当没有办法使用”supervisorctl”和”systemctl”命令时，也可以编写程序直接和”本地socket文件”通信。</p>
-</li>
-</ul>
-<h1 id="暂停agent进程"><a href="#暂停agent进程" class="headerlink" title="暂停agent进程"></a>暂停agent进程</h1><ul>
-<li><p>怎么暂停agent进程？</p>
-<p>向进程发送SIGSTOP、SIGTSTP、SIGTTIN等信号都可能暂停进程，推荐用SIGSTOP信号，原因是进程收到其他信号还能忽略，收到SIGSTOP信号却只能暂停进程。</p>
-<p>这个结论可以在<code>man 7 signal</code>看到</p>
-<blockquote>
-<p>The signals SIGKILL and SIGSTOP cannot be caught, blocked, or ignored.</p>
-</blockquote>
-</li>
-</ul>
-<ul>
-<li><p>“暂停的agent进程”是否会被自动重启或者恢复运行状态？</p>
-<p>这里还存在一个小问题：当子进程被暂停或者结束时，父进程是可以收到SIGCHLD信号的。那systemd遇到子进程暂停时，会不会重启进程？</p>
-<p>经过测试和源码对比，我的结论是：systemd不会。</p>
-</li>
-<li><p>测试某hids</p>
-<p>经过对某hids做测试，发现stop状态的agent进程会被恢复成运行状态。</p>
-<p>agent进程的父进程的父进程才是systemd，所以估计是agent父进程收到SIGCHLD信号后向agent进程发送了SIGCONT信号恢复运行状态。</p>
-<p>当把hids所有的agent进程都暂停后，符合预期：所有agent进程一直被暂停。</p>
-</li>
-</ul>
-<h1 id="“心跳失联”的问题"><a href="#“心跳失联”的问题" class="headerlink" title="“心跳失联”的问题"></a>“心跳失联”的问题</h1><ul>
-<li><p>“心跳失联”是什么？</p>
-<p>正常情况下，agent按照一定频率会发送”心跳包”告诉server自己存活。</p>
-<p>如果”结束和暂停agent进程”，就会影响到”心跳包”的发送。进而server端是可以感知到agent异常的。</p>
-<p>这种异常可能引起”运营人员”的注意从而导致攻击行为暴露。</p>
-</li>
-<li><p>怎么解决”心跳失联”的问题？</p>
-<p>凭空想象的一种解决方法：恶意样本 先暂停agent进程，等到恶意行为完成后，再恢复agent进程。</p>
-<p>这样心跳也存在，也有可能绕过hids防护。</p>
-</li>
-</ul>
-<h1 id="systemd是怎么知道”进程挂掉”？"><a href="#systemd是怎么知道”进程挂掉”？" class="headerlink" title="systemd是怎么知道”进程挂掉”？"></a>systemd是怎么知道”进程挂掉”？</h1><p>先说我验证的结论：</p>
-<ul>
-<li>systemd为sigchild信号注册了一个处理函数，函数内部调用waitid处理退出的子进程。</li>
-<li>当systemd管理的进程退出时，systemd进程会收到sigchild信号，进而跳转到处理函数。</li>
-</ul>
-<p>从<a target="_blank" rel="noopener" href="https://github.com/systemd/systemd/blob/71a80dcc0b64b01c73e7141c4292ef301543a011/src/core/manager.c">systemd源码</a>可以看到manager_setup_sigchld_event_source函数就是”sigchild信号的处理函数”。<br><img src="https://images.gitee.com/uploads/images/2021/0923/234046_4aa2c450_83508.png" alt="输入图片说明" title="屏幕截图.png"></p>
-<p>如果systemd进程号为1，也可以通过<code>strace -p 1</code>来验证结论：</p>
-<p>结束systemd管理的进程时（下面例子中是83206号进程），可以看到waitid系统调用</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">waitid(P_ALL, 0, &#123;si_signo&#x3D;SIGCHLD, si_code&#x3D;CLD_KILLED, si_pid&#x3D;83206, si_uid&#x3D;0, si_status&#x3D;SIGKILL, si_utime&#x3D;0, si_stime&#x3D;0&#125;, WNOHANG|WEXITED|WNOWAIT, NULL) &#x3D; 0</span><br><span class="line">...</span><br><span class="line">waitid(P_PID, 83206, &#123;si_signo&#x3D;SIGCHLD, si_code&#x3D;CLD_KILLED, si_pid&#x3D;83206, si_uid&#x3D;0, si_status&#x3D;SIGKILL, si_utime&#x3D;0, si_stime&#x3D;0&#125;, WEXITED, NULL) &#x3D; 0</span><br><span class="line">waitid(P_ALL, 0, &#123;&#125;, WNOHANG|WEXITED|WNOWAIT, NULL) &#x3D; 0</span><br></pre></td></tr></table></figure>
-
-<p>supervisord和systemd有点类似，不一样的是supervisord似乎只用wait等系统调用，来判断子进程是否已经退出。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# ps aux|grep supervi</span><br><span class="line">root     13170  0.0  0.0  56368 12760 ?        Ss   6月01  71:47 &#x2F;usr&#x2F;bin&#x2F;python &#x2F;usr&#x2F;bin&#x2F;supervisord -c &#x2F;data&#x2F;poc-web-api&#x2F;docker&#x2F;supervisor.conf</span><br><span class="line">[root@instance-fj5pftdp ~]# strace -p 13170 2&gt;&amp;1 | grep -i wait</span><br><span class="line">...</span><br><span class="line">wait4(-1, 0x7fffbe389d9c, WNOHANG, NULL) &#x3D; 0</span><br><span class="line">wait4(-1, 0x7fffbe389d9c, WNOHANG, NULL) &#x3D; 0</span><br><span class="line">wait4(-1, 0x7fffbe389d9c, WNOHANG, NULL) &#x3D; 0</span><br><span class="line">wait4(-1, [&#123;WIFSIGNALED(s) &amp;&amp; WTERMSIG(s) &#x3D;&#x3D; SIGKILL&#125;], WNOHANG, NULL) &#x3D; 5557</span><br></pre></td></tr></table></figure>
-
-
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><ul>
-<li>“结束进程”需要考虑到”进程挂掉重启”的场景</li>
-<li>“暂停进程”需要考虑到”父进程恢复进程状态”的场景</li>
-</ul>
-<p>本文提到的手段没有在真实的对抗中实践过，仅仅是我自己的研究，欢迎与我交流。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%A6%82%E4%BD%95%E9%81%BF%E5%85%8D%E6%96%87%E4%BB%B6%E4%B8%8A%E6%8A%A5-%E5%88%B6%E4%BD%9C%E5%A4%A7%E6%96%87%E4%BB%B6/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -861,6 +718,149 @@
 <p>“修改inode元数据”，虽然也可以快速地将文件大小修改为几个T，但是并不会让上传、下载此文件 耗费很多时间，传输的文件大小还是实际大小。</p>
 <p>如果应急时碰到超大的elf文件，就先用strip看看体积会不会变小。</p>
 <p>本文提到的手段没有在真实的对抗中实践过，仅仅是我自己的研究，欢迎有对抗经验的读者与我交流。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%A6%82%E4%BD%95%E7%BB%93%E6%9D%9F%E5%92%8C%E6%9A%82%E5%81%9Cagent%E8%BF%9B%E7%A8%8B/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E5%A6%82%E4%BD%95%E7%BB%93%E6%9D%9F%E5%92%8C%E6%9A%82%E5%81%9Cagent%E8%BF%9B%E7%A8%8B/" class="post-title-link" itemprop="url">如何结束和暂停agent进程</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>就像 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/WQeOfZtyKndbDebe66-V_g">如何避免文件上报-制作大文件</a> 说的，hids agent会上报很多信息，安全防护策略也是围绕”agent上报的信息”制定的。</p>
+<p>那如果攻击者”结束、暂停agent进程”，导致agent功能废掉，是不是就能够绕过hids的防护呢？</p>
+<p>研究过程中，我发现并不能轻易地结束agent进程；”结束和暂停agent进程”会带来”心跳失联”的异常特征，可能引起”运营人员”的注意从而导致攻击行为暴露。</p>
+<p>本文主要讨论以下问题：</p>
+<ul>
+<li>怎么结束agent进程？</li>
+<li>怎么暂停agent进程？</li>
+<li>“心跳失联”</li>
+</ul>
+<h1 id="结束agent进程"><a href="#结束agent进程" class="headerlink" title="结束agent进程"></a>结束agent进程</h1><ul>
+<li><p>怎么结束agent进程？</p>
+<p>在linux上执行 <code>kill -SIGKILL 进程号</code> 是一定可以结束进程的，因为 SIGKILL信号不能被忽略或者做其他处理。</p>
+<p>但是我们杀掉hids agent进程后，agent进程会自动重启。</p>
+</li>
+<li><p>怎么实现”挂掉自动重启”？</p>
+<p>经过调研，”挂掉自动重启”机制在linux最常见的实现方式包括：</p>
+<blockquote>
+<p>通过 systemd、supervisord 等实现</p>
+<p>crond：通过计划任务</p>
+<p>watchdog</p>
+</blockquote>
+<p><a target="_blank" rel="noopener" href="https://github.com/bytedance/Elkeid/blob/main/server/docs/quick-start-zh_CN.md">字节hids文档</a> 推荐的也是”systemd”和”crond”这两种方式。</p>
+<p><img src="https://images.gitee.com/uploads/images/2021/0923/234007_74229bc1_83508.png" alt="字节hids文档" title="屏幕截图.png"></p>
+<p>有对supervisord、systemd实现原理感兴趣的，可以看最后一节。</p>
+</li>
+<li><p>怎么结束被systemd、supervisord管理的进程？</p>
+<p>supervisord和systemd等管理的进程可以通过”supervisorctl”和”systemctl”等命令关掉。</p>
+<p>这两命令实际也是通过”本地socket通信”告诉supervisord和systemd结束进程，所以当没有办法使用”supervisorctl”和”systemctl”命令时，也可以编写程序直接和”本地socket文件”通信。</p>
+</li>
+</ul>
+<h1 id="暂停agent进程"><a href="#暂停agent进程" class="headerlink" title="暂停agent进程"></a>暂停agent进程</h1><ul>
+<li><p>怎么暂停agent进程？</p>
+<p>向进程发送SIGSTOP、SIGTSTP、SIGTTIN等信号都可能暂停进程，推荐用SIGSTOP信号，原因是进程收到其他信号还能忽略，收到SIGSTOP信号却只能暂停进程。</p>
+<p>这个结论可以在<code>man 7 signal</code>看到</p>
+<blockquote>
+<p>The signals SIGKILL and SIGSTOP cannot be caught, blocked, or ignored.</p>
+</blockquote>
+</li>
+</ul>
+<ul>
+<li><p>“暂停的agent进程”是否会被自动重启或者恢复运行状态？</p>
+<p>这里还存在一个小问题：当子进程被暂停或者结束时，父进程是可以收到SIGCHLD信号的。那systemd遇到子进程暂停时，会不会重启进程？</p>
+<p>经过测试和源码对比，我的结论是：systemd不会。</p>
+</li>
+<li><p>测试某hids</p>
+<p>经过对某hids做测试，发现stop状态的agent进程会被恢复成运行状态。</p>
+<p>agent进程的父进程的父进程才是systemd，所以估计是agent父进程收到SIGCHLD信号后向agent进程发送了SIGCONT信号恢复运行状态。</p>
+<p>当把hids所有的agent进程都暂停后，符合预期：所有agent进程一直被暂停。</p>
+</li>
+</ul>
+<h1 id="“心跳失联”的问题"><a href="#“心跳失联”的问题" class="headerlink" title="“心跳失联”的问题"></a>“心跳失联”的问题</h1><ul>
+<li><p>“心跳失联”是什么？</p>
+<p>正常情况下，agent按照一定频率会发送”心跳包”告诉server自己存活。</p>
+<p>如果”结束和暂停agent进程”，就会影响到”心跳包”的发送。进而server端是可以感知到agent异常的。</p>
+<p>这种异常可能引起”运营人员”的注意从而导致攻击行为暴露。</p>
+</li>
+<li><p>怎么解决”心跳失联”的问题？</p>
+<p>凭空想象的一种解决方法：恶意样本 先暂停agent进程，等到恶意行为完成后，再恢复agent进程。</p>
+<p>这样心跳也存在，也有可能绕过hids防护。</p>
+</li>
+</ul>
+<h1 id="systemd是怎么知道”进程挂掉”？"><a href="#systemd是怎么知道”进程挂掉”？" class="headerlink" title="systemd是怎么知道”进程挂掉”？"></a>systemd是怎么知道”进程挂掉”？</h1><p>先说我验证的结论：</p>
+<ul>
+<li>systemd为sigchild信号注册了一个处理函数，函数内部调用waitid处理退出的子进程。</li>
+<li>当systemd管理的进程退出时，systemd进程会收到sigchild信号，进而跳转到处理函数。</li>
+</ul>
+<p>从<a target="_blank" rel="noopener" href="https://github.com/systemd/systemd/blob/71a80dcc0b64b01c73e7141c4292ef301543a011/src/core/manager.c">systemd源码</a>可以看到manager_setup_sigchld_event_source函数就是”sigchild信号的处理函数”。<br><img src="https://images.gitee.com/uploads/images/2021/0923/234046_4aa2c450_83508.png" alt="输入图片说明" title="屏幕截图.png"></p>
+<p>如果systemd进程号为1，也可以通过<code>strace -p 1</code>来验证结论：</p>
+<p>结束systemd管理的进程时（下面例子中是83206号进程），可以看到waitid系统调用</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">waitid(P_ALL, 0, &#123;si_signo&#x3D;SIGCHLD, si_code&#x3D;CLD_KILLED, si_pid&#x3D;83206, si_uid&#x3D;0, si_status&#x3D;SIGKILL, si_utime&#x3D;0, si_stime&#x3D;0&#125;, WNOHANG|WEXITED|WNOWAIT, NULL) &#x3D; 0</span><br><span class="line">...</span><br><span class="line">waitid(P_PID, 83206, &#123;si_signo&#x3D;SIGCHLD, si_code&#x3D;CLD_KILLED, si_pid&#x3D;83206, si_uid&#x3D;0, si_status&#x3D;SIGKILL, si_utime&#x3D;0, si_stime&#x3D;0&#125;, WEXITED, NULL) &#x3D; 0</span><br><span class="line">waitid(P_ALL, 0, &#123;&#125;, WNOHANG|WEXITED|WNOWAIT, NULL) &#x3D; 0</span><br></pre></td></tr></table></figure>
+
+<p>supervisord和systemd有点类似，不一样的是supervisord似乎只用wait等系统调用，来判断子进程是否已经退出。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# ps aux|grep supervi</span><br><span class="line">root     13170  0.0  0.0  56368 12760 ?        Ss   6月01  71:47 &#x2F;usr&#x2F;bin&#x2F;python &#x2F;usr&#x2F;bin&#x2F;supervisord -c &#x2F;data&#x2F;poc-web-api&#x2F;docker&#x2F;supervisor.conf</span><br><span class="line">[root@instance-fj5pftdp ~]# strace -p 13170 2&gt;&amp;1 | grep -i wait</span><br><span class="line">...</span><br><span class="line">wait4(-1, 0x7fffbe389d9c, WNOHANG, NULL) &#x3D; 0</span><br><span class="line">wait4(-1, 0x7fffbe389d9c, WNOHANG, NULL) &#x3D; 0</span><br><span class="line">wait4(-1, 0x7fffbe389d9c, WNOHANG, NULL) &#x3D; 0</span><br><span class="line">wait4(-1, [&#123;WIFSIGNALED(s) &amp;&amp; WTERMSIG(s) &#x3D;&#x3D; SIGKILL&#125;], WNOHANG, NULL) &#x3D; 5557</span><br></pre></td></tr></table></figure>
+
+
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><ul>
+<li>“结束进程”需要考虑到”进程挂掉重启”的场景</li>
+<li>“暂停进程”需要考虑到”父进程恢复进程状态”的场景</li>
+</ul>
+<p>本文提到的手段没有在真实的对抗中实践过，仅仅是我自己的研究，欢迎与我交流。</p>
 
       
     </div>
