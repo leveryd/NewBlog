@@ -125,12 +125,12 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">53</span>
+          <span class="site-state-item-count">55</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
       <div class="site-state-item site-state-tags">
-        <span class="site-state-item-count">22</span>
+        <span class="site-state-item-count">23</span>
         <span class="site-state-item-name">标签</span>
       </div>
   </nav>
@@ -159,6 +159,385 @@
 
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2022-07-27-lkm%E5%92%8Cebpf%20rootkit%E5%88%86%E6%9E%90%E7%9A%84%E7%AE%80%E8%A6%81%E8%AE%B0%E5%BD%95/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2022-07-27-lkm%E5%92%8Cebpf%20rootkit%E5%88%86%E6%9E%90%E7%9A%84%E7%AE%80%E8%A6%81%E8%AE%B0%E5%BD%95/" class="post-title-link" itemprop="url">lkm和ebpf rootkit分析的简要记录</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2022-07-27 14:50:51" itemprop="dateCreated datePublished" datetime="2022-07-27T14:50:51+08:00">2022-07-27</time>
+    </span>
+      <span class="post-meta-item">
+        <span class="post-meta-item-icon">
+          <i class="far fa-calendar-check"></i>
+        </span>
+        <span class="post-meta-item-text">更新于</span>
+        <time title="修改时间：2022-07-31 17:23:05" itemprop="dateModified" datetime="2022-07-31T17:23:05+08:00">2022-07-31</time>
+      </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/9ZSxpeUHTcgQrQ1Ys5uROw">再次捕获云上在野容器攻击，TeamTNT黑产攻击方法揭秘</a> 文章中提到一个<a target="_blank" rel="noopener" href="https://github.com/m0nad/Diamorphine">内核rootkit-Diamorphine</a></p>
+<p><a target="_blank" rel="noopener" href="https://www.cnxct.com/ebpf-rootkit-how-boopkit-works/">新型eBPF后门boopkit的原理分析与演示</a> 也提到基于<a target="_blank" rel="noopener" href="https://github.com/kris-nova/boopkit">ebpf的rootkit</a></p>
+<p>本文简要分析这两个rootkit在”进程隐藏”上实现的区别。</p>
+<blockquote>
+<p>特别因为是eBPF只能通过<a target="_blank" rel="noopener" href="https://ebpf.io/what-is-ebpf#helper-calls">“helper functions”</a>调用内核能力，而不能直接调用内核函数、修改内核数据结构，所以我好奇eBPF后门怎么实现”进程隐藏”。</p>
+</blockquote>
+<h1 id="lkm-rootkit是怎么隐藏进程的"><a href="#lkm-rootkit是怎么隐藏进程的" class="headerlink" title="lkm rootkit是怎么隐藏进程的"></a>lkm rootkit是怎么隐藏进程的</h1><p>通过修改<code>__sys_call_table</code>，hook了kill、getdents64系统调用。</p>
+<p>用户在调用kill系统调用时，rootkit在收到信号”SIGMODINVIS”(头文件中可以看到是31)后，就会执行两步：</p>
+<ul>
+<li>for_each_process找到进程task_struct</li>
+<li>修改task_struct的flags</li>
+</ul>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;&#x2F; diamorphine.c</span><br><span class="line">hacked_kill(pid_t pid, int sig)</span><br><span class="line">&#123;</span><br><span class="line">...</span><br><span class="line">	struct task_struct *task;</span><br><span class="line">	switch (sig) &#123;</span><br><span class="line">		case SIGINVIS:</span><br><span class="line">			if ((task &#x3D; find_task(pid)) &#x3D;&#x3D; NULL) &#x2F;&#x2F; 根据pid找到task_struct实例</span><br><span class="line">				return -ESRCH;</span><br><span class="line">			task-&gt;flags ^&#x3D; PF_INVISIBLE;</span><br><span class="line">			break;</span><br></pre></td></tr></table></figure>
+
+<p>用户在getdents64系统调用查看目录信息时，rootkit会修改返回给用户的目录信息。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">hacked_getdents64(unsigned int fd, struct linux_dirent64 __user *dirent,</span><br><span class="line">	unsigned int count)</span><br><span class="line">&#123;</span><br><span class="line">  int ret &#x3D; orig_getdents64(fd, dirent, count), err;  &#x2F;&#x2F; 调用原先的getdents64函数</span><br><span class="line">	...</span><br><span class="line"></span><br><span class="line">  kdirent &#x3D; kzalloc(ret, GFP_KERNEL);   &#x2F;&#x2F; 申请ret大小的内核内存</span><br><span class="line">	...</span><br><span class="line"></span><br><span class="line">	err &#x3D; copy_from_user(kdirent, dirent, ret);   &#x2F;&#x2F; 将&quot;目录信息&quot;复制一份</span><br><span class="line">	...</span><br><span class="line"></span><br><span class="line">	while (off &lt; ret) &#123;</span><br><span class="line">		dir &#x3D; (void *)kdirent + off;</span><br><span class="line">		if ((!proc &amp;&amp;</span><br><span class="line">		(memcmp(MAGIC_PREFIX, dir-&gt;d_name, strlen(MAGIC_PREFIX)) &#x3D;&#x3D; 0))   &#x2F;&#x2F; 文件以MAGIC_PREFIX开头</span><br><span class="line">		|| (proc &amp;&amp;</span><br><span class="line">		is_invisible(simple_strtoul(dir-&gt;d_name, NULL, 10)))) &#123; &#x2F;&#x2F; &#x2F;proc&#x2F;$&#123;pid&#125; 被标记成需要隐藏</span><br><span class="line">      ...</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">  ...</span><br><span class="line">  err &#x3D; copy_to_user(dirent, kdirent, ret);   &#x2F;&#x2F; 将修改后的&quot;目录信息&quot;复制给用户</span><br></pre></td></tr></table></figure>
+
+
+<p>测试后，就会发现rootkit会影响<code>/proc</code>目录中是否可以看到进程目录。</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/181194318-b17ebd7f-3ac1-4f3f-8977-4fafb2e2bdcf.png" alt="image"></p>
+<p>实际上是rootkit影响了getdents64系统调用的结果<br><img src="https://user-images.githubusercontent.com/1846319/181200677-1e2775a9-cc60-45fb-8295-1e3606ba7aaf.png" alt="image"></p>
+<p>ps命令也是读<code>/proc</code>目录来获取进程信息的，所以rootkit影响ps命令结果<br><img src="https://user-images.githubusercontent.com/1846319/181199847-6750c019-74f6-41b5-a7f9-b20113093bd3.png" alt="image"></p>
+<p>所以这个lkm rootkit是通过修改task_struct的flags字段来给进程打个标记，等getdents64时会根据标记判断是不是要修改目录信息。</p>
+<p>eBPF程序不能直接修改内核数据，那eBPF后门是怎么做”进程隐藏”的呢？</p>
+<h1 id="ebpf-rootkit是怎么隐藏进程的"><a href="#ebpf-rootkit是怎么隐藏进程的" class="headerlink" title="ebpf rootkit是怎么隐藏进程的"></a>ebpf rootkit是怎么隐藏进程的</h1><p>getdents64系统调用可以用来获取目录信息，<code>man 2 getdents</code>可以知道第二个指针参数指向”目录条目”buffer</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">int getdents64(unsigned int fd, struct linux_dirent64 *dirp,</span><br><span class="line">             unsigned int count);</span><br></pre></td></tr></table></figure>
+
+<p>“目录条目”数据结构如下，因为有”柔性数组”，所以用d_reclen记录了大小，这样就可以在”目录条目”buffer中定位到下一个”目录条目”。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">struct linux_dirent64 &#123;</span><br><span class="line">    ino64_t        d_ino;    &#x2F;* 64-bit inode number *&#x2F;</span><br><span class="line">    off64_t        d_off;    &#x2F;* 64-bit offset to next structure *&#x2F;</span><br><span class="line">    unsigned short d_reclen; &#x2F;* Size of this dirent *&#x2F;  当前&quot;目录条目&quot;的大小</span><br><span class="line">    unsigned char  d_type;   &#x2F;* File type *&#x2F;</span><br><span class="line">    char           d_name[]; &#x2F;* Filename (null-terminated) *&#x2F; 柔性数组</span><br><span class="line">&#125;;</span><br></pre></td></tr></table></figure>
+
+<p>pr0be.safe.c 注释写得很清楚，通过增大”目标进程所属的目录条目的前一个目录条目”的d_reclen值，使得用户程序在遍历<code>*dirp</code>结果时，就会跳过”目标进程所属的目录条目”。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">SEC(&quot;tp&#x2F;syscalls&#x2F;sys_exit_getdents64&quot;)</span><br><span class="line">int handle_getdents_patch(struct trace_event_raw_sys_exit *ctx) &#123;</span><br><span class="line">  ...</span><br><span class="line">  &#x2F;&#x2F; Unlink target, by reading in previous linux_dirent64 struct,</span><br><span class="line">  &#x2F;&#x2F; and setting it&#39;s d_reclen to cover itself and our target.</span><br><span class="line">  &#x2F;&#x2F; This will make the program skip over our folder.</span><br><span class="line">  ...</span><br><span class="line">  &#x2F;&#x2F; Attempt to overwrite</span><br><span class="line">  short unsigned int d_reclen_new &#x3D; d_reclen_previous + d_reclen;</span><br><span class="line">  long ret &#x3D; bpf_probe_write_user(&amp;dirp_previous-&gt;d_reclen, &amp;d_reclen_new,</span><br><span class="line">                                  sizeof(d_reclen_new));</span><br></pre></td></tr></table></figure>
+
+<p>因为<code>&amp;dirp_previous-&gt;d_reclen</code>是用户空间地址，而不是内核空间地址，所以ebpf可以用<code>bpf_probe_write_user</code> helper functions 修改<code>dirp</code>地址中的数据。</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>案例中的lkm rootkit和ebpf rootkit都是通过修改getdents64系统调用中<code>dirp</code>地址指向的内容，使得查看<code>/proc</code>目录信息时，看不到进程信息。</p>
+<p>根据<a target="_blank" rel="noopener" href="https://stackoverflow.com/questions/43003805/can-ebpf-modify-the-return-value-or-parameters-of-a-syscall">帖子</a>知道，想利用ebpf修改系统调用的参数值或返回值有很大的限制。因为dirp是一个用户空间地址，所以ebpf程序可以用<code>bpf_probe_write_user</code>修改此地址的内容。</p>
+<!--
+# 参考
+https://man7.org/linux/man-pages/man7/bpf-helpers.7.html
+
+# 特征
+
+都用到 bpf_probe_write_user
+-->
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2022-07-11-CVE-2020-8558-%E8%B7%A8%E4%B8%BB%E6%9C%BA%E8%AE%BF%E9%97%AE127.0.0.1/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2022-07-11-CVE-2020-8558-%E8%B7%A8%E4%B8%BB%E6%9C%BA%E8%AE%BF%E9%97%AE127.0.0.1/" class="post-title-link" itemprop="url">CVE-2020-8558-跨主机访问127.0.0.1</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2022-07-11 16:47:13" itemprop="dateCreated datePublished" datetime="2022-07-11T16:47:13+08:00">2022-07-11</time>
+    </span>
+      <span class="post-meta-item">
+        <span class="post-meta-item-icon">
+          <i class="far fa-calendar-check"></i>
+        </span>
+        <span class="post-meta-item-text">更新于</span>
+        <time title="修改时间：2022-07-20 11:23:51" itemprop="dateModified" datetime="2022-07-20T11:23:51+08:00">2022-07-20</time>
+      </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>假设机器A和机器B在同一个局域网，机器A使用<code>nc -l 127.0.0.1 8888</code>，在机器B上可以访问机器A上”仅绑定在127.0.0.1的服务”吗？</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-h9w7mlyv ~]# nc -l 127.0.0.1 8888 &amp;</span><br><span class="line">[1] 44283</span><br><span class="line">[root@instance-h9w7mlyv ~]# netstat -antp|grep 8888</span><br><span class="line">tcp        0      0 127.0.0.1:8888          0.0.0.0:*               LISTEN      44283&#x2F;nc</span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p>nc用法可能不同，有的使用 nc -l 127.0.0.1 -p 8888 监听8888端口</p>
+</blockquote>
+<p>kubernetes的kube-proxy组件之前披露过CVE-2020-8558漏洞，这个漏洞就可以让”容器内的恶意用户、同一局域网其他机器”访问到node节点上”仅绑定在127.0.0.1的服务”。这样有可能访问到监听在本地的”kubernetes无需认证的apiserver”，进而控制集群。</p>
+<p>本文会带你做两种网络环境(vpc和docker网桥模式)下的漏洞原理分析，并复现漏洞。</p>
+<h1 id="漏洞分析"><a href="#漏洞分析" class="headerlink" title="漏洞分析"></a>漏洞分析</h1><h2 id="怎么复现？"><a href="#怎么复现？" class="headerlink" title="怎么复现？"></a>怎么复现？</h2><p>先说最终结果，我已经做好基于<a target="_blank" rel="noopener" href="https://www.terraform.io/">terraform</a>的<a target="_blank" rel="noopener" href="https://github.com/HuoCorp/TerraformGoat/blob/main/kubernetes/kube-proxy/CVE-2020-8558/README_CN.md">漏洞靶场</a>。</p>
+<blockquote>
+<p>terraform可以基于声明式api编排云上的基础设施(虚拟机、网络等)</p>
+</blockquote>
+<p>你也可以按照文章后面的步骤来复现漏洞。</p>
+<h2 id="为什么可以访问其他节点的”仅绑定在127-0-0-1的服务”？"><a href="#为什么可以访问其他节点的”仅绑定在127-0-0-1的服务”？" class="headerlink" title="为什么可以访问其他节点的”仅绑定在127.0.0.1的服务”？"></a>为什么可以访问其他节点的”仅绑定在127.0.0.1的服务”？</h2><p>假设实验环境是，一个局域网内有两个节点A和B、交换机，ip地址分别是ip_a和ip_b，mac地址分别是mac_a和mac_b。</p>
+<p>来看看A机器访问B机器时的一个攻击场景。</p>
+<p>如果在tcp握手时，A机器构造一个”恶意的syn包”，数据包信息是：</p>
+<table>
+<thead>
+<tr>
+<th>源ip</th>
+<th>源mac</th>
+<th>目的ip</th>
+<th>目的mac</th>
+<th>目的端口</th>
+<th>源端口</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>ip_a</td>
+<td>mac_a</td>
+<td>127.0.0.1</td>
+<td>mac_b</td>
+<td>8888</td>
+<td>44444(某个随机端口)</td>
+</tr>
+</tbody></table>
+<p>此时如果交换机只是根据mac地址做数据转发，它就将syn包发送给B。</p>
+<p>syn包的数据流向是：A -&gt; 交换机 -&gt; B</p>
+<p>B机器网卡在接收到syn包后：</p>
+<ul>
+<li>链路层：发现目的mac是自己，于是扔给网络层处理</li>
+<li>网络层：发现ip是本机网卡ip，看来要给传输层处理，而不是转发</li>
+<li>传输层：发现当前”网络命名空间”确实有服务监听 <code>127.0.0.1:8888</code>, 和 “目的ip:目的端口” 可以匹配上，于是准备回复syn-ack包</li>
+</ul>
+<blockquote>
+<p>从”内核协议栈”角度看，发送包会经过”传输层、网络层、链路层、设备驱动”，接受包刚好相反，会经过”设备驱动、链路层、网络层、传输层”</p>
+</blockquote>
+<p>syn-ack数据包信息是:</p>
+<table>
+<thead>
+<tr>
+<th>源ip</th>
+<th>源mac</th>
+<th>目的ip</th>
+<th>目的mac</th>
+<th>目的端口</th>
+<th>源端口</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>127.0.0.1</td>
+<td>mac_b</td>
+<td>ip_a</td>
+<td>mac_a</td>
+<td>44444(某个随机端口)</td>
+<td>8888</td>
+</tr>
+</tbody></table>
+<p>syn-ack包的数据流向是：B -&gt; 交换机 -&gt; A</p>
+<p>A机器网卡在收到syn-ack包后，也会走一遍”内核协议栈”的流程，然后发送ack包，完成tcp握手。</p>
+<p>这样A就能访问到B机器上”仅绑定在127.0.0.1的服务”。所以，在局域网内，恶意节点”似乎”很容易就能访问到其他节点的”仅绑定在127.0.0.1的服务”。</p>
+<p>但实际上，A访问到B机器上”仅绑定在127.0.0.1的服务”会因为两大类原因失败：</p>
+<ul>
+<li>交换机有做检查，比如它不允许数据包的目的ip地址是127.0.0.1，这样第一个syn包就不会转发给B，tcp握手会失败。公有云厂商的交换机(比如ovs)应该就有类似检查，所以我在某个公有云厂商vpc网络环境下测试，无法成功复现漏洞。</li>
+<li>数据包到了主机，但是因为ip是127.0.0.1，很特殊，所以”内核协议栈”为了安全把包丢掉了。</li>
+</ul>
+<p>所以不能在云vpc环境下实验，于是我选择了复现”容器访问宿主机上的仅绑定在127.0.0.1的服务”。</p>
+<p>先来看一下，”内核协议栈”为了防止恶意访问”仅绑定在127.0.0.1的服务”都做了哪些限制。</p>
+<h1 id="“内核协议栈”做了哪些限制？"><a href="#“内核协议栈”做了哪些限制？" class="headerlink" title="“内核协议栈”做了哪些限制？"></a>“内核协议栈”做了哪些限制？</h1><p>先说结论，下面三个内核参数都会影响</p>
+<ul>
+<li>route_localnet</li>
+<li>rp_filter</li>
+<li>accept_local</li>
+</ul>
+<p>以docker网桥模式为例，想要在docker容器中访问到宿主机的”仅绑定在127.0.0.1的服务”，就需要：</p>
+<ul>
+<li>宿主机上 route_localnet=1</li>
+<li>docker容器中 rp_filter=0、accept_local=1、route_localnet=1</li>
+</ul>
+<p>宿主机网络命名空间中</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-h9w7mlyv ~]# sysctl -a|grep route_localnet</span><br><span class="line">net.ipv4.conf.all.route_localnet &#x3D; 1</span><br><span class="line">net.ipv4.conf.default.route_localnet &#x3D; 1</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
+<p>容器网络命名空间中</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-h9w7mlyv ~]# sysctl -a|grep accept_local</span><br><span class="line">net.ipv4.conf.all.accept_local &#x3D; 1</span><br><span class="line">net.ipv4.conf.default.accept_local &#x3D; 1</span><br><span class="line">net.ipv4.conf.eth0.accept_local &#x3D; 1</span><br><span class="line">[root@instance-h9w7mlyv ~]# sysctl -a|grep &#39;\.rp_filter&#39;</span><br><span class="line">net.ipv4.conf.all.rp_filter &#x3D; 0</span><br><span class="line">net.ipv4.conf.default.rp_filter &#x3D; 0</span><br><span class="line">net.ipv4.conf.eth0.rp_filter &#x3D; 0</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p>容器中和宿主机中因为是不同的网络命名空间，所以关于网络的内核参数是隔离的，并一定相同。</p>
+</blockquote>
+<h1 id="route-localnet配置"><a href="#route-localnet配置" class="headerlink" title="route_localnet配置"></a>route_localnet配置</h1><h2 id="是什么？"><a href="#是什么？" class="headerlink" title="是什么？"></a>是什么？</h2><p><a target="_blank" rel="noopener" href="https://www.kernel.org/doc/Documentation/networking/ip-sysctl.txt">内核文档</a>提到route_localnet参数，如果route_localnet等于0，当收到源ip或者目的ip是”loopback地址”(127.0.0.0/8)时，就会认为是非法数据包，将数据包丢弃。</p>
+<blockquote>
+<p>宿主机上curl 127.0.0.1时，源ip和目的都是127.0.0.1，此时网络能正常通信，说明数据包并没有被丢弃。说明这种情景下，没有调用到 ip_route_input_noref 函数查找路由表。</p>
+</blockquote>
+<p>CVE-2020-8558漏洞中，kube-proxy设置route_localnet=1，导致关闭了上面所说的检查。</p>
+<h2 id="内核协议栈中哪里用route-localnet配置来检查？"><a href="#内核协议栈中哪里用route-localnet配置来检查？" class="headerlink" title="内核协议栈中哪里用route_localnet配置来检查？"></a>内核协议栈中哪里用route_localnet配置来检查？</h2><p><a target="_blank" rel="noopener" href="https://elixir.bootlin.com/linux/v4.18/source/net/ipv4/route.c#L1912">https://elixir.bootlin.com/linux/v4.18/source/net/ipv4/route.c#L1912</a></p>
+<p>ip_route_input_slow 函数中用到 route_localnet配置，如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;*</span><br><span class="line"> *	NOTE. We drop all the packets that has local source</span><br><span class="line"> *	addresses, because every properly looped back packet</span><br><span class="line"> *	must have correct destination already attached by output routine.</span><br><span class="line"> *</span><br><span class="line"> *	Such approach solves two big problems:</span><br><span class="line"> *	1. Not simplex devices are handled properly.</span><br><span class="line"> *	2. IP spoofing attempts are filtered with 100% of guarantee.</span><br><span class="line"> *	called with rcu_read_lock()</span><br><span class="line"> *&#x2F;</span><br><span class="line"></span><br><span class="line">static int ip_route_input_slow(struct sk_buff *skb, __be32 daddr, __be32 saddr,</span><br><span class="line">			       u8 tos, struct net_device *dev,</span><br><span class="line">			       struct fib_result *res)</span><br><span class="line">&#123;</span><br><span class="line">	...</span><br><span class="line">	&#x2F;* Following code try to avoid calling IN_DEV_NET_ROUTE_LOCALNET(),</span><br><span class="line">	 * and call it once if daddr or&#x2F;and saddr are loopback addresses</span><br><span class="line">	 *&#x2F;</span><br><span class="line">	if (ipv4_is_loopback(daddr)) &#123;		&#x2F;&#x2F; 目的地址是否&quot;loopback地址&quot;</span><br><span class="line">		if (!IN_DEV_NET_ROUTE_LOCALNET(in_dev, net))	&#x2F;&#x2F; localnet配置是否开启。net是网络命名空间，in_dev是接收数据包设备配置信息</span><br><span class="line">			goto martian_destination;		&#x2F;&#x2F; 认为是非法数据包</span><br><span class="line">	&#125; else if (ipv4_is_loopback(saddr)) &#123;		&#x2F;&#x2F; 源地址是否&quot;loopback地址&quot;</span><br><span class="line">		if (!IN_DEV_NET_ROUTE_LOCALNET(in_dev, net))</span><br><span class="line">			goto martian_source;	&#x2F;&#x2F; 认为是非法数据包</span><br><span class="line">	&#125;</span><br><span class="line">	...</span><br><span class="line">	err &#x3D; fib_lookup(net, &amp;fl4, res, 0);		&#x2F;&#x2F; 查找&quot;路由表&quot;，res存放查找结果</span><br><span class="line">	...</span><br><span class="line">	if (res-&gt;type &#x3D;&#x3D; RTN_BROADCAST)</span><br><span class="line">	...</span><br><span class="line">	if (res-&gt;type &#x3D;&#x3D; RTN_LOCAL) &#123;	&#x2F;&#x2F; 数据包应该本机处理</span><br><span class="line">		err &#x3D; fib_validate_source(skb, saddr, daddr, tos,</span><br><span class="line">				  0, dev, in_dev, &amp;itag);  &#x2F;&#x2F; &quot;反向查找&quot;, 验证源地址是否有问题</span><br><span class="line">		if (err &lt; 0)</span><br><span class="line">			goto martian_source;</span><br><span class="line">		goto local_input; &#x2F;&#x2F; 本机处理</span><br><span class="line">	&#125;</span><br><span class="line">	if (!IN_DEV_FORWARD(in_dev)) &#123;   &#x2F;&#x2F; 没有开启ip_forward配置时，认为不支持 转发数据包</span><br><span class="line">		err &#x3D; -EHOSTUNREACH;</span><br><span class="line">		goto no_route;</span><br><span class="line">	&#125;</span><br><span class="line">	...</span><br><span class="line">	err &#x3D; ip_mkroute_input(skb, res, in_dev, daddr, saddr, tos, flkeys); 	&#x2F;&#x2F; 认为此包需要&quot;转发&quot;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">static int ip_rcv_finish(struct net *net, struct sock *sk, struct sk_buff *skb)</span><br><span class="line">&#123;</span><br><span class="line">	...</span><br><span class="line"></span><br><span class="line">	&#x2F;*</span><br><span class="line">	 *	Initialise the virtual path cache for the packet. It describes</span><br><span class="line">	 *	how the packet travels inside Linux networking.</span><br><span class="line">	 *&#x2F;</span><br><span class="line">	if (!skb_valid_dst(skb)) &#123;	&#x2F;&#x2F; 是否有路由缓存. 宿主机curl 127.0.0.1时，就有缓存，不用查找路由表。</span><br><span class="line">		err &#x3D; ip_route_input_noref(skb, iph-&gt;daddr, iph-&gt;saddr,</span><br><span class="line">					   iph-&gt;tos, dev);	&#x2F;&#x2F; 查找路由表</span><br><span class="line">		if (unlikely(err))</span><br><span class="line">			goto drop_error;</span><br><span class="line">	&#125;</span><br><span class="line">	...</span><br><span class="line">	return dst_input(skb);   &#x2F;&#x2F; 将数据包交给tcp层(ip_local_deliver) 或 转发数据包(ip_forward)</span><br></pre></td></tr></table></figure>
+
+<p>在收到数据包时，从ip层来看，数据包会经过 ip_rcv(ip层入口函数) -&gt; ip_rcv_finish -&gt; ip_route_input_slow。</p>
+<p>在ip_route_input_slow函数中可以看到，如果源ip或者目的ip是”loopback地址”，并且接收数据包的设备没有配置route_localnet选项时，就会认为是非法数据包。</p>
+<h1 id="rp-filter和accept-local"><a href="#rp-filter和accept-local" class="headerlink" title="rp_filter和accept_local"></a>rp_filter和accept_local</h1><h2 id="是什么？-1"><a href="#是什么？-1" class="headerlink" title="是什么？"></a>是什么？</h2><p><a target="_blank" rel="noopener" href="https://www.kernel.org/doc/Documentation/networking/ip-sysctl.txt">内核网络参数详解</a> 提到，rp_filter=1时，会严格验证源ip。</p>
+<p>怎么检查源ip呢？就是收到数据包后，将源ip和目的ip对调，然后再查找路由表，找到会用哪个设备回包。如果”回包的设备”和”收到数据包的设备”不一致，就有可能校验失败。这个也就是后面说的”反向检查”。</p>
+<h2 id="内核协议栈中哪里用rp-filter和accept-local配置来检查？"><a href="#内核协议栈中哪里用rp-filter和accept-local配置来检查？" class="headerlink" title="内核协议栈中哪里用rp_filter和accept_local配置来检查？"></a>内核协议栈中哪里用rp_filter和accept_local配置来检查？</h2><p>上面提到 收到数据包时，从ip层来看，会执行 ip_route_input_slow 函数查找路由表。</p>
+<p>ip_route_input_slow 函数会执行 fib_validate_source 函数执行 “验证源ip”，会使用到rp_filter和accept_local配置</p>
+<p><a target="_blank" rel="noopener" href="https://elixir.bootlin.com/linux/v4.18/source/net/ipv4/fib_frontend.c#L412">https://elixir.bootlin.com/linux/v4.18/source/net/ipv4/fib_frontend.c#L412</a></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;* Ignore rp_filter for packets protected by IPsec. *&#x2F;</span><br><span class="line">int fib_validate_source(struct sk_buff *skb, __be32 src, __be32 dst,</span><br><span class="line">			u8 tos, int oif, struct net_device *dev,</span><br><span class="line">			struct in_device *idev, u32 *itag)</span><br><span class="line">&#123;</span><br><span class="line">	int r &#x3D; secpath_exists(skb) ? 0 : IN_DEV_RPFILTER(idev);	&#x2F;&#x2F; r&#x3D;rp_filter配置</span><br><span class="line">	struct net *net &#x3D; dev_net(dev);</span><br><span class="line"></span><br><span class="line">	if (!r &amp;&amp; !fib_num_tclassid_users(net) &amp;&amp;</span><br><span class="line">	    (dev-&gt;ifindex !&#x3D; oif || !IN_DEV_TX_REDIRECTS(idev))) &#123;		&#x2F;&#x2F; dev-&gt;ifindex !&#x3D; oif 表示 不是lo虚拟网卡接收到包</span><br><span class="line">		if (IN_DEV_ACCEPT_LOCAL(idev))			&#x2F;&#x2F; accept_local配置是否打开。idev是接受数据包的网卡配置</span><br><span class="line">			goto ok;</span><br><span class="line">		&#x2F;* with custom local routes in place, checking local addresses</span><br><span class="line">		 * only will be too optimistic, with custom rules, checking</span><br><span class="line">		 * local addresses only can be too strict, e.g. due to vrf</span><br><span class="line">		 *&#x2F;</span><br><span class="line">		if (net-&gt;ipv4.fib_has_custom_local_routes ||</span><br><span class="line">		    fib4_has_custom_rules(net))		&#x2F;&#x2F;  检查&quot;网络命名空间&quot;中是否有自定义的&quot;策略路由&quot;</span><br><span class="line">			goto full_check;</span><br><span class="line">		if (inet_lookup_ifaddr_rcu(net, src))		&#x2F;&#x2F; 检查&quot;网络命名空间&quot;中是否有设备的ip和源ip(src值)相同</span><br><span class="line">			return -EINVAL;</span><br><span class="line"></span><br><span class="line">ok:</span><br><span class="line">		*itag &#x3D; 0;</span><br><span class="line">		return 0;</span><br><span class="line">	&#125;</span><br><span class="line"></span><br><span class="line">full_check:</span><br><span class="line">	return __fib_validate_source(skb, src, dst, tos, oif, dev, r, idev, itag);		&#x2F;&#x2F; __fib_validate_source中会执行&quot;反向检查源ip&quot;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>当在容器中<code>curl 127.0.0.1 --interface eth0</code>时，有一些结论：</p>
+<ul>
+<li>宿主机收到请求包时，无论 accept_local和rp_filter是啥值，都通过fib_validate_source检查</li>
+<li>容器中收到请求包时，必须要设置 accept_local=1、rp_filter=0，才能不被”反向检查源ip”</li>
+</ul>
+<p>如果容器中 accept_local=1、rp_filter=0 有一个条件不成立，就会发生丢包。这个时候如果你在容器网络命名空间用<code>tcpdump -i eth0 &#39;port 8888&#39; -n -e</code>观察，就会发现诡异的现象：容器接收到了syn-ack包，但是没有回第三个ack握手包。如下图<br><img src="https://user-images.githubusercontent.com/1846319/178766286-0fe2fa0d-19e7-40d0-bb7e-1b6c48d05543.png" alt="img"></p>
+<blockquote>
+<p>小技巧：nsenter -n -t 容器进程pid 可以进入到容器网络空间，接着就可以tcpdump抓”容器网络中的包”</p>
+</blockquote>
+<h1 id="docker网桥模式下复现漏洞"><a href="#docker网桥模式下复现漏洞" class="headerlink" title="docker网桥模式下复现漏洞"></a>docker网桥模式下复现漏洞</h1><h2 id="docker网桥模式下漏洞原理是什么？"><a href="#docker网桥模式下漏洞原理是什么？" class="headerlink" title="docker网桥模式下漏洞原理是什么？"></a>docker网桥模式下漏洞原理是什么？</h2><p>借用网络上的一张图来说明docker网桥模式<br><img src="https://s2.51cto.com/wyfs02/M01/95/EE/wKiom1kbITPzNeJPAABs0ju69Io610.png-wh_500x0-wm_3-wmp_4-s_2144315777.png" alt="img"></p>
+<p>在容器内<code>curl 127.0.0.1:8888 --interface eth0</code>时，发送第一个syn包时，在网络层查找路由表</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-h9w7mlyv ~]# ip route show</span><br><span class="line">default via 172.17.0.1 dev eth0</span><br><span class="line">172.17.0.0&#x2F;16 dev eth0 proto kernel scope link src 172.17.0.3</span><br></pre></td></tr></table></figure>
+<p>因此会走默认网关(172.17.0.1)，在链路层就会找网关的mac地址</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-h9w7mlyv ~]# arp -a|grep 172.17.0.1</span><br><span class="line">_gateway (172.17.0.1) at 02:42:af:2e:cd:ae [ether] on eth0</span><br></pre></td></tr></table></figure>
+
+<p>实际上<code>02:42:af:2e:cd:ae</code>就是docker0网桥的mac地址，所以网关就是docker0网桥</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-h9w7mlyv ~]# ifconfig docker0</span><br><span class="line">docker0: flags&#x3D;4163&lt;UP,BROADCAST,RUNNING,MULTICAST&gt;  mtu 1500</span><br><span class="line">        inet 172.17.0.1  netmask 255.255.0.0  broadcast 172.17.255.255</span><br><span class="line">        ...</span><br><span class="line">        ether 02:42:af:2e:cd:ae  txqueuelen 0  (Ethernet)</span><br><span class="line">        ...</span><br></pre></td></tr></table></figure>
+
+<p>因此第一个syn包信息是</p>
+<table>
+<thead>
+<tr>
+<th>源ip</th>
+<th>目的ip</th>
+<th>源mac</th>
+<th>目的mac</th>
+<th>源端口</th>
+<th>目的端口</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>容器eth0 ip</td>
+<td>127.0.0.1</td>
+<td>容器eth0 mac</td>
+<td>docker0 mac</td>
+<td>4444(随机端口)</td>
+<td>8888</td>
+</tr>
+</tbody></table>
+<p>syn包数据包数据流向是 容器内eth0 -&gt; veth -&gt; docker0。</p>
+<p>veth设备作为docker0网桥的”从设备”，接收到syn包后直接转发，不会调用到”内核协议栈”的网络层。</p>
+<p>docker0网桥设备收到syn包后，在”内核协议栈”的链路层，看到目的mac是自己，就把包扔给网络层处理。在网络层查路由表，看到目的ip是本机ip，就将包扔给传输层处理。在传输层看到访问”127.0.0.1:8888”，就会查看是不是有服务监听在”127.0.0.1:8888”。</p>
+<h2 id="怎么复现？-1"><a href="#怎么复现？-1" class="headerlink" title="怎么复现？"></a>怎么复现？</h2><p>从上面分析可以看出来，需要将宿主机docker0网桥设备route_localnet设置成1。</p>
+<p>宿主机docker0网桥设备需要设置rp_filter和accept_local选项吗？答案是不需要，因为docker0网桥设备在收到数据包在网络层做”反向检查源地址”时，会知道”响应数据包”也从docker0网桥发送。”发送和接收数据包的设备”是匹配的，所以能通过”反向检查源地址”的校验。</p>
+<p>容器中eth0网卡需要设置rp_filter=0、accept_local=1、localnet=1。为什么容器中eth0网卡需要设置rp_filter和accept_local选项呢？因为eth0网桥设备如果做”反向检查源地址”，就会知道响应包应该从lo网卡发送。”接收到数据包的设备是eth0网卡”，而”发送数据包的设备应该是lo网卡”，两个设备不匹配，”反向检查”就会失败。rp_filter=0、accept_local=1可以避免做”反向检查源地址”。</p>
+<blockquote>
+<p>即使ifconfig lo down，<code>ip route show table local</code>仍能看到local表中有回环地址的路由。</p>
+</blockquote>
+<p>下面你可以跟着我来用docker复现漏洞。</p>
+<p>首先在宿主机上打开route_localnet配置</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-h9w7mlyv ~]# sysctl -w net.ipv4.conf.all.route_localnet&#x3D;1</span><br></pre></td></tr></table></figure>
+
+<p>然后创建容器，并进入到容器网络命名空间，设置rp_filter=0、accept_local=1</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-h9w7mlyv ~]# docker run -d busybox tail -f &#x2F;dev&#x2F;null		&#x2F;&#x2F; 创建容器</span><br><span class="line">62ba93fbbe7a939b7fff9a9598b546399ab26ea97858e73759addadabc3ad1f3</span><br><span class="line">[root@instance-h9w7mlyv ~]# docker top 62ba93fbbe7a939b7fff9a9598b546399ab26ea97858e73759addadabc3ad1f3</span><br><span class="line">UID                 PID                 PPID                C                   STIME               TTY                 TIME                CMD</span><br><span class="line">root                43244               43224               0                   12:33               ?                   00:00:00            tail -f &#x2F;dev&#x2F;null</span><br><span class="line">[root@instance-h9w7mlyv ~]# nsenter -n -t 43244		&#x2F;&#x2F; 进入到容器网络命名空间</span><br><span class="line">[root@instance-h9w7mlyv ~]#</span><br><span class="line">[root@instance-h9w7mlyv ~]# sysctl -w net.ipv4.conf.all.accept_local&#x3D;1	&#x2F;&#x2F; 设置容器中的accept_local配置</span><br><span class="line">[root@instance-h9w7mlyv ~]# sysctl -w net.ipv4.conf.all.rp_filter&#x3D;0		&#x2F;&#x2F; 设置容器中的rp_filter配置</span><br><span class="line">[root@instance-h9w7mlyv ~]# sysctl -w net.ipv4.conf.default.rp_filter&#x3D;0</span><br><span class="line">[root@instance-h9w7mlyv ~]# sysctl -w net.ipv4.conf.eth0.rp_filter&#x3D;0</span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p>如果你是<code>docker exec -ti busybox sh</code>进入到容器中，然后执行<code>sysctl -w</code>配置内核参数，就会发现报错，因为/proc/sys目录默认是作为只读挂载到容器中的，而内核网络参数就在/proc/sys/net目录下。</p>
+</blockquote>
+<p>然后就可以在容器中使用<code>curl 127.0.0.1:端口号 --interface eth0</code>来访问宿主机上的服务。</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/178901165-c010f034-00fe-4c90-b29a-3cd153a4ae10.png" alt="image"></p>
+<h1 id="kubernetes对漏洞的修复"><a href="#kubernetes对漏洞的修复" class="headerlink" title="kubernetes对漏洞的修复"></a>kubernetes对漏洞的修复</h1><p>在 <a target="_blank" rel="noopener" href="https://github.com/kubernetes/kubernetes/pull/91569/commits/8bed088224fb38b41255b37e59a1701caefa171b">这个pr</a> 中kubelet添加了一条iptables规则</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">root@ip-172-31-14-33:~# iptables-save |grep localnet</span><br><span class="line">-A KUBE-FIREWALL ! -s 127.0.0.0&#x2F;8 -d 127.0.0.0&#x2F;8 -m comment --comment &quot;block incoming localnet connections&quot; -m conntrack ! --ctstate RELATED,ESTABLISHED,DNAT -j DROP</span><br></pre></td></tr></table></figure>
+
+<p>这条规则使得，在tcp握手时，第一个syn包如果目的ip是”环回地址”，同时源ip不是”环回地址”时，包会被丢弃。</p>
+<blockquote>
+<p>所以如果你复现时是在kubernetes环境下，就需要删掉这条iptables规则。</p>
+</blockquote>
+<p>或许你会有疑问，源ip不也是可以伪造的嘛。确实是这样，所以在 <a target="_blank" rel="noopener" href="https://github.com/kubernetes/kubernetes/pull/91569">https://github.com/kubernetes/kubernetes/pull/91569</a> 中有人评论到，上面的规则，不能防止访问本地udp服务。</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>公有云vpc网络环境下，可能因为交换机有做限制而导致无法访问其他虚拟机的”仅绑定在127.0.0.1的服务”。</p>
+<p>docker容器网桥网络环境下，存在漏洞的kube-proxy已经设置了宿主机网络的route_localnet选项，但是因为在容器中<code>/proc/sys</code>默认只读，所以无法修改容器网络命名空间下的内核网络参数，也很难做漏洞利用。</p>
+<p>kubernetes的修复方案并不能防止访问本地udp服务。</p>
+<blockquote>
+<p>如果kubernetes使用了cni插件(比如calico ipip网络模型)，你觉得在node节点能访问到master节点的”仅绑定在127.0.0.1的服务”吗？</p>
+</blockquote>
+<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a target="_blank" rel="noopener" href="https://www.kernel.org/doc/Documentation/networking/ip-sysctl.txt">内核网络参数详解</a></p>
+<!--
+在calico cni环境下实验呢？ master node是可以的。【已验证】 worker node应该是不行的
+-->
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -199,7 +578,7 @@
           <i class="far fa-calendar-check"></i>
         </span>
         <span class="post-meta-item-text">更新于</span>
-        <time title="修改时间：2022-06-14 10:48:27" itemprop="dateModified" datetime="2022-06-14T10:48:27+08:00">2022-06-14</time>
+        <time title="修改时间：2022-06-20 22:46:56" itemprop="dateModified" datetime="2022-06-20T22:46:56+08:00">2022-06-20</time>
       </span>
 
   
@@ -252,9 +631,13 @@
 <h2 id="评估插件安全性"><a href="#评估插件安全性" class="headerlink" title="评估插件安全性"></a>评估插件安全性</h2><p>因为插件默认都是不开启的，所以虽然它是重灾区，但是我并没有投入过多精力去审计。</p>
 <p>不过在这里确实发现了一个安全问题，报告给官方后，分配了<a target="_blank" rel="noopener" href="https://www.openwall.com/lists/oss-security/2022/03/28/2">CVE-2022-25757</a>。</p>
 <p>下面来说一下这个安全问题。</p>
-<h1 id="CVE-2022-25757"><a href="#CVE-2022-25757" class="headerlink" title="CVE-2022-25757"></a>CVE-2022-25757</h1><h2 id="这个安全问题是什么？"><a href="#这个安全问题是什么？" class="headerlink" title="这个安全问题是什么？"></a>这个安全问题是什么？</h2><p> request-validation插件可以检查HTTP请求头和BODY内容，当不符合用户配置的规则时，请求就不会转发到上游。</p>
-<p> 比如用户按照如下规则配置时，body_schema限制请求中必须要有string_payload参数，并且是字符串类型，长度在1到32字节之间。<br> <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line">curl http:&#x2F;&#x2F;127.0.0.1:9080&#x2F;apisix&#x2F;admin&#x2F;routes&#x2F;10 -H &#39;X-API-KEY: edd1c9f034335f136f87ad84b625c8f1&#39; -X PUT -d &#39;</span><br><span class="line">&#123;</span><br><span class="line">    &quot;uri&quot;: &quot;&#x2F;10&quot;,</span><br><span class="line">    &quot;plugins&quot;: &#123;</span><br><span class="line">        &quot;request-validation&quot;: &#123;</span><br><span class="line">        &quot;body_schema&quot;: &#123;</span><br><span class="line">              &quot;type&quot;: &quot;object&quot;,</span><br><span class="line">              &quot;required&quot;: [&quot;string_payload&quot;],</span><br><span class="line">              &quot;properties&quot;: &#123;</span><br><span class="line">                  &quot;string_payload&quot;: &#123;</span><br><span class="line">                      &quot;type&quot;: &quot;string&quot;,</span><br><span class="line">                      &quot;minLength&quot;: 1,</span><br><span class="line">                      &quot;maxLength&quot;: 32</span><br><span class="line">                  &#125;</span><br><span class="line">              &#125;</span><br><span class="line">          &#125;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;,</span><br><span class="line">    &quot;upstream&quot;: &#123;</span><br><span class="line">        &quot;type&quot;: &quot;roundrobin&quot;,</span><br><span class="line">        &quot;nodes&quot;: &#123;</span><br><span class="line">            &quot;192.168.2.189:8888&quot;: 1</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;&#39;</span><br></pre></td></tr></table></figure></p>
-<p> 但是恶意用户发送如下请求时，有可能绕过限制<br> <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">POST http:&#x2F;&#x2F;127.0.0.1:9080&#x2F;10</span><br><span class="line">...</span><br><span class="line">&#123;&quot;string_payload&quot;:&quot;&quot;,&quot;string_payload&quot;:&quot;1111&quot;&#125;</span><br></pre></td></tr></table></figure></p>
+<h1 id="CVE-2022-25757"><a href="#CVE-2022-25757" class="headerlink" title="CVE-2022-25757"></a>CVE-2022-25757</h1><h2 id="这个安全问题是什么？"><a href="#这个安全问题是什么？" class="headerlink" title="这个安全问题是什么？"></a>这个安全问题是什么？</h2><p>request-validation插件可以检查HTTP请求头和BODY内容，当不符合用户配置的规则时，请求就不会转发到上游。</p>
+<p>比如用户按照如下规则配置时，body_schema限制请求中必须要有string_payload参数，并且是字符串类型，长度在1到32字节之间。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line">curl http:&#x2F;&#x2F;127.0.0.1:9080&#x2F;apisix&#x2F;admin&#x2F;routes&#x2F;10 -H &#39;X-API-KEY: edd1c9f034335f136f87ad84b625c8f1&#39; -X PUT -d &#39;</span><br><span class="line">&#123;</span><br><span class="line">    &quot;uri&quot;: &quot;&#x2F;10&quot;,</span><br><span class="line">    &quot;plugins&quot;: &#123;</span><br><span class="line">        &quot;request-validation&quot;: &#123;</span><br><span class="line">        &quot;body_schema&quot;: &#123;</span><br><span class="line">              &quot;type&quot;: &quot;object&quot;,</span><br><span class="line">              &quot;required&quot;: [&quot;string_payload&quot;],</span><br><span class="line">              &quot;properties&quot;: &#123;</span><br><span class="line">                  &quot;string_payload&quot;: &#123;</span><br><span class="line">                      &quot;type&quot;: &quot;string&quot;,</span><br><span class="line">                      &quot;minLength&quot;: 1,</span><br><span class="line">                      &quot;maxLength&quot;: 32</span><br><span class="line">                  &#125;</span><br><span class="line">              &#125;</span><br><span class="line">          &#125;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;,</span><br><span class="line">    &quot;upstream&quot;: &#123;</span><br><span class="line">        &quot;type&quot;: &quot;roundrobin&quot;,</span><br><span class="line">        &quot;nodes&quot;: &#123;</span><br><span class="line">            &quot;192.168.2.189:8888&quot;: 1</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;&#39;</span><br></pre></td></tr></table></figure>
+
+<p>但是恶意用户发送如下请求时，有可能绕过限制</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">POST http:&#x2F;&#x2F;127.0.0.1:9080&#x2F;10</span><br><span class="line">...</span><br><span class="line">&#123;&quot;string_payload&quot;:&quot;&quot;,&quot;string_payload&quot;:&quot;1111&quot;&#125;</span><br></pre></td></tr></table></figure>
+
 <h2 id="为什么会绕过限制？"><a href="#为什么会绕过限制？" class="headerlink" title="为什么会绕过限制？"></a>为什么会绕过限制？</h2><p>request-validation.lua中使用cjson.safe库解析字符串为json对象，对于带有”重复键值”的json，它会取最后面的值。比如<code>&#123;&quot;string_payload&quot;:&quot;&quot;,&quot;string_payload&quot;:&quot;1111&quot;&#125;</code>，request-validation插件会认为string_payload=”1111”。</p>
 <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">local _M &#x3D; &#123;</span><br><span class="line">    version &#x3D; 0.1,</span><br><span class="line">    decode &#x3D; require(&quot;cjson.safe&quot;).decode,</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 
@@ -1127,262 +1510,6 @@
 <h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>问题背景中的场景可能还有其他的编程方式来实现，这里我只是为了引出我学到的”生成器”和”Python内置对象的内存占用”两个知识点。这两个点都背后能扯到更多的点，比如dict容器的动态扩容、哈希表冲突的解决，如果有兴趣，推荐你可以看文章中的参考资料。</p>
 <p>想起我以前老听说python性能不好，只以为是解释运行得慢。通过这个案例和参考资料的学习，感觉到还可以从”内存”方面比较。和c相比，python对象的内存占用是有一点多，比如空字符串c中就占用1个字节，python中占用49个字节。</p>
 <p>生成器可以节约内存。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2022-01-02-%E8%A7%A3%E5%86%B3%E5%86%85%E5%AD%98%E6%B3%84%E6%BC%8F%E7%9A%84%E9%80%9A%E7%94%A8%E6%80%9D%E8%B7%AF/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2022-01-02-%E8%A7%A3%E5%86%B3%E5%86%85%E5%AD%98%E6%B3%84%E6%BC%8F%E7%9A%84%E9%80%9A%E7%94%A8%E6%80%9D%E8%B7%AF/" class="post-title-link" itemprop="url">解决内存泄漏的通用思路</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-      
-
-      <time title="创建时间：2022-01-02 12:28:14 / 修改时间：14:02:54" itemprop="dateCreated datePublished" datetime="2022-01-02T12:28:14+08:00">2022-01-02</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>之前在做扫描器时，有一个功能是：生成任务实例。</p>
-<p>使用场景是：用户在web页面上点击启动按钮，就可以立即运行指定的任务(比如指定哪些POC对哪些资产做漏洞扫描)；定期运行扫描任务</p>
-<p>因为”生成任务实例”时可能需要比较久的时间，并且有很多其他业务逻辑，所以这里由后台进程来生成任务实例，实现”异步”的效果。</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/147867288-630e0ec9-84fa-499c-a6b6-17853e58dfa4.png" alt="image"></p>
-<p>在线上发现一个问题：”后台创建任务实例的进程”运行一段时间后，内存占用越来越大。</p>
-<p>虽然当时能力有限，并没有找到”内存不断增长”的原因，但是最终还是解决了这个问题。</p>
-<h1 id="怎么解决的"><a href="#怎么解决的" class="headerlink" title="怎么解决的"></a>怎么解决的</h1><p>我当时的想法是，虽然找不到原因，但是重启大法好啊，我可以处理N个任务后，删除这个”后台创建任务实例的进程”再新建进程。</p>
-<p>项目中我用的是python语言，<a target="_blank" rel="noopener" href="https://github.com/celery/celery">celery框架</a>，刚好celery提供了两个参数</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">root@50f41bfab20a:&#x2F;# celery worker --help</span><br><span class="line">...</span><br><span class="line">--max-tasks-per-child MAX_TASKS_PER_CHILD, --maxtasksperchild MAX_TASKS_PER_CHILD</span><br><span class="line">                      Maximum number of tasks a pool worker can execute</span><br><span class="line">                      before it&#39;s terminated and replaced by a new worker.</span><br><span class="line">--max-memory-per-child MAX_MEMORY_PER_CHILD, --maxmemperchild MAX_MEMORY_PER_CHILD</span><br><span class="line">                      Maximum amount of resident memory, in KiB, that may be</span><br><span class="line">                      consumed by a child process before it will be replaced</span><br><span class="line">                      by a new one. If a single task causes a child process</span><br><span class="line">                      to exceed this limit, the task will be completed and</span><br><span class="line">                      the child process will be replaced afterwards.</span><br><span class="line">                      Default: no limit.</span><br></pre></td></tr></table></figure>
-
-<p>可以指定内存超过多少、处理多少任务后，生成新的进程来处理任务。</p>
-<p>我就靠这两个参数解决​了问题。</p>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>后面我在做安全评估时，发现其他业务线有php语言开发的程序也是这种模式：使用子进程处理任务，处理N个任务后，”重新创建”子进程。</p>
-<p>所以，凡是业务场景允许”进程重启”的，应该都可以用这种模式来解决”内存泄漏”。</p>
-<p>难解决的是”长时间持续运行的程序”出现的”内存泄漏”</p>
-<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a target="_blank" rel="noopener" href="https://www.zhihu.com/question/400104113/answer/1278541405">既然每个程序占用的内存都是操作系统管理的，为什么内存泄漏还是个问题？ - pansz的回答 - 知乎</a></p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E6%89%AB%E6%8F%8F%E5%99%A8%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90%E6%A1%88%E4%BE%8B/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E6%89%AB%E6%8F%8F%E5%99%A8%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90%E6%A1%88%E4%BE%8B/" class="post-title-link" itemprop="url">扫描器性能分析案例</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 21:32:40" itemprop="dateCreated datePublished" datetime="2021-12-26T21:32:40+08:00">2021-12-26</time>
-    </span>
-      <span class="post-meta-item">
-        <span class="post-meta-item-icon">
-          <i class="far fa-calendar-check"></i>
-        </span>
-        <span class="post-meta-item-text">更新于</span>
-        <time title="修改时间：2022-01-16 17:09:55" itemprop="dateModified" datetime="2022-01-16T17:09:55+08:00">2022-01-16</time>
-      </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <p>之前文章结论有问题，修正后形成本文。原文如下</p>
-<h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>之前线上的漏洞扫描器遇到一个问题：扫描刚开始时，内存占用不超过200M，但在扫描过程中，扫描器会占用超过10G以上内存。因为同一台机器上还有其他的服务，可用物理内存也只有10G左右，所以扫描过程中就没有可用内存了，机器负载(uptime命令查看)也会很高。</p>
-<p>排查”怎么导致10G内存占用”也比较简单：因为每次内存占用过高时，都能看到机器上有上百个<code>java -jar ysoserial.jar</code>进程(扫描器开的)，所以可以知道是 <a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/14ade5985bfc1db1b5ccb3ae4f661178">shiro-550</a> 这个poc导致的内存消耗。</p>
-<p>先说明一下为什么有上百个<code>java -jar ysoserial.jar</code>进程：从 <a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/14ade5985bfc1db1b5ccb3ae4f661178">shiro-550</a> 代码中也可以看到，我在python中使用子进程调用<code>ysoserial</code>来生成shiro测试payload。因为扫描器使用协程池(<code>gevent.pool</code>)实现并发，所以扫描器执行到shiro poc时，会产生很多个<code>ysoserial</code>子进程。</p>
-<p>本文不讨论这个问题的解决办法(你可以看<a target="_blank" rel="noopener" href="https://paper.seebug.org/1290/">Shiro-550 PoC 编写日记</a>),而是分析为什么这里python中的子进程会消耗10G这么多的内存。</p>
-<p>我的分析思路：写一个demo复现，然后分析demo</p>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
-<li><p>复现</p>
-<p>写个demo复现一下</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"># coding:utf-8</span><br><span class="line">import subprocess</span><br><span class="line">import gevent.monkey</span><br><span class="line">gevent.monkey.patch_all()</span><br><span class="line"></span><br><span class="line">import gevent.pool</span><br><span class="line"></span><br><span class="line">def test(_):</span><br><span class="line">    popen &#x3D; subprocess.Popen([&#39;python&#39;, &quot;&#x2F;tmp&#x2F;big.py&quot;], stdout&#x3D;subprocess.PIPE)   # big.py是一个60M左右的的python文件</span><br><span class="line">    print(popen.stdout.read())</span><br><span class="line"></span><br><span class="line">if __name__ &#x3D;&#x3D; &quot;__main__&quot;:</span><br><span class="line">    pool &#x3D; gevent.pool.Pool(100)    # 100个协程</span><br><span class="line"></span><br><span class="line">    _ &#x3D; &quot;x,&quot; * 300</span><br><span class="line">    pool.map(test, _.split(&quot;,&quot;))</span><br></pre></td></tr></table></figure>
-
-<p>其中<code>/tmp/big.py</code>是如下脚本生成的</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"># coding:utf-8</span><br><span class="line"></span><br><span class="line">size &#x3D; 60 * 1024 * 1024  # 60M</span><br><span class="line">fname &#x3D; &quot;&#x2F;tmp&#x2F;big.py&quot;</span><br><span class="line"></span><br><span class="line">template &#x3D; &quot;&quot;&quot;</span><br><span class="line">a&#x3D;&quot;%s&quot;</span><br><span class="line">while True:</span><br><span class="line">    pass</span><br><span class="line">&quot;&quot;&quot;</span><br><span class="line"></span><br><span class="line">with open(fname, &quot;w&quot;) as f:</span><br><span class="line">    f.write(template % (&#39;x&#39;*size))</span><br></pre></td></tr></table></figure>
-
-<p>下面在机器上观察demo脚本对物理内存占用的影响</p>
-</li>
-<li><p>观察</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/147537918-b056a863-26b1-4a89-9380-89c75dc16eb8.png" alt="image"></p>
-<p>可以观察到：在执行脚本前，机器还有10G可用的物理内存；执行脚本后，生成了100个big.py进程，内存也从11203M减少到4886M。</p>
-<p>内存为什么会减少这么多呢？其实算一算就很容易找到原因：内存减少了约6G，而big.py脚本大小约60M、总共有100个big.py进程，所以应该是每个<code>python big.py</code>进程会占用60M物理内存。</p>
-<p>想一想也很合理：执行<code>python big.py</code>时，python应该是将<code>big.py</code>文件全部读到内存中了。</p>
-</li>
-<li><p>回到最开始的问题</p>
-<p>可以推测执行<code>java -jar ysoserial.jar</code>命令时，java也会将<code>ysoserial.jar</code>文件读到内存。</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/147551785-e2bc1537-c359-4f79-bc0a-cd149b0189fe.png" alt="image"></p>
-<p>又因为<code>ysoserial.jar</code>文件接近50M，所以有200个<code>java -jar ysoserial.jar</code>子进程时，就会消耗至少10G的内存。</p>
-<p>到这里，我的疑问也解开了。</p>
-</li>
-<li><p>总结</p>
-<p>多进程执行<code>java -jar xxx.jar</code>或者<code>python xxx.py</code>时，需要注意<code>xxx.jar</code>和<code>xxx.py</code>的大小会对内存占用有影响。</p>
-<p>看到这里，我不知道你会不会心想这个问题也太简单了吧。</p>
-<p>确实，在写出验证demo之后，很容易得到结论。但是在写出demo之前，我把问题想错了导致走了点弯路。下面我来说一下我走弯路时的过程以及学到的东西。</p>
-</li>
-</ul>
-<h1 id="弯路"><a href="#弯路" class="headerlink" title="弯路"></a>弯路</h1><ul>
-<li><p>最开始的思路</p>
-<p>其实我最开始是怀疑”内存占用10G”以上的原因是：python生成子进程时会占用和父进程一样大小的物理内存,而父进程(也就是扫描器进程)本身因为会读了一些资源文件，所以本身是占用了比较大的物理内存。这样当父进程(扫描器进程)生成200个子进程(<code>java -jar ysoserial.jar</code>)时,就会占用200*40M(8G)的内存。似乎这个数字也将近10G，也能差不多对应上问题背景。</p>
-<p>现在回过头看之前的这个原因猜测，有两点问题：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* python生成子进程时因为有操作系统&quot;写时复制&quot;的机制，所以不会有200个子进程就占用200*40M的内存</span><br><span class="line">* &#96;subprocess.Popen&#96;生成的子进程内存占用和父进程无关，&#96;multiprocessing.Process&#96;生成的子进程内存占用和父进程是一样的</span><br></pre></td></tr></table></figure>
-
-<p>关于”写时复制”机制，可能你和我最开始一样不了解，下面我带你来验证一下这个机制是怎么回事。</p>
-</li>
-<li><p>“写时复制”机制</p>
-<p>linux上和生成子进程有关的系统调用有fork、clone，这两系统调用都会有”写时复制”机制。</p>
-<p>按照我自己的理解，”写时复制”机制就是刚生成子进程时，子进程和父进程 关于”用户态虚拟地址”到”物理地址”的映射关系是一样的。然后，在发生写操作时（无论父进程还是子进程），操作系统都会重新映射。</p>
-<p>因为映射到同一个物理页，所以不会导致物理内存变少。</p>
-<p>我们可以用crash工具来验证一下这个机制</p>
-</li>
-<li><p>crash工具验证fork时的”写时复制”机制</p>
-<p>准备测试代码：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">#include &lt;sys&#x2F;mman.h&gt;</span><br><span class="line">#include &lt;unistd.h&gt;</span><br><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line">#include &lt;string.h&gt;</span><br><span class="line"></span><br><span class="line">#define SIZE 4*1024*1024</span><br><span class="line">int main()&#123;</span><br><span class="line">  void *addr &#x3D; mmap(NULL, (size_t)SIZE, PROT_READ|PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);    &#x2F;&#x2F; 申请4M内存</span><br><span class="line">  memset(addr, &#39;A&#39;, SIZE);</span><br><span class="line"></span><br><span class="line">  printf(&quot;main: %p\n&quot;, addr);</span><br><span class="line"></span><br><span class="line">  while(1)&#123;</span><br><span class="line">    getchar();</span><br><span class="line"></span><br><span class="line">    if (fork() &#x3D;&#x3D; 0)&#123;</span><br><span class="line">      printf(&quot;sub: %p\n&quot;, addr);</span><br><span class="line">      while (1)&#123;</span><br><span class="line">        sleep(5);</span><br><span class="line">      &#125;</span><br><span class="line">    &#125;</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>通过crash工具来验证，可以看到：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 因为子进程和父进程都没有对addr内存做写操作，所以子进程和父进程中addr映射到同一个物理地址</span><br><span class="line">* 虽然代码中mmap用了&#96;PROT_WRITE&#96;标志，但是子进程和父进程addr内存标志中都没有RW可写标志</span><br></pre></td></tr></table></figure>
-
-<p><img src="https://user-images.githubusercontent.com/1846319/147578536-1b05bbbc-6007-4e8d-abd2-09ce782d9af9.png" alt="image"></p>
-<p>你也可以修改代码，在子进程中修改addr指向的内存，然后用crash观察”物理地址”和”内存标志”的变化，来体会”写时复制”。</p>
-<p>关于crash工具的安装和使用，你可以参考 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/GGnpYk30k-eUIULv3a_PKQ">借助crash工具理解linux系统的内存分配</a></p>
-</li>
-<li><p><code>multiprocessing.Process</code>是否会”写时复制”？</p>
-<p><code>multiprocessing.Process</code>是用clone系统调用而不是fork系统调用（你可以用strace命令验证一下）</p>
-<p>我们同样可以用crash来验证<code>multiprocessing.Process</code>的子进程和父进程是否会映射到同一个物理页。先说结论：<code>multiprocessing.Process</code>同样有”写时复制”。在得到这个结论前我差点以为<code>multiprocessing.Process</code>是没有”写时复制”机制的，因为我发现a变量地址对应的物理地址在”父进程”和”子进程”中是不同的。</p>
-<p>下面我来说一下我是怎么测试的。</p>
-<p>先准备测试代码</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp tmp]# cat v.py</span><br><span class="line">from multiprocessing import Process</span><br><span class="line"></span><br><span class="line">a &#x3D; b&quot;abc&quot;</span><br><span class="line">print(&quot;main&quot;, id(a))  # id函数返回变量a的虚拟地址</span><br><span class="line"></span><br><span class="line">def t():</span><br><span class="line">  while True:</span><br><span class="line">    pass</span><br><span class="line"></span><br><span class="line">p &#x3D; Process(target&#x3D;t, args&#x3D;&#39;&#39;)</span><br><span class="line">p.start()</span><br></pre></td></tr></table></figure>
-
-<p>然后用crash查看父子进程中a变量对应的物理地址，可以看到：父子进程a变量映射到不同的物理地址。</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/147625166-686af767-e186-4591-8a1f-cc9ad156eb4f.png" alt="image"></p>
-<p>上面的现象让我一度以为<code>multiprocessing.Process</code>是没有”写时复制”机制。但是因为我之前验证了”clone系统调用”有”写时复制”，所以我怀疑<code>multiprocessing.Process</code>因为啥原因所以没有”写时复制”？</p>
-<p>为了解决上面的疑问，我在python进程的clone系统调用下断点，在刚调用clone时用crash查看页表</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/147626931-bd780cde-cef8-47b8-be2c-6a977ed2a5c3.png" alt="image"></p>
-<p>可以看到，在clone刚被调用时，父子进程中a变量映射到同一个物理地址。</p>
-<p>到目前为止有两个现象：在clone刚被调用时，父子进程中a变量映射到同一个物理地址；<code>v.py</code>运行后，父子进程中a变量映射到不同的物理地址。</p>
-<p>我猜测：clone被调用后，<code>v.py</code>中后面修改了a变量，导致进程中a变量地址被映射到一个新的物理地址上。因为我的猜测也符合”写时复制”机制流程，所以直觉上应该是这样。</p>
-<p>但是现在还有一个问题：你看我们前面的<code>v.py</code>代码，它并没有修改a变量。那么a变量是被谁修改了呢。</p>
-<p>为了搞清楚这最后一个问题，我用gdb查看a变量在内存中长什么样，然后发现父子进程a变量的”引用计数”不相同，如下<code>ob_refcnt</code>字段值就是”引用计数”</p>
-<blockquote>
-<p>“引用计数”是CPython用来做”垃圾管理”的一个机制，当对象被创建或者被当作参数传递时，对象的引用计数会加1。</p>
-</blockquote>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# ps aux|grep v.py</span><br><span class="line">root     21465  0.0  0.0 144332  8604 pts&#x2F;1    S+   12:34   0:00 python3 v.py   &#x2F;&#x2F; 父进程</span><br><span class="line">root     21466 93.0  0.0 144332  6460 pts&#x2F;1    R+   12:34   6:19 python3 v.py   &#x2F;&#x2F; 子进程</span><br><span class="line">[root@instance-fj5pftdp ~]# gdb --batch -p 21465 -ex &#39;print *(PyBytesObject*) 140443328409848&#39;    &#x2F;&#x2F; 140443328409848是a变量地址</span><br><span class="line">...</span><br><span class="line">$1 &#x3D; &#123;ob_base &#x3D; &#123;ob_base &#x3D; &#123;ob_refcnt &#x3D; 1, ob_type &#x3D; 0x7fbb8a46dfa0 &lt;PyBytes_Type&gt;&#125;, ob_size &#x3D; 3&#125;, ob_shash &#x3D; 4892354780606192576, ob_sval &#x3D; &quot;a&quot;&#125;</span><br><span class="line">...</span><br><span class="line">[root@instance-fj5pftdp ~]# gdb --batch -p 21466 -ex &#39;print *(PyBytesObject*) 140443328409848&#39;</span><br><span class="line">...</span><br><span class="line">$1 &#x3D; &#123;ob_base &#x3D; &#123;ob_base &#x3D; &#123;ob_refcnt &#x3D; 3, ob_type &#x3D; 0x7fbb8a46dfa0 &lt;PyBytes_Type&gt;&#125;, ob_size &#x3D; 3&#125;, ob_shash &#x3D; 4892354780606192576, ob_sval &#x3D; &quot;a&quot;&#125;</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
-
-<p>可以推测CPython在clone之后修改了a变量的”引用计数”，因此发生了”写时复制”，父子进程中a变量地址指向的物理地址也不同。</p>
-<p>如果你有兴趣，可以将测试代码的<code>a = b&quot;abc&quot;</code>修改成<code>a = b&quot;a&quot; * 1024 * 1024 * 1024</code>，然后观察一下a变量的1G内存，就能发现父子进程的a变量只有第一个物理页是不同的，其他物理页都是相同的。</p>
-</li>
-<li><p><code>subprocess.Popen</code>和<code>multiprocessing.Process</code>区别</p>
-<p>做完上面实验我体会的差别：<code>subprocess.Popen</code>会调用<code>execve</code>系统调用，这个系统调用应该会将”页表映射”关系都换掉，所以父进程和子进程的内存没啥关系。</p>
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><ul>
-<li>多进程执行<code>java -jar xxx.jar</code>或者<code>python xxx.py</code>时，需要注意<code>xxx.jar</code>和<code>xxx.py</code>的大小会对内存占用有影响</li>
-<li>fork、clone系统调用都有”写时复制”机制，可以用crash工具来观察这个机制；”写时复制”可以节约物理内存</li>
-<li><code>multiprocessing.Process</code>生成子进程时，有可能因为”引用计数”被修改，所以子进程存储变量实例的第一个物理页可能和父进程不同</li>
-<li><code>subprocess.Popen</code>会调用<code>execve</code>系统调用，这个系统调用应该会将”页表”都换掉，所以父进程和子进程的内存没啥关系</li>
-</ul>
-<p>在研究这个问题的过程中，我了解了CPython对象的数据结构、写时复制，希望你也有收获。</p>
-<p>关于gdb的使用，你可以看<a target="_blank" rel="noopener" href="https://wizardforcel.gitbooks.io/100-gdb-tips/content/set-detach-on-fork.html">文档</a></p>
-<hr>
-<h1 id="更正"><a href="#更正" class="headerlink" title="更正"></a>更正</h1><p>上面文章中下面的结论有部分错误：</p>
-<ul>
-<li>多进程执行<code>java -jar xxx.jar</code>或者<code>python xxx.py</code>时，需要注意<code>xxx.jar</code>和<code>xxx.py</code>的大小会对内存占用有影响</li>
-</ul>
-<p>实际上<code>java -jar xxx.jar</code>和<code>python xxx.py</code>还是有些不同：<code>xxx.jar</code>是jvm通过mmap系统调用映射”共享文件页”到内存中，所以多个进程会共享同一份内存; <code>xxx.py</code>并不会被python解释器通过mmap做”文件页”映射。</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/149651727-18ca7bdc-aac6-4b2f-b49d-f3895aba0b91.png" alt="image"></p>
-<p><img src="https://user-images.githubusercontent.com/1846319/149651655-bf29e24c-e881-41ea-a949-2a120abfbcf5.png" alt="image"></p>
-<p>原文中因为自己想当然地以为”jvm”会和”python解释器”一样，偷了点懒就没有动手验证，所以得出错误的结论。</p>
-<p>PS：想问一下有没有读者愿意帮我校对文章内容？可以在公众号聊天框发消息给我</p>
 
       
     </div>

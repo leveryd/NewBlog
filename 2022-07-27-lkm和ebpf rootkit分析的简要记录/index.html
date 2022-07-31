@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 5.2.0">
+
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@5.15.4/css/all.min.css" integrity="sha256-mUZM63G8m73Mcidfrv5E+Y61y7a12O5mW4ezU3bxqW4=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"yoursite.com","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.8.2","exturl":false,"sidebar":{"position":"left","display":"post","padding":18,"offset":12},"copycode":false,"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"prism":false,"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js"></script>
+<meta name="description" content="背景再次捕获云上在野容器攻击，TeamTNT黑产攻击方法揭秘 文章中提到一个内核rootkit-Diamorphine 新型eBPF后门boopkit的原理分析与演示 也提到基于ebpf的rootkit 本文简要分析这两个rootkit在”进程隐藏”上实现的区别。  特别因为是eBPF只能通过“helper functions”调用内核能力，而不能直接调用内核函数、修改内核数据结构，所以我好奇eB">
+<meta property="og:type" content="article">
+<meta property="og:title" content="lkm和ebpf rootkit分析的简要记录">
+<meta property="og:url" content="http://yoursite.com/2022-07-27-lkm%E5%92%8Cebpf%20rootkit%E5%88%86%E6%9E%90%E7%9A%84%E7%AE%80%E8%A6%81%E8%AE%B0%E5%BD%95/index.html">
+<meta property="og:site_name" content="leveryd的个人博客">
+<meta property="og:description" content="背景再次捕获云上在野容器攻击，TeamTNT黑产攻击方法揭秘 文章中提到一个内核rootkit-Diamorphine 新型eBPF后门boopkit的原理分析与演示 也提到基于ebpf的rootkit 本文简要分析这两个rootkit在”进程隐藏”上实现的区别。  特别因为是eBPF只能通过“helper functions”调用内核能力，而不能直接调用内核函数、修改内核数据结构，所以我好奇eB">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://user-images.githubusercontent.com/1846319/181194318-b17ebd7f-3ac1-4f3f-8977-4fafb2e2bdcf.png">
+<meta property="og:image" content="https://user-images.githubusercontent.com/1846319/181200677-1e2775a9-cc60-45fb-8295-1e3606ba7aaf.png">
+<meta property="og:image" content="https://user-images.githubusercontent.com/1846319/181199847-6750c019-74f6-41b5-a7f9-b20113093bd3.png">
+<meta property="article:published_time" content="2022-07-27T06:50:51.002Z">
+<meta property="article:modified_time" content="2022-07-31T09:23:05.474Z">
+<meta property="article:author" content="leveryd">
+<meta property="article:tag" content="主机安全">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://user-images.githubusercontent.com/1846319/181194318-b17ebd7f-3ac1-4f3f-8977-4fafb2e2bdcf.png">
+
+
+<link rel="canonical" href="http://yoursite.com/2022-07-27-lkm%E5%92%8Cebpf%20rootkit%E5%88%86%E6%9E%90%E7%9A%84%E7%AE%80%E8%A6%81%E8%AE%B0%E5%BD%95/">
+
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"http://yoursite.com/2022-07-27-lkm%E5%92%8Cebpf%20rootkit%E5%88%86%E6%9E%90%E7%9A%84%E7%AE%80%E8%A6%81%E8%AE%B0%E5%BD%95/","path":"2022-07-27-lkm和ebpf rootkit分析的简要记录/","title":"lkm和ebpf rootkit分析的简要记录"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>lkm和ebpf rootkit分析的简要记录 | leveryd的个人博客</title>
+  
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">leveryd的个人博客</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu">
+        <li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li>
+        <li class="menu-item menu-item-about"><a href="/about/" rel="section"><i class="fa fa-user fa-fw"></i>关于</a></li>
+        <li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+        
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#%E8%83%8C%E6%99%AF"><span class="nav-number">1.</span> <span class="nav-text">背景</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#lkm-rootkit%E6%98%AF%E6%80%8E%E4%B9%88%E9%9A%90%E8%97%8F%E8%BF%9B%E7%A8%8B%E7%9A%84"><span class="nav-number">2.</span> <span class="nav-text">lkm rootkit是怎么隐藏进程的</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#ebpf-rootkit%E6%98%AF%E6%80%8E%E4%B9%88%E9%9A%90%E8%97%8F%E8%BF%9B%E7%A8%8B%E7%9A%84"><span class="nav-number">3.</span> <span class="nav-text">ebpf rootkit是怎么隐藏进程的</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E6%80%BB%E7%BB%93"><span class="nav-number">4.</span> <span class="nav-text">总结</span></a></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author site-overview-item animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">leveryd</p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap site-overview-item animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">55</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-tags">
+        <span class="site-state-item-count">23</span>
+        <span class="site-state-item-name">标签</span>
+      </div>
+  </nav>
+</div>
+
+
+
+        </div>
+      </div>
+    </div>
+  </aside>
+  <div class="sidebar-dimmer"></div>
+
+
+    </header>
+
+    
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2022-07-27-lkm%E5%92%8Cebpf%20rootkit%E5%88%86%E6%9E%90%E7%9A%84%E7%AE%80%E8%A6%81%E8%AE%B0%E5%BD%95/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          lkm和ebpf rootkit分析的简要记录
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2022-07-27 14:50:51" itemprop="dateCreated datePublished" datetime="2022-07-27T14:50:51+08:00">2022-07-27</time>
+    </span>
+      <span class="post-meta-item">
+        <span class="post-meta-item-icon">
+          <i class="far fa-calendar-check"></i>
+        </span>
+        <span class="post-meta-item-text">更新于</span>
+        <time title="修改时间：2022-07-31 17:23:05" itemprop="dateModified" datetime="2022-07-31T17:23:05+08:00">2022-07-31</time>
+      </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+        <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/9ZSxpeUHTcgQrQ1Ys5uROw">再次捕获云上在野容器攻击，TeamTNT黑产攻击方法揭秘</a> 文章中提到一个<a target="_blank" rel="noopener" href="https://github.com/m0nad/Diamorphine">内核rootkit-Diamorphine</a></p>
+<p><a target="_blank" rel="noopener" href="https://www.cnxct.com/ebpf-rootkit-how-boopkit-works/">新型eBPF后门boopkit的原理分析与演示</a> 也提到基于<a target="_blank" rel="noopener" href="https://github.com/kris-nova/boopkit">ebpf的rootkit</a></p>
+<p>本文简要分析这两个rootkit在”进程隐藏”上实现的区别。</p>
+<blockquote>
+<p>特别因为是eBPF只能通过<a target="_blank" rel="noopener" href="https://ebpf.io/what-is-ebpf#helper-calls">“helper functions”</a>调用内核能力，而不能直接调用内核函数、修改内核数据结构，所以我好奇eBPF后门怎么实现”进程隐藏”。</p>
+</blockquote>
+<h1 id="lkm-rootkit是怎么隐藏进程的"><a href="#lkm-rootkit是怎么隐藏进程的" class="headerlink" title="lkm rootkit是怎么隐藏进程的"></a>lkm rootkit是怎么隐藏进程的</h1><p>通过修改<code>__sys_call_table</code>，hook了kill、getdents64系统调用。</p>
+<p>用户在调用kill系统调用时，rootkit在收到信号”SIGMODINVIS”(头文件中可以看到是31)后，就会执行两步：</p>
+<ul>
+<li>for_each_process找到进程task_struct</li>
+<li>修改task_struct的flags</li>
+</ul>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;&#x2F; diamorphine.c</span><br><span class="line">hacked_kill(pid_t pid, int sig)</span><br><span class="line">&#123;</span><br><span class="line">...</span><br><span class="line">	struct task_struct *task;</span><br><span class="line">	switch (sig) &#123;</span><br><span class="line">		case SIGINVIS:</span><br><span class="line">			if ((task &#x3D; find_task(pid)) &#x3D;&#x3D; NULL) &#x2F;&#x2F; 根据pid找到task_struct实例</span><br><span class="line">				return -ESRCH;</span><br><span class="line">			task-&gt;flags ^&#x3D; PF_INVISIBLE;</span><br><span class="line">			break;</span><br></pre></td></tr></table></figure>
+
+<p>用户在getdents64系统调用查看目录信息时，rootkit会修改返回给用户的目录信息。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">hacked_getdents64(unsigned int fd, struct linux_dirent64 __user *dirent,</span><br><span class="line">	unsigned int count)</span><br><span class="line">&#123;</span><br><span class="line">  int ret &#x3D; orig_getdents64(fd, dirent, count), err;  &#x2F;&#x2F; 调用原先的getdents64函数</span><br><span class="line">	...</span><br><span class="line"></span><br><span class="line">  kdirent &#x3D; kzalloc(ret, GFP_KERNEL);   &#x2F;&#x2F; 申请ret大小的内核内存</span><br><span class="line">	...</span><br><span class="line"></span><br><span class="line">	err &#x3D; copy_from_user(kdirent, dirent, ret);   &#x2F;&#x2F; 将&quot;目录信息&quot;复制一份</span><br><span class="line">	...</span><br><span class="line"></span><br><span class="line">	while (off &lt; ret) &#123;</span><br><span class="line">		dir &#x3D; (void *)kdirent + off;</span><br><span class="line">		if ((!proc &amp;&amp;</span><br><span class="line">		(memcmp(MAGIC_PREFIX, dir-&gt;d_name, strlen(MAGIC_PREFIX)) &#x3D;&#x3D; 0))   &#x2F;&#x2F; 文件以MAGIC_PREFIX开头</span><br><span class="line">		|| (proc &amp;&amp;</span><br><span class="line">		is_invisible(simple_strtoul(dir-&gt;d_name, NULL, 10)))) &#123; &#x2F;&#x2F; &#x2F;proc&#x2F;$&#123;pid&#125; 被标记成需要隐藏</span><br><span class="line">      ...</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">  ...</span><br><span class="line">  err &#x3D; copy_to_user(dirent, kdirent, ret);   &#x2F;&#x2F; 将修改后的&quot;目录信息&quot;复制给用户</span><br></pre></td></tr></table></figure>
+
+
+<p>测试后，就会发现rootkit会影响<code>/proc</code>目录中是否可以看到进程目录。</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/181194318-b17ebd7f-3ac1-4f3f-8977-4fafb2e2bdcf.png" alt="image"></p>
+<p>实际上是rootkit影响了getdents64系统调用的结果<br><img src="https://user-images.githubusercontent.com/1846319/181200677-1e2775a9-cc60-45fb-8295-1e3606ba7aaf.png" alt="image"></p>
+<p>ps命令也是读<code>/proc</code>目录来获取进程信息的，所以rootkit影响ps命令结果<br><img src="https://user-images.githubusercontent.com/1846319/181199847-6750c019-74f6-41b5-a7f9-b20113093bd3.png" alt="image"></p>
+<p>所以这个lkm rootkit是通过修改task_struct的flags字段来给进程打个标记，等getdents64时会根据标记判断是不是要修改目录信息。</p>
+<p>eBPF程序不能直接修改内核数据，那eBPF后门是怎么做”进程隐藏”的呢？</p>
+<h1 id="ebpf-rootkit是怎么隐藏进程的"><a href="#ebpf-rootkit是怎么隐藏进程的" class="headerlink" title="ebpf rootkit是怎么隐藏进程的"></a>ebpf rootkit是怎么隐藏进程的</h1><p>getdents64系统调用可以用来获取目录信息，<code>man 2 getdents</code>可以知道第二个指针参数指向”目录条目”buffer</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">int getdents64(unsigned int fd, struct linux_dirent64 *dirp,</span><br><span class="line">             unsigned int count);</span><br></pre></td></tr></table></figure>
+
+<p>“目录条目”数据结构如下，因为有”柔性数组”，所以用d_reclen记录了大小，这样就可以在”目录条目”buffer中定位到下一个”目录条目”。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">struct linux_dirent64 &#123;</span><br><span class="line">    ino64_t        d_ino;    &#x2F;* 64-bit inode number *&#x2F;</span><br><span class="line">    off64_t        d_off;    &#x2F;* 64-bit offset to next structure *&#x2F;</span><br><span class="line">    unsigned short d_reclen; &#x2F;* Size of this dirent *&#x2F;  当前&quot;目录条目&quot;的大小</span><br><span class="line">    unsigned char  d_type;   &#x2F;* File type *&#x2F;</span><br><span class="line">    char           d_name[]; &#x2F;* Filename (null-terminated) *&#x2F; 柔性数组</span><br><span class="line">&#125;;</span><br></pre></td></tr></table></figure>
+
+<p>pr0be.safe.c 注释写得很清楚，通过增大”目标进程所属的目录条目的前一个目录条目”的d_reclen值，使得用户程序在遍历<code>*dirp</code>结果时，就会跳过”目标进程所属的目录条目”。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">SEC(&quot;tp&#x2F;syscalls&#x2F;sys_exit_getdents64&quot;)</span><br><span class="line">int handle_getdents_patch(struct trace_event_raw_sys_exit *ctx) &#123;</span><br><span class="line">  ...</span><br><span class="line">  &#x2F;&#x2F; Unlink target, by reading in previous linux_dirent64 struct,</span><br><span class="line">  &#x2F;&#x2F; and setting it&#39;s d_reclen to cover itself and our target.</span><br><span class="line">  &#x2F;&#x2F; This will make the program skip over our folder.</span><br><span class="line">  ...</span><br><span class="line">  &#x2F;&#x2F; Attempt to overwrite</span><br><span class="line">  short unsigned int d_reclen_new &#x3D; d_reclen_previous + d_reclen;</span><br><span class="line">  long ret &#x3D; bpf_probe_write_user(&amp;dirp_previous-&gt;d_reclen, &amp;d_reclen_new,</span><br><span class="line">                                  sizeof(d_reclen_new));</span><br></pre></td></tr></table></figure>
+
+<p>因为<code>&amp;dirp_previous-&gt;d_reclen</code>是用户空间地址，而不是内核空间地址，所以ebpf可以用<code>bpf_probe_write_user</code> helper functions 修改<code>dirp</code>地址中的数据。</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>案例中的lkm rootkit和ebpf rootkit都是通过修改getdents64系统调用中<code>dirp</code>地址指向的内容，使得查看<code>/proc</code>目录信息时，看不到进程信息。</p>
+<p>根据<a target="_blank" rel="noopener" href="https://stackoverflow.com/questions/43003805/can-ebpf-modify-the-return-value-or-parameters-of-a-syscall">帖子</a>知道，想利用ebpf修改系统调用的参数值或返回值有很大的限制。因为dirp是一个用户空间地址，所以ebpf程序可以用<code>bpf_probe_write_user</code>修改此地址的内容。</p>
+<!--
+# 参考
+https://man7.org/linux/man-pages/man7/bpf-helpers.7.html
+
+# 特征
+
+都用到 bpf_probe_write_user
+-->
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/%E4%B8%BB%E6%9C%BA%E5%AE%89%E5%85%A8/" rel="tag"># 主机安全</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2022-07-11-CVE-2020-8558-%E8%B7%A8%E4%B8%BB%E6%9C%BA%E8%AE%BF%E9%97%AE127.0.0.1/" rel="prev" title="CVE-2020-8558-跨主机访问127.0.0.1">
+                  <i class="fa fa-chevron-left"></i> CVE-2020-8558-跨主机访问127.0.0.1
+                </a>
+            </div>
+            <div class="post-nav-item">
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+
+<div class="copyright">
+  &copy; 
+  <span itemprop="copyrightYear">2022</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">leveryd</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous"></script>
+<script src="/js/comments.js"></script><script src="/js/utils.js"></script><script src="/js/motion.js"></script><script src="/js/schemes/muse.js"></script><script src="/js/next-boot.js"></script>
+
+  
+
+
+
+
+
+  
+
+
+
+
+
+</body>
+</html>
