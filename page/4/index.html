@@ -125,7 +125,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">55</span>
+          <span class="site-state-item-count">56</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
@@ -168,7 +168,7 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%A6%82%E4%BD%95%E9%99%90%E5%88%B6agent%E8%BF%9B%E7%A8%8B%E7%9A%84%E8%B5%84%E6%BA%90%E4%BD%BF%E7%94%A8/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%A6%82%E4%BD%95%E9%81%BF%E5%85%8D%E6%96%87%E4%BB%B6%E4%B8%8A%E6%8A%A5-%E5%88%B6%E4%BD%9C%E5%A4%A7%E6%96%87%E4%BB%B6/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -181,7 +181,7 @@
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E5%A6%82%E4%BD%95%E9%99%90%E5%88%B6agent%E8%BF%9B%E7%A8%8B%E7%9A%84%E8%B5%84%E6%BA%90%E4%BD%BF%E7%94%A8/" class="post-title-link" itemprop="url">如何限制agent进程的资源使用</a>
+          <a href="/2021-12-26-%E5%A6%82%E4%BD%95%E9%81%BF%E5%85%8D%E6%96%87%E4%BB%B6%E4%B8%8A%E6%8A%A5-%E5%88%B6%E4%BD%9C%E5%A4%A7%E6%96%87%E4%BB%B6/" class="post-title-link" itemprop="url">如何避免文件上报-制作大文件</a>
         </h2>
 
         <div class="post-meta-container">
@@ -205,108 +205,96 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>在 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/WQeOfZtyKndbDebe66-V_g">如何避免文件上报-制作大文件</a> 问题背景中提到：agent会上报信息，甚至会上传文件。</p>
-<p>如果能够限制agent进程对系统资源的使用，是不是可能对”信息上报”造成影响。比如限制agent进程每秒只能读1字节的文件内容、限制agent上报文件带宽在1字节每秒、限制agent只能使用很少的cpu分片等等。</p>
-<p>本文记录对”限制资源使用”的实践：</p>
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>了解hids的读者应该知道hids agent会有上报很多信息，其中有的agent会将可疑文件上报到云端做恶意分析。</p>
+<p>同事问我一个问题：文件如果特别大，也会被上报吗？不会影响性能吗？</p>
+<p>这个问题让我联想到 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/qAv2wspeuCfhCjTaz03hNg">你的扫描器可以绕过防火墙么（三）</a> 中大包绕过waf的场景，接着很容易想到：如果agent碰到大文件就不上传了，不就很容易绕过云端的恶意分析了嘛。</p>
+<p>另外，一个恶意文件如果体积过大，可能对安全研究人员做”样本分析”造成一些困难，比如无法将文件下载到本地电脑（网速、磁盘空间可能不够）、ida等静态分析软件内存占用过大。</p>
+<p>基于以上”安全攻防”的业务场景，加上我最近在学习一些操作系统相关的知识，所以就研究下”怎么让elf文件变大”。</p>
+<p>文件变大的同时，还要满足以下条件：</p>
 <ul>
-<li>怎么限制进程的网络带宽</li>
-<li>怎么限制进程的io读速度</li>
-<li>怎么限制进程的cpu使用率</li>
+<li>不影响elf文件执行</li>
+<li>从实用角度来说，攻击队也不会生成一个大文件，然后上传到目标。最好是上传一个小文件，上传到目标机器，然后本地让文件变大。</li>
 </ul>
-<p>“对进程资源的限制”有很多使用场景，比如我看到有人问 <a target="_blank" rel="noopener" href="https://github.com/Qianlitp/crawlergo/issues/22">怎么控制crawlergo爬虫的cpu和内存使用率</a>，再比如 hids本身也需要对cpu、内存等使用做限制。</p>
-<h1 id="agent进程带宽限速"><a href="#agent进程带宽限速" class="headerlink" title="agent进程带宽限速"></a>agent进程带宽限速</h1><ul>
-<li><p>为什么限速？</p>
-<p>如果能让agent进程每秒只能传输很少的字节数，就有可能拖慢agent上报信息的进度，从而干扰安全检测。重点是”网速变慢”能保证”agent心跳”能正常传到server，不至于在server端看到agent异常。</p>
+<p>先说结论，有以下方式让”文件大小”变大：</p>
+<ul>
+<li>文件末尾追加数据</li>
+<li>稀疏文件</li>
+<li>修改inode元数据</li>
+<li>向elf文件节中填充垃圾数据</li>
+</ul>
+<p>说明一下测试环境：测试程序是id命令，复制到了/tmp/y目录下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# \cp &#x2F;usr&#x2F;bin&#x2F;id &#x2F;tmp&#x2F;y</span><br></pre></td></tr></table></figure>
+
+<h1 id="文件末尾追加数据"><a href="#文件末尾追加数据" class="headerlink" title="文件末尾追加数据"></a>文件末尾追加数据</h1><ul>
+<li><p>怎么实现？</p>
+<p>这种方式实现很简单，如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# echo 1111 &gt;&gt; .&#x2F;id</span><br><span class="line">[root@instance-fj5pftdp y]# .&#x2F;id</span><br><span class="line">uid&#x3D;0(root) gid&#x3D;0(root) 组&#x3D;0(root)</span><br></pre></td></tr></table></figure>
+<p>关键是这样修改后的文件，还能正常执行。</p>
 </li>
-<li><p>在linux主机上怎么给进程限流呢？</p>
-<p>调研总结有两种方式：</p>
+</ul>
+<h1 id="稀疏文件"><a href="#稀疏文件" class="headerlink" title="稀疏文件"></a>稀疏文件</h1><ul>
+<li><p>“稀疏文件”是什么？</p>
+<p>“稀疏文件”的”文件大小”和实际占用磁盘空间是不一致的，比如:</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# ll -h id</span><br><span class="line">-rwxr-xr-x 1 root root 10T 9月   6 20:03 id</span><br><span class="line">[root@instance-fj5pftdp y]# du -sh id</span><br><span class="line">40K	id</span><br></pre></td></tr></table></figure>
+<p>从上面命令可以看到：”文件大小”是10T，但实际数据只占用40K的磁盘大小。</p>
+<p>对于原理感兴趣的读者，可以参考 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/bLiqURdK_dtgr0GqU7yD9w">深度剖析 Linux cp 的秘密</a> 这篇文章。</p>
+</li>
+<li><p>怎么修改成”稀疏文件”？</p>
+<p>可以利用fallocate、truncate命令。</p>
+<p>使用起来也很简单，以truncate举例：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# ls -alh id</span><br><span class="line">-rwxr-xr-x 1 root root 37K 9月   5 20:18 id</span><br><span class="line">[root@instance-fj5pftdp y]# time truncate -s 10T id   &#x2F;&#x2F; 将id程序稀疏成10T大小</span><br><span class="line"></span><br><span class="line">real	0m0.007s</span><br><span class="line">user	0m0.000s</span><br><span class="line">sys	0m0.007s</span><br><span class="line">[root@instance-fj5pftdp y]# ls -alh id</span><br><span class="line">-rwxr-xr-x 1 root root 10T 9月   5 20:02 id    &#x2F;&#x2F; 文件大小已经变成10T</span><br><span class="line">[root@instance-fj5pftdp y]# .&#x2F;id</span><br><span class="line">uid&#x3D;0(root) gid&#x3D;0(root) 组&#x3D;0(root)</span><br></pre></td></tr></table></figure>
+
+<p>这种方式修改文件有两个特点：</p>
 <blockquote>
-<p>cgroups + tc命令：可以实现对指定的进程限速</p>
-<p>iptables：可以实现对指定的tcp通信限速</p>
+<p>文件改动非常快，上面的例子中将id文件大小扩大到”10T”只用了1s不到</p>
+<p>文件大小最大可以是10T以上，但不需要本地磁盘空间真的有10T</p>
+</blockquote>
+<p>当你想下载或者读这个文件(比如<code>cat</code>)时，却是会有实实在在的<code>10T</code>流量。10T流量，按照”10M/s”的速度下载，也需要下载291个小时。</p>
+</li>
+</ul>
+<h1 id="修改inode元数据"><a href="#修改inode元数据" class="headerlink" title="修改inode元数据"></a>修改inode元数据</h1><ul>
+<li><p>为什么修改”inode元数据”就可以修改文件大小信息？</p>
+<p>inode元数据包含了文件大小信息，而inode元数据也是存储在磁盘扇区中的，所以应该可以通过修改inode元数据来”伪造”文件大小。</p>
+<p>其实不光大小信息，inode元数据中还包括 文件是否删除、创建时间、修改时间、访问时间 等信息，所以这些都可以被伪造。</p>
+<p>可以通过stat命令查看inode元数据：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# stat id</span><br><span class="line">  文件：&quot;id&quot;</span><br><span class="line">  大小：37400     	块：80         IO 块：4096   普通文件</span><br><span class="line">设备：fd01h&#x2F;64769d	Inode：171252      硬链接：1</span><br><span class="line">权限：(0755&#x2F;-rwxr-xr-x)  Uid：(    0&#x2F;    root)   Gid：(    0&#x2F;    root)</span><br><span class="line">最近访问：2021-09-06 20:27:26.224913458 +0800</span><br><span class="line">最近更改：2021-09-06 20:27:26.218913032 +0800</span><br><span class="line">最近改动：2021-09-06 20:27:26.224913458 +0800</span><br><span class="line">创建时间：-</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>怎么修改”inode元数据”？</p>
+<p>利用debugfs命令，如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# debugfs -w &#x2F;dev&#x2F;vda1</span><br><span class="line">debugfs:  mi &#x2F;tmp&#x2F;y&#x2F;id</span><br><span class="line">                          Mode    [0100755]</span><br><span class="line">                       User ID    [0]</span><br><span class="line">                      Group ID    [0]</span><br><span class="line">                          Size    [37400] 100000      &#x2F;&#x2F; 这里修改文件大小为100000</span><br><span class="line">                 Creation time    [1630929039]</span><br><span class="line">             ...</span><br><span class="line">debugfs:  quit</span><br><span class="line">[root@instance-fj5pftdp ~]# ll &#x2F;tmp&#x2F;y&#x2F;id</span><br><span class="line">-rwxr-xr-x 1 root root 37400 9月   6 19:50 &#x2F;tmp&#x2F;y&#x2F;id</span><br><span class="line">[root@instance-fj5pftdp ~]# echo 3 &gt; &#x2F;proc&#x2F;sys&#x2F;vm&#x2F;drop_caches   &#x2F;&#x2F; 清理inode缓存后，修改才生效</span><br><span class="line">[root@instance-fj5pftdp ~]# ll &#x2F;tmp&#x2F;y&#x2F;id</span><br><span class="line">-rwxr-xr-x 1 root root 100000 9月   6 19:50 &#x2F;tmp&#x2F;y&#x2F;id    &#x2F;&#x2F; 文件大小变成了100000</span><br><span class="line">[root@instance-fj5pftdp ~]# &#x2F;tmp&#x2F;y&#x2F;id</span><br><span class="line">uid&#x3D;0(root) gid&#x3D;0(root) 组&#x3D;0(root)</span><br></pre></td></tr></table></figure>
+
+<p>在测试过程中，需要读者注意的是：</p>
+<blockquote>
+<p>因为会对磁盘数据做写操作，所以最好找一个没数据的机器做测试</p>
+<p>记得清理inode缓存</p>
+<p>测试时如果使用文件当作设备，在挂载文件系统时去修改文件大小 会不生效。原因未知</p>
 </blockquote>
 </li>
 </ul>
-<h2 id="使用iptables对进程限速"><a href="#使用iptables对进程限速" class="headerlink" title="使用iptables对进程限速"></a>使用iptables对进程限速</h2><ul>
-<li><p>怎么用iptables对进程限速？</p>
-<p>可以使用iptables的limit模块来完成。</p>
-<p>根据<code>man iptables-extensions</code>手册可知：limit模块使用”令牌桶算法”实现。</p>
-<p><code>--limit-burst</code>参数指定初始令牌数，<code>--limit</code>参数指定补充令牌的速率。</p>
-<p>举个例子，下面命令可以对目标ip”1.2.3.4”端口为5001的tcp通信做限速：桶最大值也是初始值就是10个tcp包，每秒新增1个tcp包，所以发包速率峰值基本上可以认为是”10个包/每秒”；当客户端每秒有100个包要发出去时，基本上到后面发包速度会基本限制在”1个包/每秒”；</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# iptables -A OUTPUT -d 1.2.3.4&#x2F;32 -p tcp -m limit --limit 1&#x2F;sec --limit-burst 10 --dport 5001 -j ACCEPT</span><br><span class="line">[root@instance-fj5pftdp ~]# iptables -A OUTPUT -d 1.2.3.4&#x2F;32 -p tcp --dport 5001 -j DROP</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>实践验证限速效果</p>
-<p>准备两台机器：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* &#96;instance-fj5pftdp&#96;发包</span><br><span class="line">* &#96;1.2.3.4&#96;收包 (为了我避免暴露自己的虚机ip，这里用1.2.3.4代替)</span><br></pre></td></tr></table></figure>
-
-<p>在发包机器上 使用iptables限制通信，然后传输大文件，并使用tcpdump观察包速率</p>
-<p>第一步：设置iptables，指令如上</p>
-<p>第二步：传输大文件</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 使用&#96;truncate -s 1G bigfil&#96;创建&quot;稀疏文件&quot;</span><br><span class="line">* 使用&#96;nc 1.2.3.4 5001 &lt; bigfile&#96;传输文件</span><br></pre></td></tr></table></figure>
-
-<p>第三步：使用tcpdump观察包速率：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# tcpdump -i eth0 &#39;port 5001 and ip dst 1.2.3.4&#39;</span><br><span class="line">22:52:00.743321 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [S], seq 2314647925, win 27200, options [mss 1360,sackOK,TS val 2324847321 ecr 0,nop,wscale 7], length 0</span><br><span class="line">22:52:00.780074 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], ack 1736746942, win 213, options [nop,nop,TS val 2324847358 ecr 3661297505], length 0</span><br><span class="line">22:52:00.780253 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 0:2696, ack 1, win 213, options [nop,nop,TS val 2324847358 ecr 3661297505], length 2696</span><br><span class="line">22:52:00.780516 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 2696:5392, ack 1, win 213, options [nop,nop,TS val 2324847359 ecr 3661297505], length 2696</span><br><span class="line">22:52:00.780533 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 5392:8088, ack 1, win 213, options [nop,nop,TS val 2324847359 ecr 3661297505], length 2696</span><br><span class="line">22:52:00.780538 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 8088:8192, ack 1, win 213, options [nop,nop,TS val 2324847359 ecr 3661297505], length 104</span><br><span class="line">22:52:00.780571 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 8192:10888, ack 1, win 213, options [nop,nop,TS val 2324847359 ecr 3661297505], length 2696</span><br><span class="line">22:52:00.780587 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 10888:12236, ack 1, win 213, options [nop,nop,TS val 2324847359 ecr 3661297505], length 1348</span><br><span class="line">22:52:00.816636 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 12236:14932, ack 1, win 213, options [nop,nop,TS val 2324847395 ecr 3661297542], length 2696</span><br><span class="line">22:52:00.816674 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 14932:17628, ack 1, win 213, options [nop,nop,TS val 2324847395 ecr 3661297542], length 2696</span><br><span class="line">22:52:02.513394 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 17628:18976, ack 1, win 213, options [nop,nop,TS val 2324849092 ecr 3661297578], length 1348</span><br><span class="line">22:52:02.786393 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 18976:20324, ack 1, win 213, options [nop,nop,TS val 2324849365 ecr 3661299275], length 1348</span><br><span class="line">22:52:04.485382 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 20324:21672, ack 1, win 213, options [nop,nop,TS val 2324851064 ecr 3661299548], length 1348</span><br><span class="line">22:52:04.759396 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 21672:23020, ack 1, win 213, options [nop,nop,TS val 2324851338 ecr 3661301247], length 1348</span><br><span class="line">22:52:06.457405 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 23020:24368, ack 1, win 213, options [nop,nop,TS val 2324853036 ecr 3661301521], length 1348</span><br><span class="line">22:52:07.205354 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 24368:25716, ack 1, win 213, options [nop,nop,TS val 2324853784 ecr 3661303219], length 1348</span><br><span class="line">22:52:07.953399 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 25716:27064, ack 1, win 213, options [nop,nop,TS val 2324854532 ecr 3661303967], length 1348</span><br><span class="line">22:52:09.651384 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 27064:28412, ack 1, win 213, options [nop,nop,TS val 2324856230 ecr 3661304715], length 1348</span><br><span class="line">22:52:09.924396 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 28412:29760, ack 1, win 213, options [nop,nop,TS val 2324856503 ecr 3661306413], length 1348</span><br><span class="line">22:52:11.621372 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 29760:31108, ack 1, win 213, options [nop,nop,TS val 2324858200 ecr 3661306686], length 1348</span><br><span class="line">22:52:11.894385 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 31108:32456, ack 1, win 213, options [nop,nop,TS val 2324858473 ecr 3661308383], length 1348</span><br><span class="line">22:52:13.593387 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 32456:33804, ack 1, win 213, options [nop,nop,TS val 2324860172 ecr 3661308656], length 1348</span><br></pre></td></tr></table></figure>
-<p>可以看到最开始<code>22:52:00</code>通过了10个包，然后大概每秒可以通过1个包。</p>
-</li>
-</ul>
-<h1 id="agent进程io读限速"><a href="#agent进程io读限速" class="headerlink" title="agent进程io读限速"></a>agent进程io读限速</h1><ul>
-<li><p>在linux主机上怎么给进程io读写限速呢？</p>
-<p>可以通过cgroup实现：cgroup是一种文件系统，可以用来限制cpu、内存、io等资源使用；cgroup也是docker的核心原理之一。</p>
-<p>cgroup有v1、v2两个版本，其中v1 只能限制”直接io”，v2版本对内核版本要求在4.5以上（似乎）。而hids等应用程序读文件大部分应该都是”缓冲io”，所以无法用v1版本的cgroup限制。我也只实验验证v1版本的对”直接io”的限制。</p>
+<h1 id="向elf文件节中添加垃圾数据"><a href="#向elf文件节中添加垃圾数据" class="headerlink" title="向elf文件节中添加垃圾数据"></a>向elf文件节中添加垃圾数据</h1><ul>
+<li><p>是什么？</p>
+<p>elf文件中包含很多的<em>节</em>，比如：</p>
 <blockquote>
-<p>如果想要了解更多”直接io”和”缓冲io”相关概念，可以参考 <a target="_blank" rel="noopener" href="https://time.geekbang.org/column/article/76876">23 | 基础篇：Linux 文件系统是怎么工作的？</a> 这篇。</p>
+<p>.text存放代码</p>
+<p>.data存放初始化的全局变量和静态变量</p>
 </blockquote>
-<p>关于cgroup的介绍和使用可以参考网上的很多文章，比如 <a target="_blank" rel="noopener" href="https://tech.meituan.com/2015/03/31/cgroups.html">Linux资源管理之cgroups简介</a> 和 <a target="_blank" rel="noopener" href="https://man7.org/linux/man-pages/man7/cgroups.7.html">man手册</a></p>
-<p>“利用cgroup对进程io读写做限速”可以参考 <a target="_blank" rel="noopener" href="https://andrestc.com/post/cgroups-io/">Using cgroups to limit I/O</a>，这一篇文章有完整的实验过程。此小节我只记录”需要注意的细节”和文章没有提到的内容。</p>
+<p>关于elf的文件格式，更多信息可以参考 《程序员的自我修养—链接、装载与库》第三章 elf文件结构描述。</p>
+<p>可以向elf的节（比如.data、.text、.bss等）中写入垃圾数据，而不影响程序的正常运行。</p>
 </li>
 </ul>
-<h2 id="细节"><a href="#细节" class="headerlink" title="细节"></a>细节</h2><ul>
-<li><p>确认配置</p>
-<p>根据 <a target="_blank" rel="noopener" href="https://www.kernel.org/doc/Documentation/cgroup-v1/blkio-controller.txt">cgroup-v1文档</a> 手册说明，需要先确认内核是否支持cgroup io限速</p>
-<p>比如确认如下选项是否开启</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# cat &#x2F;boot&#x2F;config-$(uname -r)|grep -i CONFIG_BLK_CGROUP</span><br><span class="line">CONFIG_BLK_CGROUP&#x3D;y</span><br><span class="line">[root@instance-fj5pftdp ~]# cat &#x2F;boot&#x2F;config-$(uname -r)|grep -i CONFIG_BLK_DEV_THROTTLING</span><br><span class="line">CONFIG_BLK_DEV_THROTTLING&#x3D;y</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>dd命令需要添加<code>oflag=direct</code>参数和bs参数必须是512（一个扇区的大小）的倍数</p>
-<p>因为cgroup v1 只能限制”直接io”，所以dd需要添加<code>oflag=direct</code>参数。</p>
-<p>而使用”直接io”，磁盘io需要扇区对齐，也就是每次写入的字节大小必须是一个扇区大小的倍数。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# dd if&#x3D;&#x2F;dev&#x2F;zero of&#x3D;&#x2F;tmp&#x2F;file2 bs&#x3D;512 count&#x3D;1 oflag&#x3D;direct</span><br><span class="line">...</span><br><span class="line">512字节(512 B)已复制，0.00518424 秒，98.8 kB&#x2F;秒</span><br><span class="line">[root@instance-fj5pftdp ~]# dd if&#x3D;&#x2F;dev&#x2F;zero of&#x3D;&#x2F;tmp&#x2F;file2 bs&#x3D;511 count&#x3D;1 oflag&#x3D;direct   &#x2F;&#x2F; 非512倍数时，写入报错</span><br><span class="line">dd: 写入&quot;&#x2F;tmp&#x2F;file2&quot; 出错: 无效的参数</span><br><span class="line">...</span><br><span class="line">[root@instance-fj5pftdp ~]# dd if&#x3D;&#x2F;dev&#x2F;zero of&#x3D;&#x2F;tmp&#x2F;file2 bs&#x3D;511 count&#x3D;1    &#x2F;&#x2F; &quot;缓冲io&quot;（非&quot;直接io&quot;）时，不需要用户对齐</span><br><span class="line">...</span><br><span class="line">511字节(511 B)已复制，0.000360275 秒，1.4 MB&#x2F;秒</span><br></pre></td></tr></table></figure>
-
-<p>如果想要了解更多”磁盘io对齐”相关知识，可以参考 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/rqq-GgZMMs5gj6p_VJqEVA">存储基础 —— 磁盘 IO 为什么总叫你对齐？</a> 这篇。</p>
-</li>
-<li><p>实验过程中遇到的报错</p>
-<p>在向配置中”写正在使用的分区”和”不正确的设备号”都会提示”无效的参数”报错，如下：</p>
-<p>似乎不能写正在使用的分区”/dev/vda1”</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# df -h</span><br><span class="line">...</span><br><span class="line">&#x2F;dev&#x2F;vda1        79G   71G  4.6G  94% &#x2F;</span><br><span class="line">[root@instance-fj5pftdp ~]# cat &#x2F;proc&#x2F;partitions</span><br><span class="line">major minor  #blocks  name</span><br><span class="line"></span><br><span class="line"> 253        0   83886080 vda</span><br><span class="line"> 253        1   83885039 vda1</span><br><span class="line"></span><br><span class="line">[root@instance-fj5pftdp test1]# echo &#39;253:1 100&#39; &gt; blkio.throttle.read_bps_device   &#x2F;&#x2F; 253对应&#x2F;dev&#x2F;vda1，似乎因为已经被挂载使用，所以不能被写入配置</span><br><span class="line">-bash: echo: 写错误: 无效的参数</span><br><span class="line">[root@instance-fj5pftdp test1]# echo &#39;253:0 100&#39; &gt; blkio.throttle.read_bps_device</span><br></pre></td></tr></table></figure>
-
-<p>不能限制”字符设备”，只能限制”块设备”。当写入”字符设备的设备号”到配置时，就会报错</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# ll &#x2F;dev|grep &quot;5,&quot;</span><br><span class="line">crw-------  1 root root      5,   1 Apr 28 21:51 console</span><br><span class="line">crw-rw-rw-  1 root tty       5,   2 Oct 22 13:45 ptmx</span><br><span class="line">crw-rw-rw-  1 root tty       5,   0 Oct 12 13:06 tty</span><br><span class="line">[root@instance-fj5pftdp test1]# echo &#39;5:1 100&#39; &gt; blkio.throttle.read_bps_device   &#x2F;&#x2F; 5(主设备号)代表了&quot;字符设备&quot;</span><br><span class="line">-bash: echo: 写错误: 无效的参数</span><br></pre></td></tr></table></figure>
-
+<p>  这种方式和其他三种方式的区别在于：因为可以删掉没用的节，所以就很容易就把”其他三种方式”修改的elf给还原回来。</p>
+<p>  比如strip后，文件大小就还原了<br>  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# ll -h id</span><br><span class="line">-rwxr-xr-x 1 root root 10T 9月   6 20:03 id</span><br><span class="line">[root@instance-fj5pftdp y]# strip id</span><br><span class="line">[root@instance-fj5pftdp y]# ll -h id</span><br><span class="line">-rwxr-xr-x 1 root root 37K 9月   6 20:27 id</span><br></pre></td></tr></table></figure></p>
+<ul>
+<li><p>怎么”向elf文件节中添加垃圾数据”？</p>
+<p>没有找到linux自带的命令，找到 <a target="_blank" rel="noopener" href="https://firmianay.gitbook.io/ctf-all-in-one/3_topics/reverse/3.2.1_patch_binary#patchkit">patch elf工具-patchkit</a>。</p>
+<p>看文档感觉有点麻烦，就没有做测试了。</p>
 </li>
 </ul>
-<h1 id="限制cpu使用"><a href="#限制cpu使用" class="headerlink" title="限制cpu使用"></a>限制cpu使用</h1><ul>
-<li><p>怎么限制cpu使用？</p>
-<p>同样使用cgroup。</p>
-</li>
-</ul>
-<h2 id="使用cgroup限制cpu使用"><a href="#使用cgroup限制cpu使用" class="headerlink" title="使用cgroup限制cpu使用"></a>使用cgroup限制cpu使用</h2><ul>
-<li><p>利用<code>stress</code>命令创建高cpu占用的”测试进程”</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp test]# stress -c 1 &amp;</span><br><span class="line">[1] 27924</span><br><span class="line">[root@instance-fj5pftdp test]# stress: info: [27924] dispatching hogs: 1 cpu, 0 io, 0 vm, 0 hdd</span><br><span class="line"></span><br><span class="line">[root@instance-fj5pftdp test]# ps aux|grep stress</span><br><span class="line">root     27924  0.0  0.0   7312   424 pts&#x2F;65   S    23:02   0:00 stress -c 1</span><br><span class="line">root     27925 96.0  0.0   7312    96 pts&#x2F;65   R    23:02   0:10 stress -c 1    &#x2F;&#x2F; 实际工作的进程</span><br></pre></td></tr></table></figure>
-
-<p>验证cpu占用，可以看出来单核cpu占用100%</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp test]# top -b -p 27925</span><br><span class="line">...</span><br><span class="line">  PID USER      PR  NI    VIRT    RES    SHR S  %CPU %MEM     TIME+ COMMAND</span><br><span class="line">27925 root      20   0    7312     96      0 R 100.0  0.0   2:32.58 stress</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>利用<code>cgroup</code>限制”测试进程”的使用</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# mkdir &#x2F;sys&#x2F;fs&#x2F;cgroup&#x2F;cpu&#x2F;test-cpu-limit</span><br><span class="line">[root@instance-fj5pftdp ~]# echo 27925 &gt; &#x2F;sys&#x2F;fs&#x2F;cgroup&#x2F;cpu&#x2F;test-cpu-limit&#x2F;tasks    &#x2F;&#x2F; 进程号是27925</span><br><span class="line">[root@instance-fj5pftdp ~]# echo 10000 &gt; &#x2F;sys&#x2F;fs&#x2F;cgroup&#x2F;cpu&#x2F;test-cpu-limit&#x2F;cpu.cfs_quota_us   &#x2F;&#x2F; quota &#x3D; 10ms</span><br><span class="line">[root@instance-fj5pftdp ~]# echo 50000 &gt; &#x2F;sys&#x2F;fs&#x2F;cgroup&#x2F;cpu&#x2F;test-cpu-limit&#x2F;cpu.cfs_period_us  &#x2F;&#x2F; period &#x3D; 50ms</span><br></pre></td></tr></table></figure>
-
-<p>限制cpu使用率是20%（10ms/50ms）</p>
-<p>查看是否限制stress进程</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# top -b -p 27925</span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">  PID USER      PR  NI    VIRT    RES    SHR S  %CPU %MEM     TIME+ COMMAND</span><br><span class="line">27925 root      20   0    7312     96      0 R  20.0  0.0   9:30.61 stress</span><br></pre></td></tr></table></figure>
-<p>可以看到限制成功</p>
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>使用cgroup限制cpu、io等是很简单的。</p>
-<p>因为用cgroup”限制网络流量”没有测试成功，所以也就没有记录。</p>
-<p>本文提到的手段没有在真实的对抗中实践过，仅仅是我自己的研究，欢迎与我交流。</p>
-<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a target="_blank" rel="noopener" href="https://qastack.cn/superuser/287371/obtain-kernel-config-from-currently-running-linux-system">怎么查看内核配置</a></p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>“文件末尾追加数据”和”向elf文件节中填充垃圾数据”这两种方式是真的修改了文件内容，所以受限于磁盘空间大小也不可能生成几个T大小的文件。</p>
+<p>“稀疏文件”这种方式，可以方便快速地生成几个T大小的文件，并且让上传、下载此文件 耗费很多时间，甚至是不可能成功。</p>
+<p>“修改inode元数据”，虽然也可以快速地将文件大小修改为几个T，但是并不会让上传、下载此文件 耗费很多时间，传输的文件大小还是实际大小。</p>
+<p>如果应急时碰到超大的elf文件，就先用strip看看体积会不会变小。</p>
+<p>本文提到的手段没有在真实的对抗中实践过，仅仅是我自己的研究，欢迎有对抗经验的读者与我交流。</p>
 
       
     </div>
@@ -474,6 +462,114 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%AE%89%E5%85%A8%E5%BB%BA%E8%AE%BE-%E6%94%BB%E9%98%B2%E6%80%9D%E8%B7%AF%E5%8F%8A%E5%AE%9E%E8%B7%B5%EF%BC%88%E4%BA%8C%EF%BC%89/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E5%AE%89%E5%85%A8%E5%BB%BA%E8%AE%BE-%E6%94%BB%E9%98%B2%E6%80%9D%E8%B7%AF%E5%8F%8A%E5%AE%9E%E8%B7%B5%EF%BC%88%E4%BA%8C%EF%BC%89/" class="post-title-link" itemprop="url">安全建设-攻防思路及实践（二）</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>有一个挖src的老套路：”.git目录”信息泄漏 + 人工代码审计。</p>
+<p>当网站可以访问”.git/index”时，可以用<a target="_blank" rel="noopener" href="http://www.lijiejie.com/githack-a-git-disclosure-exploit/">GitHack — 一个git泄露利用脚本</a>工具还原整个项目工程。然后对源码做代码审计，尝试挖掘漏洞。</p>
+<p>实际的案例可以见 <a target="_blank" rel="noopener" href="https://github.com/fun1355/Papers-1/blob/master/PVE-2015080201.md">百姓某处信息泄露可GET SHELL</a></p>
+<p>个人体会：对于企业内部业务的源码做代码审计来挖掘漏洞，难度比挖”成熟的框架、组件”容易太多了，都不需要攻击者掌握多少代码审计中的偏门技巧等。比如源码中非常可能就有api认证用的token，拿着token就能像也业务方一样调用api。</p>
+<h1 id="详细过程"><a href="#详细过程" class="headerlink" title="详细过程"></a>详细过程</h1><ul>
+<li><p>为啥会出现”.git目录信息泄漏”？</p>
+<p>根据个人有限的经验来看，很多公司都会建设devops平台，开发只需要在平台上提交上线单，就可以自动地拉取代码、编译构建、保存版本、发布部署。</p>
+<p>在”拉取代码”这一环节，devops平台从内部git平台上获取源码，其中就包括”.git目录”。</p>
+<p>在php、python等非编译语言的项目构建过程中，非常有可能就是简单地将整个项目全部拷贝到”产出目录”中，此时”.git目录”也会跟着被拷贝过去。</p>
+<p>等到了”发布部署”环节，”.git目录”自然就会出现在线上了。</p>
+</li>
+<li><p>利用”.git目录信息泄漏”还原”项目工程”时遇到的问题</p>
+<p>偶尔会遇到的一个问题是：不一定能访问”.git/index”就一定能用工具还原出整个项目。</p>
+<p>这个原因之前没有深究过，有可能是”.git/objects”目录下的文件无法访问。</p>
+<p>遇到这种情况时，还可以：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* .git&#x2F;index中包含了所有的文件名，可以直接访问文件名对应的url。比如暴露出的js文件，可以直接下载后找api信息。</span><br><span class="line">* .git&#x2F;config中包含了配置信息</span><br><span class="line">* 尝试手动下载 .git&#x2F;objects 目录下的 &quot;项目工程&quot;文件</span><br></pre></td></tr></table></figure>
+
+<p>另外更常见的问题是会遇到防火墙。这个时候可以试试 <code>.git/./index</code> 、 <code>.git///index</code> 、<code>/?/../.git/index</code>、<code>/%3f/../.git/index</code> 等</p>
+</li>
+</ul>
+<h1 id="成果"><a href="#成果" class="headerlink" title="成果"></a>成果</h1><p>漏洞（包括类似”git目录”等信息泄漏）均已提交并修复，包括并不限于：</p>
+<ul>
+<li>[评级严重-360游戏]</li>
+<li>两个 [评级低危-腾讯]</li>
+<li>两个 [评级中危-腾讯]</li>
+</ul>
+<p>2021年了，感觉 “.git目录”这种信息泄漏少见了很多。</p>
+<h1 id="安全建设"><a href="#安全建设" class="headerlink" title="安全建设"></a>安全建设</h1><p>对于”.git等文件信息泄漏”和”代码安全”，这两类风险，在企业安全建设中是怎么防范的呢？</p>
+<ul>
+<li><p>怎么减少”.git等文件信息泄漏”安全风险？</p>
+<p>其实不仅仅是 “.git/index”，还包括”.svn/entries”、”网站源码.tar.gz” 等文件都有可能暴露在公网给人下载，继而泄漏项目源码。</p>
+<p>根据个人有限的经验来总结，有以下方式减少风险：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">* 在devops平台做检查，比如&quot;发布部署&quot;前，检查当前产出目录下是否有敏感文件</span><br><span class="line">* 在waf中添加规则，来防护&quot;敏感文件泄漏&quot;</span><br><span class="line">* 周期性扫描</span><br><span class="line">* 依赖开发的安全意识，在&quot;编译构建&quot;时将&quot;.git目录&quot;等敏感文件删除</span><br></pre></td></tr></table></figure>
+
+<p>感觉资产覆盖到位，确实能消灭这种风险。</p>
+</li>
+<li><p>怎么减少”代码安全”安全风险？</p>
+<p>根据个人有限的经验来总结，有以下方式减少风险：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">* 建设白盒扫描，嵌入到devpops流程中</span><br><span class="line">* 安全部门提供安全sdk、安全编码规范</span><br><span class="line">* 其他不限于&quot;代码安全&quot;的应用安全产品，包括 rasp、黑盒扫描</span><br><span class="line">* 依赖开发的安全意识和安全编码水平</span><br><span class="line">* fuzz平台，类似[oss-fuzz](https:&#x2F;&#x2F;github.com&#x2F;google&#x2F;oss-fuzz)</span><br></pre></td></tr></table></figure>
+
+<p>个人感觉，由于 技术难度、有些场景安全技术无法解决、运营上要求非常低的误报 等原因，即使手段这么多，但是风险太难完全消除了。</p>
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>“.git”目录信息泄漏 + 人工代码审计 这个套路 现在感觉行不太通。</p>
+<p>另外有一个小问题：有师傅知道企业安全建设中怎么用威胁情报来拉黑ip的话，请公众号留言告诉我。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%85%A8%E6%B5%81%E9%87%8F%E5%85%A5%E4%BE%B5%E6%A3%80%E6%B5%8B%E7%B3%BB%E7%BB%9F%E7%9A%84%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -581,6 +677,105 @@
 <h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>实验的结论和我自己对原理的分析并没有对应上，也并没有完全解决我自己一开始想弄清楚的问题。</p>
 <p>因为文章中的很多技术我在研究案例之前不怎么知道，另外也没有找到搞网络的大佬愿意帮我校对文章，所以不能保证文章中的结论都是对的。</p>
 <p>如果读者发现有什么错误的地方，请公众号后台私信我。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%80%9F%E5%8A%A9crash%E5%B7%A5%E5%85%B7%E7%90%86%E8%A7%A3linux%E7%B3%BB%E7%BB%9F%E7%9A%84%E5%86%85%E5%AD%98%E5%88%86%E9%85%8D/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E5%80%9F%E5%8A%A9crash%E5%B7%A5%E5%85%B7%E7%90%86%E8%A7%A3linux%E7%B3%BB%E7%BB%9F%E7%9A%84%E5%86%85%E5%AD%98%E5%88%86%E9%85%8D/" class="post-title-link" itemprop="url">借助crash工具理解linux系统的内存分配</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/qxbp6PGpCqzFDSToIWn05Q">Linux下访问匿名页发生的神奇“化学反应”</a>，我看完这篇文章感觉对linux的内存分配又多了一点点理解，因此也想推荐给你读下。</p>
+<p>原文提出了一个问题：向<code>mmap</code>系统调用申请的内存”读时”没有导致物理可用内存减少，但是”随后写时”发现物理可用内存减少。</p>
+<p>原作者借助”分析内核源码”的收到来剖析问题原因，最终得到结论：第一次读匿名页后，然后写匿名页，先只读方式映射到0页，然后发生写时复制，分配物理页，虚拟页以可读可写的方式映射到此物理页。</p>
+<p>我自己总结一下，就是按照时间顺序来看，当对”可读可写的vma”先读后写时，”对应的页表项”应该是：</p>
+<ul>
+<li>在第一次读之前不存在</li>
+<li>在第一次读之后，第一次写之前，映射到固定位置，此时页表属性是只读</li>
+<li>在第一次写之后，映射到实际分配的物理内存，此时页表属性是可读可写</li>
+</ul>
+<p>可能这个结论你听着还是有点绕，并且我想你可能和我一样，也不想一下子就去研究”内核源码”来理解到底是怎么回事。</p>
+<p>那怎么能搞清楚原文的问题和结论呢？我发现一个神器<code>crash</code>，实际操作一番后，我感觉文章结论其实很好理解。下面就和我一起玩一玩<code>crash</code>，理解<code>mmap</code>分配的内存到底是怎么回事，也验证一下原文的结论是否正确。</p>
+<p>crash是一个可以用来调试linux内核崩溃的工具，也可以调试正在运行中的内核。它的安装和使用都很简单，理解本篇文章也不需要你之前接触过这个工具。</p>
+<h1 id="过程"><a href="#过程" class="headerlink" title="过程"></a>过程</h1><ul>
+<li><p>准备源码</p>
+<p>我们在”读内存之前”、”读内存后写内存前”、”写内存之后”这三个时刻分别调用<code>getchar()</code>停顿一下，方便我们用<code>crash</code>工具观察”页表项”</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp tmp]# cat e.c</span><br><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line">#include &lt;stdlib.h&gt;</span><br><span class="line">#include &lt;string.h&gt;</span><br><span class="line">#include &lt;unistd.h&gt;</span><br><span class="line">#include &lt;sys&#x2F;mman.h&gt;</span><br><span class="line"></span><br><span class="line">int main()&#123;</span><br><span class="line">  char* addr &#x3D; mmap (NULL, 1024, PROT_READ|PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS , - 1 , 0);</span><br><span class="line"></span><br><span class="line">  printf (&quot;addr: %lu pid:%d\n&quot;, addr, getpid()); &#x2F;&#x2F; 在读内存之前：页表项不存在</span><br><span class="line">  getchar();</span><br><span class="line"></span><br><span class="line">  printf (&quot;1:%s \n&quot;, addr);	&#x2F;&#x2F; 在读内存之后：映射了页表,页表项属性为&quot;只读&quot;</span><br><span class="line">  getchar();</span><br><span class="line"></span><br><span class="line">  strcpy(addr, &quot;AAAABBBB&quot;);	&#x2F;&#x2F; 在写内存之后：页表项属性为&quot;可读可写&quot;</span><br><span class="line"></span><br><span class="line">  printf (&quot;2:%s \n&quot;, addr);</span><br><span class="line">  getchar();</span><br><span class="line"></span><br><span class="line">  return 0;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>上面的c程序编译运行后，我们就可以来分析”读内存之前”、”读内存后写内存前”、”写内存之后”这三个时刻的”页表项”是什么了。</p>
+</li>
+<li><p>使用<code>crash</code>分析”页表项”的变化</p>
+<p>首先简单说一下crash的安装和使用。</p>
+<p>如果你是centos系统，就可以用以下命令来安装</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">yum install crash  &#x2F;&#x2F; 安装crash工具</span><br><span class="line">debuginfo-install kernel-debuginfo-&#96;uname -r&#96;  &#x2F;&#x2F; 安装crash工具需要的内核文件</span><br></pre></td></tr></table></figure>
+
+<p>安装好后，使用下面的命令就可以调试”运行中的内核了”。vmlinux是带调试符号的内核文件。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# crash &#x2F;usr&#x2F;lib&#x2F;debug&#x2F;usr&#x2F;lib&#x2F;modules&#x2F;3.10.0-1160.11.1.el7.x86_64&#x2F;vmlinux &#x2F;dev&#x2F;mem</span><br></pre></td></tr></table></figure>
+
+<p>下面来看一下”页表项”的变化：我在程序三次<code>getchar()</code>时，使用<code>crash</code>的<code>vtop</code>命令查看”虚拟地址”对应的页表</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/146151529-65a92898-2a18-48a5-958f-5076d5d94442.png" alt="image"></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br></pre></td><td class="code"><pre><span class="line">crash&gt; set 31880    &#x2F;&#x2F; 31880是进程号</span><br><span class="line">    PID: 31880</span><br><span class="line">COMMAND: &quot;a.out&quot;</span><br><span class="line">   TASK: ffff9396f6a7a100  [THREAD_INFO: ffff93983cbe4000]</span><br><span class="line">    CPU: 1</span><br><span class="line">  STATE: TASK_INTERRUPTIBLE</span><br><span class="line">crash&gt; px 139812061335552  &#x2F;&#x2F; 十进制转成十六进制。139812061335552是mmap的返回值</span><br><span class="line">$1 &#x3D; 0x7f2888405000</span><br><span class="line">crash&gt; vtop 0x7f2888405000  &#x2F;&#x2F; vtop指令用来查看&quot;虚拟地址&quot;对应的&quot;物理地址&quot;</span><br><span class="line">VIRTUAL     PHYSICAL</span><br><span class="line">7f2888405000  (not mapped)  &#x2F;&#x2F; 这里可以看出来，此时没有映射到对应的&quot;物理地址&quot;</span><br><span class="line"></span><br><span class="line">   PGD: 16abd67f0 &#x3D;&gt; 16b7d7067</span><br><span class="line">   PUD: 16b7d7510 &#x3D;&gt; 170f95067</span><br><span class="line">   PMD: 170f95210 &#x3D;&gt; 160fd5067</span><br><span class="line">   PTE: 160fd5028 &#x3D;&gt; 0      &#x2F;&#x2F; &quot;页表项&quot;为0，其中的P标志位为0，表示&quot;页表项&quot;不存在，没有映射到对应的&quot;物理地址&quot;</span><br><span class="line"></span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">crash&gt; vtop 0x7f2888405000</span><br><span class="line">VIRTUAL     PHYSICAL</span><br><span class="line">7f2888405000  117d65000</span><br><span class="line">....</span><br><span class="line">   PTE: 160fd5028 &#x3D;&gt; 8000000117d65225</span><br><span class="line">  PAGE: 117d65000</span><br><span class="line"></span><br><span class="line">      PTE         PHYSICAL   FLAGS</span><br><span class="line">8000000117d65225  117d65000  (PRESENT|USER|ACCESSED|NX)   &#x2F;&#x2F; 此时&quot;页表项&quot;有了映射关系，说明此时只能读不能写</span><br><span class="line"></span><br><span class="line">crash&gt; vtop 0x7f2888405000</span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">      PTE         PHYSICAL   FLAGS</span><br><span class="line">80000003b0cf5867  3b0cf5000  (PRESENT|RW|USER|ACCESSED|DIRTY|NX)    &#x2F;&#x2F; RW标志表明此时可以写</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
+
+<p>如上面指令结果中的注释：执行三次vtop指令时，页表项(PTE)中的”FLAGS”都不断变化，读写权限确实像”问题背景”中那样变化。可以看出来，结论是没有问题的</p>
+<p>怎么样，crash验证这个结论是不是很简单？</p>
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>crash很好用，如果你想了解更多crash工具的应用场景，可以参考 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/040W19-CPF0VnUvwFSKiXw">解决Linux内核问题实用技巧之 - Crash工具结合/dev/mem任意修改内存</a></p>
 
       
     </div>
@@ -811,105 +1006,6 @@
 </ul>
 <p>测试结果在 <a target="_blank" rel="noopener" href="https://github.com/leveryd/PlayWithObfuscator/tree/main/tests">tests目录</a> 看到</p>
 <h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a target="_blank" rel="noopener" href="https://blog.csdn.net/a314131070/article/details/106567825?spm=1001.2014.3001.5501">JS反混淆-控制流平展（一）</a></p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%80%9F%E5%8A%A9crash%E5%B7%A5%E5%85%B7%E7%90%86%E8%A7%A3linux%E7%B3%BB%E7%BB%9F%E7%9A%84%E5%86%85%E5%AD%98%E5%88%86%E9%85%8D/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E5%80%9F%E5%8A%A9crash%E5%B7%A5%E5%85%B7%E7%90%86%E8%A7%A3linux%E7%B3%BB%E7%BB%9F%E7%9A%84%E5%86%85%E5%AD%98%E5%88%86%E9%85%8D/" class="post-title-link" itemprop="url">借助crash工具理解linux系统的内存分配</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/qxbp6PGpCqzFDSToIWn05Q">Linux下访问匿名页发生的神奇“化学反应”</a>，我看完这篇文章感觉对linux的内存分配又多了一点点理解，因此也想推荐给你读下。</p>
-<p>原文提出了一个问题：向<code>mmap</code>系统调用申请的内存”读时”没有导致物理可用内存减少，但是”随后写时”发现物理可用内存减少。</p>
-<p>原作者借助”分析内核源码”的收到来剖析问题原因，最终得到结论：第一次读匿名页后，然后写匿名页，先只读方式映射到0页，然后发生写时复制，分配物理页，虚拟页以可读可写的方式映射到此物理页。</p>
-<p>我自己总结一下，就是按照时间顺序来看，当对”可读可写的vma”先读后写时，”对应的页表项”应该是：</p>
-<ul>
-<li>在第一次读之前不存在</li>
-<li>在第一次读之后，第一次写之前，映射到固定位置，此时页表属性是只读</li>
-<li>在第一次写之后，映射到实际分配的物理内存，此时页表属性是可读可写</li>
-</ul>
-<p>可能这个结论你听着还是有点绕，并且我想你可能和我一样，也不想一下子就去研究”内核源码”来理解到底是怎么回事。</p>
-<p>那怎么能搞清楚原文的问题和结论呢？我发现一个神器<code>crash</code>，实际操作一番后，我感觉文章结论其实很好理解。下面就和我一起玩一玩<code>crash</code>，理解<code>mmap</code>分配的内存到底是怎么回事，也验证一下原文的结论是否正确。</p>
-<p>crash是一个可以用来调试linux内核崩溃的工具，也可以调试正在运行中的内核。它的安装和使用都很简单，理解本篇文章也不需要你之前接触过这个工具。</p>
-<h1 id="过程"><a href="#过程" class="headerlink" title="过程"></a>过程</h1><ul>
-<li><p>准备源码</p>
-<p>我们在”读内存之前”、”读内存后写内存前”、”写内存之后”这三个时刻分别调用<code>getchar()</code>停顿一下，方便我们用<code>crash</code>工具观察”页表项”</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp tmp]# cat e.c</span><br><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line">#include &lt;stdlib.h&gt;</span><br><span class="line">#include &lt;string.h&gt;</span><br><span class="line">#include &lt;unistd.h&gt;</span><br><span class="line">#include &lt;sys&#x2F;mman.h&gt;</span><br><span class="line"></span><br><span class="line">int main()&#123;</span><br><span class="line">  char* addr &#x3D; mmap (NULL, 1024, PROT_READ|PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS , - 1 , 0);</span><br><span class="line"></span><br><span class="line">  printf (&quot;addr: %lu pid:%d\n&quot;, addr, getpid()); &#x2F;&#x2F; 在读内存之前：页表项不存在</span><br><span class="line">  getchar();</span><br><span class="line"></span><br><span class="line">  printf (&quot;1:%s \n&quot;, addr);	&#x2F;&#x2F; 在读内存之后：映射了页表,页表项属性为&quot;只读&quot;</span><br><span class="line">  getchar();</span><br><span class="line"></span><br><span class="line">  strcpy(addr, &quot;AAAABBBB&quot;);	&#x2F;&#x2F; 在写内存之后：页表项属性为&quot;可读可写&quot;</span><br><span class="line"></span><br><span class="line">  printf (&quot;2:%s \n&quot;, addr);</span><br><span class="line">  getchar();</span><br><span class="line"></span><br><span class="line">  return 0;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>上面的c程序编译运行后，我们就可以来分析”读内存之前”、”读内存后写内存前”、”写内存之后”这三个时刻的”页表项”是什么了。</p>
-</li>
-<li><p>使用<code>crash</code>分析”页表项”的变化</p>
-<p>首先简单说一下crash的安装和使用。</p>
-<p>如果你是centos系统，就可以用以下命令来安装</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">yum install crash  &#x2F;&#x2F; 安装crash工具</span><br><span class="line">debuginfo-install kernel-debuginfo-&#96;uname -r&#96;  &#x2F;&#x2F; 安装crash工具需要的内核文件</span><br></pre></td></tr></table></figure>
-
-<p>安装好后，使用下面的命令就可以调试”运行中的内核了”。vmlinux是带调试符号的内核文件。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# crash &#x2F;usr&#x2F;lib&#x2F;debug&#x2F;usr&#x2F;lib&#x2F;modules&#x2F;3.10.0-1160.11.1.el7.x86_64&#x2F;vmlinux &#x2F;dev&#x2F;mem</span><br></pre></td></tr></table></figure>
-
-<p>下面来看一下”页表项”的变化：我在程序三次<code>getchar()</code>时，使用<code>crash</code>的<code>vtop</code>命令查看”虚拟地址”对应的页表</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/146151529-65a92898-2a18-48a5-958f-5076d5d94442.png" alt="image"></p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br></pre></td><td class="code"><pre><span class="line">crash&gt; set 31880    &#x2F;&#x2F; 31880是进程号</span><br><span class="line">    PID: 31880</span><br><span class="line">COMMAND: &quot;a.out&quot;</span><br><span class="line">   TASK: ffff9396f6a7a100  [THREAD_INFO: ffff93983cbe4000]</span><br><span class="line">    CPU: 1</span><br><span class="line">  STATE: TASK_INTERRUPTIBLE</span><br><span class="line">crash&gt; px 139812061335552  &#x2F;&#x2F; 十进制转成十六进制。139812061335552是mmap的返回值</span><br><span class="line">$1 &#x3D; 0x7f2888405000</span><br><span class="line">crash&gt; vtop 0x7f2888405000  &#x2F;&#x2F; vtop指令用来查看&quot;虚拟地址&quot;对应的&quot;物理地址&quot;</span><br><span class="line">VIRTUAL     PHYSICAL</span><br><span class="line">7f2888405000  (not mapped)  &#x2F;&#x2F; 这里可以看出来，此时没有映射到对应的&quot;物理地址&quot;</span><br><span class="line"></span><br><span class="line">   PGD: 16abd67f0 &#x3D;&gt; 16b7d7067</span><br><span class="line">   PUD: 16b7d7510 &#x3D;&gt; 170f95067</span><br><span class="line">   PMD: 170f95210 &#x3D;&gt; 160fd5067</span><br><span class="line">   PTE: 160fd5028 &#x3D;&gt; 0      &#x2F;&#x2F; &quot;页表项&quot;为0，其中的P标志位为0，表示&quot;页表项&quot;不存在，没有映射到对应的&quot;物理地址&quot;</span><br><span class="line"></span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">crash&gt; vtop 0x7f2888405000</span><br><span class="line">VIRTUAL     PHYSICAL</span><br><span class="line">7f2888405000  117d65000</span><br><span class="line">....</span><br><span class="line">   PTE: 160fd5028 &#x3D;&gt; 8000000117d65225</span><br><span class="line">  PAGE: 117d65000</span><br><span class="line"></span><br><span class="line">      PTE         PHYSICAL   FLAGS</span><br><span class="line">8000000117d65225  117d65000  (PRESENT|USER|ACCESSED|NX)   &#x2F;&#x2F; 此时&quot;页表项&quot;有了映射关系，说明此时只能读不能写</span><br><span class="line"></span><br><span class="line">crash&gt; vtop 0x7f2888405000</span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">      PTE         PHYSICAL   FLAGS</span><br><span class="line">80000003b0cf5867  3b0cf5000  (PRESENT|RW|USER|ACCESSED|DIRTY|NX)    &#x2F;&#x2F; RW标志表明此时可以写</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
-
-<p>如上面指令结果中的注释：执行三次vtop指令时，页表项(PTE)中的”FLAGS”都不断变化，读写权限确实像”问题背景”中那样变化。可以看出来，结论是没有问题的</p>
-<p>怎么样，crash验证这个结论是不是很简单？</p>
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>crash很好用，如果你想了解更多crash工具的应用场景，可以参考 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/040W19-CPF0VnUvwFSKiXw">解决Linux内核问题实用技巧之 - Crash工具结合/dev/mem任意修改内存</a></p>
 
       
     </div>
@@ -1298,167 +1394,6 @@
 </ul>
 <p>阻塞时的connect系统调用是有默认的最大时间限制，这个和系统配置有关；可以用”非阻塞connect+select/poll”来实现connect的超时控制。</p>
 <p>在排查这个case原因时，发现这里存在潜在的dos攻击问题，也上报给Python官方，很快被修复了。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-webshell%E6%A3%80%E6%B5%8B%E6%80%BB%E7%BB%93%E4%B8%8E%E5%AE%9E%E4%BE%8B%E5%88%86%E6%9E%90/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-webshell%E6%A3%80%E6%B5%8B%E6%80%BB%E7%BB%93%E4%B8%8E%E5%AE%9E%E4%BE%8B%E5%88%86%E6%9E%90/" class="post-title-link" itemprop="url">webshell检测总结与实例分析</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>很久之前做过<a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/161ffd8e918d70b5029ab828333837c9">webshell检测方案调研</a>，webshell可以在流量安全产品（比如waf、nids）和主机安全产品（hids）检测。</p>
-<p>在流量安全产品常见的检测场景包括：</p>
-<ul>
-<li>文件上传接口，比如检查上传的文件名、文件内容</li>
-<li>webshell访问，比如检查常见的webshell管理工具</li>
-</ul>
-<p>在主机安全产品常见的检测场景包括：</p>
-<ul>
-<li>文本内容，比如检查所有php文件是否webshell</li>
-<li>内存马</li>
-</ul>
-<p>根据网络上公开资料总结，”文本内容”检测手段包括：<br>| webshell检测技术 | 举例<br>| - | - |<br>| 动态分析-沙箱 | <a target="_blank" rel="noopener" href="https://scanner.baidu.com/#/pages/intro">百度webdir</a> |<br>| 静态分析-正则 |<br>| 静态分析-统计学角度 |<br>| 静态分析-AST |<br>| 机器学习/深度学习 |<br>| RASP | <a target="_blank" rel="noopener" href="https://rasp.baidu.com/doc/dev/official.html">百度OpenRASP</a> |</p>
-<p>长亭开源的<a target="_blank" rel="noopener" href="https://github.com/chaitin/cloudwalker">cloudwalker</a>检测方式较全，个人觉得值得学习。</p>
-<p>本文简要分析cloudwalker的检测手段，应该适合正在调研webshell检测方案的读者阅读。</p>
-<blockquote>
-<p>PS: p牛说他们目前的方案已经和开源版本有非常大的不同，目前方案的线上demo：<a target="_blank" rel="noopener" href="https://forum.xray.cool/webshell">https://forum.xray.cool/webshell</a></p>
-</blockquote>
-<h1 id="分析"><a href="#分析" class="headerlink" title="分析"></a>分析</h1><ul>
-<li><p>cloudwalker是什么？</p>
-<p><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s?__biz=MzIwNDA2NDk5OQ==&mid=2651372030&idx=1&sn=682c49b3decda87ddf0ed641d5d347c6&chksm=8d39c876ba4e4160e88bacf0ffc3cadc39b60a269a6facec9f62134823af829624e42df52376&token=496332164&lang=zh_CN">牧云（CloudWalker）开源手记 | Webshell 监控检测策略初探</a></p>
-<p><a target="_blank" rel="noopener" href="https://zhuanlan.zhihu.com/p/45796590">牧云（CloudWalker）开源|如约而至: Webshell核心检测引擎</a></p>
-<p>这两篇官方文章其实已经把检测策略介绍过了，总结起来包括四类：</p>
-<ul>
-<li>基于模糊哈希</li>
-<li>基于模糊正则</li>
-<li>基于代码风格</li>
-<li>基于机器学习：模型使用svm，特征包括了三个维度（代码风格、操作序列、操作名）</li>
-</ul>
-</li>
-</ul>
-<h2 id="模糊哈希"><a href="#模糊哈希" class="headerlink" title="模糊哈希"></a>模糊哈希</h2><ul>
-<li><p>是什么？</p>
-<p>用<code>ssdeep</code>命令来实践，看一下生成的模糊哈希。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">[root@vm10-50-0-18 ssdeep_test]# ssdeep &#x2F;usr&#x2F;bin&#x2F;sleep &#x2F;usr&#x2F;bin&#x2F;sleep1 -s</span><br><span class="line">ssdeep,1.1--blocksize:hash:hash,filename</span><br><span class="line">768:VQ1Q5jc5QNAVo5FWQkckarfJ8JV3XAiqbolRX7:O35Q2Vo5FWkfJ8nXX7,&quot;&#x2F;usr&#x2F;bin&#x2F;sleep&quot;</span><br><span class="line">768:VQ1Q5jc5QNAVo5FWQkckarfJ8JV3XAiqbolRX7:O35Q2Vo5FWkfJ8nXX7,&quot;&#x2F;usr&#x2F;bin&#x2F;sleep1&quot;</span><br><span class="line">[root@vm10-50-0-18 ssdeep_test]# echo 11 &gt;&gt; &#x2F;usr&#x2F;bin&#x2F;sleep1</span><br><span class="line">[root@vm10-50-0-18 ssdeep_test]# ssdeep &#x2F;usr&#x2F;bin&#x2F;sleep &#x2F;usr&#x2F;bin&#x2F;sleep1 -s</span><br><span class="line">ssdeep,1.1--blocksize:hash:hash,filename</span><br><span class="line">768:VQ1Q5jc5QNAVo5FWQkckarfJ8JV3XAiqbolRX7:O35Q2Vo5FWkfJ8nXX7,&quot;&#x2F;usr&#x2F;bin&#x2F;sleep&quot;</span><br><span class="line">768:VQ1Q5jc5QNAVo5FWQkckarfJ8JV3XAiqbolRX7B:O35Q2Vo5FWkfJ8nXX7B,&quot;&#x2F;usr&#x2F;bin&#x2F;sleep1&quot;</span><br></pre></td></tr></table></figure>
-
-<p>可以看出来，<code>/usr/bin/sleep1</code> 在添加了两个字节的数据后，算出来的模糊哈希虽然和原来的不同，但是很相似。</p>
-<p>所以可以得出结论：如果文件的”模糊哈希”相似，就很可能文件内容非常相似。</p>
-</li>
-<li><p>cloudwalker怎么用”模糊哈希”检测webshell？</p>
-<p>在 tool/webshell-detector/bin/static/model-latest/SampleHash.txt 文件有计算好的”webshell模糊哈希列表”</p>
-<p>在检测文件时，先计算出”检测对象”的模糊哈希，然后和”webshell模糊哈希列表”做相似度比较</p>
-<p><img src="https://images.gitee.com/uploads/images/2021/1027/201021_0352ba68_83508.png" alt="输入图片说明" title="屏幕截图.png"></p>
-</li>
-</ul>
-<h2 id="代码风格"><a href="#代码风格" class="headerlink" title="代码风格"></a>代码风格</h2><ul>
-<li><p>是什么？</p>
-<p>从代码字符串中统计出的如下信息：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">* WM：代码中的单词总数</span><br><span class="line">* LM：代码行数</span><br><span class="line">* SPL：代码中的分号数量&#x2F;总行数</span><br><span class="line">* SR：符号比例 &#x3D; 符号长度&#x2F;总长度</span><br><span class="line">* ...</span><br></pre></td></tr></table></figure>
-
-<p>这一部分业务逻辑在 <a target="_blank" rel="noopener" href="https://github.com/leveryd/cloudwalker-source-read/blob/master/tool/webshell-detector/src/Stat.go">Stat.go</a></p>
-</li>
-<li><p>cloudwalker怎么用”代码风格”检测webshell？</p>
-<p>在 <a target="_blank" rel="noopener" href="https://github.com/leveryd/cloudwalker-source-read/blob/master/tool/webshell-detector/bin/static/config/statState.json">statState.json</a> 中允许用户配置”代码风格合理范围”。cloudWalker计算出”检测对象”的”代码风格”后，会检查是否在此范围内。</p>
-<p>另外，”代码风格”信息会作为机器学习模型中的特征。</p>
-</li>
-</ul>
-<h2 id="机器学习"><a href="#机器学习" class="headerlink" title="机器学习"></a>机器学习</h2><ul>
-<li><p>cloudwalker怎么用”机器学习”检测webshell？</p>
-<p>使用了两层的机器学习。</p>
-<p>第一层模型使用svm算法，特征包括三类：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 前面说的&quot;代码风格&quot;</span><br><span class="line">* &quot;操作序列模型&quot;的预测结果</span><br><span class="line">* &quot;操作名称模型&quot;的预测结果</span><br></pre></td></tr></table></figure>
-
-<p><img src="https://images.gitee.com/uploads/images/2021/1027/201048_9220c5df_83508.png" alt="输入图片说明" title="屏幕截图.png"></p>
-</li>
-<li><p>“操作序列模型”是什么？</p>
-<p>训练好的模型在 tool/webshell-detector/bin/static/model-latest/OpSerial.model</p>
-<p>它使用svm算法，特征是”操作序列”处理后的数据。</p>
-<p>“操作序列”包含了php代码中的”操作特征”。</p>
-</li>
-<li><p>怎么生成”操作序列”？</p>
-<p>由代码获取到抽象语法树后，再由抽象语法树生成”操作序列”。</p>
-<p>举个例子：</p>
-<p>假设待检测的php代码如下</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;?php eval($_POST[0]);?&gt;</span><br></pre></td></tr></table></figure>
-
-<p>代码生成的抽象语法树（ast）</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&#123;&quot;status&quot;:&quot;successed&quot;,&quot;ast&quot;:&#123;&quot;kind&quot;:132,&quot;flags&quot;:0,&quot;lineno&quot;:1,&quot;children&quot;:[&#123;&quot;kind&quot;:269,&quot;flags&quot;:1,&quot;lineno&quot;:1,&quot;children&quot;:&#123;&quot;expr&quot;:&#123;&quot;kind&quot;:512,&quot;flags&quot;:0,&quot;lineno&quot;:1,&quot;children&quot;:&#123;&quot;expr&quot;:&#123;&quot;kind&quot;:256,&quot;flags&quot;:0,&quot;lineno&quot;:1,&quot;children&quot;:&#123;&quot;name&quot;:&quot;_POST&quot;&#125;&#125;,&quot;dim&quot;:0&#125;&#125;&#125;&#125;]&#125;&#125;</span><br></pre></td></tr></table></figure>
-<p><img src="https://images.gitee.com/uploads/images/2021/1027/201109_7cf149be_83508.png" alt="输入图片说明" title="屏幕截图.png"></p>
-<p>对应的”操作序列”如下：</p>
-<p><img src="https://images.gitee.com/uploads/images/2021/1027/201126_9af5fb47_83508.png" alt="输入图片说明" title="屏幕截图.png"></p>
-<p>可以看出来，”操作序列”包含了”抽象语法树”两层之间的联系。</p>
-</li>
-</ul>
-<h2 id="抽象语法树"><a href="#抽象语法树" class="headerlink" title="抽象语法树"></a>抽象语法树</h2><ul>
-<li><p>怎么生成”抽象语法树”？</p>
-<p>代码在 tool/webshell-detector/php 目录。</p>
-<p>流程如下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 在cloudwalker启动时，[php.c](https:&#x2F;&#x2F;github.com&#x2F;leveryd&#x2F;cloudwalker-source-read&#x2F;blob&#x2F;master&#x2F;tool&#x2F;webshell-detector&#x2F;php&#x2F;php.c)新建子线程，并等待输入。</span><br><span class="line">* 子线程接收php代码后，解析生成&quot;抽象语法树&quot;，将结果返回给主线程。子线程通过管道与主线程通信。</span><br></pre></td></tr></table></figure>
-
-<p>解析能力基于<a target="_blank" rel="noopener" href="https://github.com/nikic/php-ast">php-ast项目</a>，业务逻辑可以见<a target="_blank" rel="noopener" href="https://github.com/leveryd/cloudwalker-source-read/blob/master/tool/webshell-detector/php/payload/index.php">index.php</a></p>
-<p>可以运行index.php做一点简单的测试：输入包括”字符串长度”和”代码”，输出ast字符串</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">➜  php git:(master) ✗ .&#x2F;bin&#x2F;php payload&#x2F;index.php</span><br><span class="line">26</span><br><span class="line">&lt;?php eval(&#39;$_POST[0]&#39;);?&gt;</span><br><span class="line">142</span><br><span class="line">&#123;&quot;status&quot;:&quot;successed&quot;,&quot;ast&quot;:&#123;&quot;kind&quot;:132,&quot;flags&quot;:0,&quot;lineno&quot;:1,&quot;children&quot;:[&#123;&quot;kind&quot;:269,&quot;flags&quot;:1,&quot;lineno&quot;:1,&quot;children&quot;:&#123;&quot;expr&quot;:&quot;$_POST[0]&quot;&#125;&#125;]&#125;&#125;</span><br></pre></td></tr></table></figure>
-
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p><a target="_blank" rel="noopener" href="https://github.com/leveryd/cloudwalker-source-read/">仓库</a>中放了我阅读代码时的注释，方便有需要的读者。</p>
-<p>从测试效果来看，开源版本和目前线上版本有很大差异：开源版本cloudwalker比较容易绕过，<a target="_blank" rel="noopener" href="https://forum.xray.cool/webshell">线上</a>则难度大很多。</p>
-<p><img src="https://images.gitee.com/uploads/images/2021/1027/201155_7f9c8ee0_83508.png" alt="输入图片说明" title="屏幕截图.png"></p>
 
       
     </div>

