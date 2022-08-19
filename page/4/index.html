@@ -125,7 +125,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">56</span>
+          <span class="site-state-item-count">57</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
@@ -168,7 +168,7 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%A6%82%E4%BD%95%E9%99%90%E5%88%B6agent%E8%BF%9B%E7%A8%8B%E7%9A%84%E8%B5%84%E6%BA%90%E4%BD%BF%E7%94%A8/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%A6%82%E4%BD%95%E9%81%BF%E5%85%8D%E6%96%87%E4%BB%B6%E4%B8%8A%E6%8A%A5-%E5%88%B6%E4%BD%9C%E5%A4%A7%E6%96%87%E4%BB%B6/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -181,7 +181,7 @@
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E5%A6%82%E4%BD%95%E9%99%90%E5%88%B6agent%E8%BF%9B%E7%A8%8B%E7%9A%84%E8%B5%84%E6%BA%90%E4%BD%BF%E7%94%A8/" class="post-title-link" itemprop="url">如何限制agent进程的资源使用</a>
+          <a href="/2021-12-26-%E5%A6%82%E4%BD%95%E9%81%BF%E5%85%8D%E6%96%87%E4%BB%B6%E4%B8%8A%E6%8A%A5-%E5%88%B6%E4%BD%9C%E5%A4%A7%E6%96%87%E4%BB%B6/" class="post-title-link" itemprop="url">如何避免文件上报-制作大文件</a>
         </h2>
 
         <div class="post-meta-container">
@@ -205,108 +205,96 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>在 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/WQeOfZtyKndbDebe66-V_g">如何避免文件上报-制作大文件</a> 问题背景中提到：agent会上报信息，甚至会上传文件。</p>
-<p>如果能够限制agent进程对系统资源的使用，是不是可能对”信息上报”造成影响。比如限制agent进程每秒只能读1字节的文件内容、限制agent上报文件带宽在1字节每秒、限制agent只能使用很少的cpu分片等等。</p>
-<p>本文记录对”限制资源使用”的实践：</p>
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>了解hids的读者应该知道hids agent会有上报很多信息，其中有的agent会将可疑文件上报到云端做恶意分析。</p>
+<p>同事问我一个问题：文件如果特别大，也会被上报吗？不会影响性能吗？</p>
+<p>这个问题让我联想到 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/qAv2wspeuCfhCjTaz03hNg">你的扫描器可以绕过防火墙么（三）</a> 中大包绕过waf的场景，接着很容易想到：如果agent碰到大文件就不上传了，不就很容易绕过云端的恶意分析了嘛。</p>
+<p>另外，一个恶意文件如果体积过大，可能对安全研究人员做”样本分析”造成一些困难，比如无法将文件下载到本地电脑（网速、磁盘空间可能不够）、ida等静态分析软件内存占用过大。</p>
+<p>基于以上”安全攻防”的业务场景，加上我最近在学习一些操作系统相关的知识，所以就研究下”怎么让elf文件变大”。</p>
+<p>文件变大的同时，还要满足以下条件：</p>
 <ul>
-<li>怎么限制进程的网络带宽</li>
-<li>怎么限制进程的io读速度</li>
-<li>怎么限制进程的cpu使用率</li>
+<li>不影响elf文件执行</li>
+<li>从实用角度来说，攻击队也不会生成一个大文件，然后上传到目标。最好是上传一个小文件，上传到目标机器，然后本地让文件变大。</li>
 </ul>
-<p>“对进程资源的限制”有很多使用场景，比如我看到有人问 <a target="_blank" rel="noopener" href="https://github.com/Qianlitp/crawlergo/issues/22">怎么控制crawlergo爬虫的cpu和内存使用率</a>，再比如 hids本身也需要对cpu、内存等使用做限制。</p>
-<h1 id="agent进程带宽限速"><a href="#agent进程带宽限速" class="headerlink" title="agent进程带宽限速"></a>agent进程带宽限速</h1><ul>
-<li><p>为什么限速？</p>
-<p>如果能让agent进程每秒只能传输很少的字节数，就有可能拖慢agent上报信息的进度，从而干扰安全检测。重点是”网速变慢”能保证”agent心跳”能正常传到server，不至于在server端看到agent异常。</p>
+<p>先说结论，有以下方式让”文件大小”变大：</p>
+<ul>
+<li>文件末尾追加数据</li>
+<li>稀疏文件</li>
+<li>修改inode元数据</li>
+<li>向elf文件节中填充垃圾数据</li>
+</ul>
+<p>说明一下测试环境：测试程序是id命令，复制到了/tmp/y目录下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# \cp &#x2F;usr&#x2F;bin&#x2F;id &#x2F;tmp&#x2F;y</span><br></pre></td></tr></table></figure>
+
+<h1 id="文件末尾追加数据"><a href="#文件末尾追加数据" class="headerlink" title="文件末尾追加数据"></a>文件末尾追加数据</h1><ul>
+<li><p>怎么实现？</p>
+<p>这种方式实现很简单，如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# echo 1111 &gt;&gt; .&#x2F;id</span><br><span class="line">[root@instance-fj5pftdp y]# .&#x2F;id</span><br><span class="line">uid&#x3D;0(root) gid&#x3D;0(root) 组&#x3D;0(root)</span><br></pre></td></tr></table></figure>
+<p>关键是这样修改后的文件，还能正常执行。</p>
 </li>
-<li><p>在linux主机上怎么给进程限流呢？</p>
-<p>调研总结有两种方式：</p>
+</ul>
+<h1 id="稀疏文件"><a href="#稀疏文件" class="headerlink" title="稀疏文件"></a>稀疏文件</h1><ul>
+<li><p>“稀疏文件”是什么？</p>
+<p>“稀疏文件”的”文件大小”和实际占用磁盘空间是不一致的，比如:</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# ll -h id</span><br><span class="line">-rwxr-xr-x 1 root root 10T 9月   6 20:03 id</span><br><span class="line">[root@instance-fj5pftdp y]# du -sh id</span><br><span class="line">40K	id</span><br></pre></td></tr></table></figure>
+<p>从上面命令可以看到：”文件大小”是10T，但实际数据只占用40K的磁盘大小。</p>
+<p>对于原理感兴趣的读者，可以参考 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/bLiqURdK_dtgr0GqU7yD9w">深度剖析 Linux cp 的秘密</a> 这篇文章。</p>
+</li>
+<li><p>怎么修改成”稀疏文件”？</p>
+<p>可以利用fallocate、truncate命令。</p>
+<p>使用起来也很简单，以truncate举例：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# ls -alh id</span><br><span class="line">-rwxr-xr-x 1 root root 37K 9月   5 20:18 id</span><br><span class="line">[root@instance-fj5pftdp y]# time truncate -s 10T id   &#x2F;&#x2F; 将id程序稀疏成10T大小</span><br><span class="line"></span><br><span class="line">real	0m0.007s</span><br><span class="line">user	0m0.000s</span><br><span class="line">sys	0m0.007s</span><br><span class="line">[root@instance-fj5pftdp y]# ls -alh id</span><br><span class="line">-rwxr-xr-x 1 root root 10T 9月   5 20:02 id    &#x2F;&#x2F; 文件大小已经变成10T</span><br><span class="line">[root@instance-fj5pftdp y]# .&#x2F;id</span><br><span class="line">uid&#x3D;0(root) gid&#x3D;0(root) 组&#x3D;0(root)</span><br></pre></td></tr></table></figure>
+
+<p>这种方式修改文件有两个特点：</p>
 <blockquote>
-<p>cgroups + tc命令：可以实现对指定的进程限速</p>
-<p>iptables：可以实现对指定的tcp通信限速</p>
+<p>文件改动非常快，上面的例子中将id文件大小扩大到”10T”只用了1s不到</p>
+<p>文件大小最大可以是10T以上，但不需要本地磁盘空间真的有10T</p>
+</blockquote>
+<p>当你想下载或者读这个文件(比如<code>cat</code>)时，却是会有实实在在的<code>10T</code>流量。10T流量，按照”10M/s”的速度下载，也需要下载291个小时。</p>
+</li>
+</ul>
+<h1 id="修改inode元数据"><a href="#修改inode元数据" class="headerlink" title="修改inode元数据"></a>修改inode元数据</h1><ul>
+<li><p>为什么修改”inode元数据”就可以修改文件大小信息？</p>
+<p>inode元数据包含了文件大小信息，而inode元数据也是存储在磁盘扇区中的，所以应该可以通过修改inode元数据来”伪造”文件大小。</p>
+<p>其实不光大小信息，inode元数据中还包括 文件是否删除、创建时间、修改时间、访问时间 等信息，所以这些都可以被伪造。</p>
+<p>可以通过stat命令查看inode元数据：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# stat id</span><br><span class="line">  文件：&quot;id&quot;</span><br><span class="line">  大小：37400     	块：80         IO 块：4096   普通文件</span><br><span class="line">设备：fd01h&#x2F;64769d	Inode：171252      硬链接：1</span><br><span class="line">权限：(0755&#x2F;-rwxr-xr-x)  Uid：(    0&#x2F;    root)   Gid：(    0&#x2F;    root)</span><br><span class="line">最近访问：2021-09-06 20:27:26.224913458 +0800</span><br><span class="line">最近更改：2021-09-06 20:27:26.218913032 +0800</span><br><span class="line">最近改动：2021-09-06 20:27:26.224913458 +0800</span><br><span class="line">创建时间：-</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>怎么修改”inode元数据”？</p>
+<p>利用debugfs命令，如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# debugfs -w &#x2F;dev&#x2F;vda1</span><br><span class="line">debugfs:  mi &#x2F;tmp&#x2F;y&#x2F;id</span><br><span class="line">                          Mode    [0100755]</span><br><span class="line">                       User ID    [0]</span><br><span class="line">                      Group ID    [0]</span><br><span class="line">                          Size    [37400] 100000      &#x2F;&#x2F; 这里修改文件大小为100000</span><br><span class="line">                 Creation time    [1630929039]</span><br><span class="line">             ...</span><br><span class="line">debugfs:  quit</span><br><span class="line">[root@instance-fj5pftdp ~]# ll &#x2F;tmp&#x2F;y&#x2F;id</span><br><span class="line">-rwxr-xr-x 1 root root 37400 9月   6 19:50 &#x2F;tmp&#x2F;y&#x2F;id</span><br><span class="line">[root@instance-fj5pftdp ~]# echo 3 &gt; &#x2F;proc&#x2F;sys&#x2F;vm&#x2F;drop_caches   &#x2F;&#x2F; 清理inode缓存后，修改才生效</span><br><span class="line">[root@instance-fj5pftdp ~]# ll &#x2F;tmp&#x2F;y&#x2F;id</span><br><span class="line">-rwxr-xr-x 1 root root 100000 9月   6 19:50 &#x2F;tmp&#x2F;y&#x2F;id    &#x2F;&#x2F; 文件大小变成了100000</span><br><span class="line">[root@instance-fj5pftdp ~]# &#x2F;tmp&#x2F;y&#x2F;id</span><br><span class="line">uid&#x3D;0(root) gid&#x3D;0(root) 组&#x3D;0(root)</span><br></pre></td></tr></table></figure>
+
+<p>在测试过程中，需要读者注意的是：</p>
+<blockquote>
+<p>因为会对磁盘数据做写操作，所以最好找一个没数据的机器做测试</p>
+<p>记得清理inode缓存</p>
+<p>测试时如果使用文件当作设备，在挂载文件系统时去修改文件大小 会不生效。原因未知</p>
 </blockquote>
 </li>
 </ul>
-<h2 id="使用iptables对进程限速"><a href="#使用iptables对进程限速" class="headerlink" title="使用iptables对进程限速"></a>使用iptables对进程限速</h2><ul>
-<li><p>怎么用iptables对进程限速？</p>
-<p>可以使用iptables的limit模块来完成。</p>
-<p>根据<code>man iptables-extensions</code>手册可知：limit模块使用”令牌桶算法”实现。</p>
-<p><code>--limit-burst</code>参数指定初始令牌数，<code>--limit</code>参数指定补充令牌的速率。</p>
-<p>举个例子，下面命令可以对目标ip”1.2.3.4”端口为5001的tcp通信做限速：桶最大值也是初始值就是10个tcp包，每秒新增1个tcp包，所以发包速率峰值基本上可以认为是”10个包/每秒”；当客户端每秒有100个包要发出去时，基本上到后面发包速度会基本限制在”1个包/每秒”；</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# iptables -A OUTPUT -d 1.2.3.4&#x2F;32 -p tcp -m limit --limit 1&#x2F;sec --limit-burst 10 --dport 5001 -j ACCEPT</span><br><span class="line">[root@instance-fj5pftdp ~]# iptables -A OUTPUT -d 1.2.3.4&#x2F;32 -p tcp --dport 5001 -j DROP</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>实践验证限速效果</p>
-<p>准备两台机器：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* &#96;instance-fj5pftdp&#96;发包</span><br><span class="line">* &#96;1.2.3.4&#96;收包 (为了我避免暴露自己的虚机ip，这里用1.2.3.4代替)</span><br></pre></td></tr></table></figure>
-
-<p>在发包机器上 使用iptables限制通信，然后传输大文件，并使用tcpdump观察包速率</p>
-<p>第一步：设置iptables，指令如上</p>
-<p>第二步：传输大文件</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 使用&#96;truncate -s 1G bigfil&#96;创建&quot;稀疏文件&quot;</span><br><span class="line">* 使用&#96;nc 1.2.3.4 5001 &lt; bigfile&#96;传输文件</span><br></pre></td></tr></table></figure>
-
-<p>第三步：使用tcpdump观察包速率：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# tcpdump -i eth0 &#39;port 5001 and ip dst 1.2.3.4&#39;</span><br><span class="line">22:52:00.743321 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [S], seq 2314647925, win 27200, options [mss 1360,sackOK,TS val 2324847321 ecr 0,nop,wscale 7], length 0</span><br><span class="line">22:52:00.780074 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], ack 1736746942, win 213, options [nop,nop,TS val 2324847358 ecr 3661297505], length 0</span><br><span class="line">22:52:00.780253 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 0:2696, ack 1, win 213, options [nop,nop,TS val 2324847358 ecr 3661297505], length 2696</span><br><span class="line">22:52:00.780516 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 2696:5392, ack 1, win 213, options [nop,nop,TS val 2324847359 ecr 3661297505], length 2696</span><br><span class="line">22:52:00.780533 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 5392:8088, ack 1, win 213, options [nop,nop,TS val 2324847359 ecr 3661297505], length 2696</span><br><span class="line">22:52:00.780538 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 8088:8192, ack 1, win 213, options [nop,nop,TS val 2324847359 ecr 3661297505], length 104</span><br><span class="line">22:52:00.780571 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 8192:10888, ack 1, win 213, options [nop,nop,TS val 2324847359 ecr 3661297505], length 2696</span><br><span class="line">22:52:00.780587 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 10888:12236, ack 1, win 213, options [nop,nop,TS val 2324847359 ecr 3661297505], length 1348</span><br><span class="line">22:52:00.816636 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 12236:14932, ack 1, win 213, options [nop,nop,TS val 2324847395 ecr 3661297542], length 2696</span><br><span class="line">22:52:00.816674 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 14932:17628, ack 1, win 213, options [nop,nop,TS val 2324847395 ecr 3661297542], length 2696</span><br><span class="line">22:52:02.513394 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 17628:18976, ack 1, win 213, options [nop,nop,TS val 2324849092 ecr 3661297578], length 1348</span><br><span class="line">22:52:02.786393 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 18976:20324, ack 1, win 213, options [nop,nop,TS val 2324849365 ecr 3661299275], length 1348</span><br><span class="line">22:52:04.485382 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 20324:21672, ack 1, win 213, options [nop,nop,TS val 2324851064 ecr 3661299548], length 1348</span><br><span class="line">22:52:04.759396 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 21672:23020, ack 1, win 213, options [nop,nop,TS val 2324851338 ecr 3661301247], length 1348</span><br><span class="line">22:52:06.457405 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 23020:24368, ack 1, win 213, options [nop,nop,TS val 2324853036 ecr 3661301521], length 1348</span><br><span class="line">22:52:07.205354 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 24368:25716, ack 1, win 213, options [nop,nop,TS val 2324853784 ecr 3661303219], length 1348</span><br><span class="line">22:52:07.953399 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 25716:27064, ack 1, win 213, options [nop,nop,TS val 2324854532 ecr 3661303967], length 1348</span><br><span class="line">22:52:09.651384 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 27064:28412, ack 1, win 213, options [nop,nop,TS val 2324856230 ecr 3661304715], length 1348</span><br><span class="line">22:52:09.924396 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 28412:29760, ack 1, win 213, options [nop,nop,TS val 2324856503 ecr 3661306413], length 1348</span><br><span class="line">22:52:11.621372 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 29760:31108, ack 1, win 213, options [nop,nop,TS val 2324858200 ecr 3661306686], length 1348</span><br><span class="line">22:52:11.894385 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 31108:32456, ack 1, win 213, options [nop,nop,TS val 2324858473 ecr 3661308383], length 1348</span><br><span class="line">22:52:13.593387 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 32456:33804, ack 1, win 213, options [nop,nop,TS val 2324860172 ecr 3661308656], length 1348</span><br></pre></td></tr></table></figure>
-<p>可以看到最开始<code>22:52:00</code>通过了10个包，然后大概每秒可以通过1个包。</p>
-</li>
-</ul>
-<h1 id="agent进程io读限速"><a href="#agent进程io读限速" class="headerlink" title="agent进程io读限速"></a>agent进程io读限速</h1><ul>
-<li><p>在linux主机上怎么给进程io读写限速呢？</p>
-<p>可以通过cgroup实现：cgroup是一种文件系统，可以用来限制cpu、内存、io等资源使用；cgroup也是docker的核心原理之一。</p>
-<p>cgroup有v1、v2两个版本，其中v1 只能限制”直接io”，v2版本对内核版本要求在4.5以上（似乎）。而hids等应用程序读文件大部分应该都是”缓冲io”，所以无法用v1版本的cgroup限制。我也只实验验证v1版本的对”直接io”的限制。</p>
+<h1 id="向elf文件节中添加垃圾数据"><a href="#向elf文件节中添加垃圾数据" class="headerlink" title="向elf文件节中添加垃圾数据"></a>向elf文件节中添加垃圾数据</h1><ul>
+<li><p>是什么？</p>
+<p>elf文件中包含很多的<em>节</em>，比如：</p>
 <blockquote>
-<p>如果想要了解更多”直接io”和”缓冲io”相关概念，可以参考 <a target="_blank" rel="noopener" href="https://time.geekbang.org/column/article/76876">23 | 基础篇：Linux 文件系统是怎么工作的？</a> 这篇。</p>
+<p>.text存放代码</p>
+<p>.data存放初始化的全局变量和静态变量</p>
 </blockquote>
-<p>关于cgroup的介绍和使用可以参考网上的很多文章，比如 <a target="_blank" rel="noopener" href="https://tech.meituan.com/2015/03/31/cgroups.html">Linux资源管理之cgroups简介</a> 和 <a target="_blank" rel="noopener" href="https://man7.org/linux/man-pages/man7/cgroups.7.html">man手册</a></p>
-<p>“利用cgroup对进程io读写做限速”可以参考 <a target="_blank" rel="noopener" href="https://andrestc.com/post/cgroups-io/">Using cgroups to limit I/O</a>，这一篇文章有完整的实验过程。此小节我只记录”需要注意的细节”和文章没有提到的内容。</p>
+<p>关于elf的文件格式，更多信息可以参考 《程序员的自我修养—链接、装载与库》第三章 elf文件结构描述。</p>
+<p>可以向elf的节（比如.data、.text、.bss等）中写入垃圾数据，而不影响程序的正常运行。</p>
 </li>
 </ul>
-<h2 id="细节"><a href="#细节" class="headerlink" title="细节"></a>细节</h2><ul>
-<li><p>确认配置</p>
-<p>根据 <a target="_blank" rel="noopener" href="https://www.kernel.org/doc/Documentation/cgroup-v1/blkio-controller.txt">cgroup-v1文档</a> 手册说明，需要先确认内核是否支持cgroup io限速</p>
-<p>比如确认如下选项是否开启</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# cat &#x2F;boot&#x2F;config-$(uname -r)|grep -i CONFIG_BLK_CGROUP</span><br><span class="line">CONFIG_BLK_CGROUP&#x3D;y</span><br><span class="line">[root@instance-fj5pftdp ~]# cat &#x2F;boot&#x2F;config-$(uname -r)|grep -i CONFIG_BLK_DEV_THROTTLING</span><br><span class="line">CONFIG_BLK_DEV_THROTTLING&#x3D;y</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>dd命令需要添加<code>oflag=direct</code>参数和bs参数必须是512（一个扇区的大小）的倍数</p>
-<p>因为cgroup v1 只能限制”直接io”，所以dd需要添加<code>oflag=direct</code>参数。</p>
-<p>而使用”直接io”，磁盘io需要扇区对齐，也就是每次写入的字节大小必须是一个扇区大小的倍数。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# dd if&#x3D;&#x2F;dev&#x2F;zero of&#x3D;&#x2F;tmp&#x2F;file2 bs&#x3D;512 count&#x3D;1 oflag&#x3D;direct</span><br><span class="line">...</span><br><span class="line">512字节(512 B)已复制，0.00518424 秒，98.8 kB&#x2F;秒</span><br><span class="line">[root@instance-fj5pftdp ~]# dd if&#x3D;&#x2F;dev&#x2F;zero of&#x3D;&#x2F;tmp&#x2F;file2 bs&#x3D;511 count&#x3D;1 oflag&#x3D;direct   &#x2F;&#x2F; 非512倍数时，写入报错</span><br><span class="line">dd: 写入&quot;&#x2F;tmp&#x2F;file2&quot; 出错: 无效的参数</span><br><span class="line">...</span><br><span class="line">[root@instance-fj5pftdp ~]# dd if&#x3D;&#x2F;dev&#x2F;zero of&#x3D;&#x2F;tmp&#x2F;file2 bs&#x3D;511 count&#x3D;1    &#x2F;&#x2F; &quot;缓冲io&quot;（非&quot;直接io&quot;）时，不需要用户对齐</span><br><span class="line">...</span><br><span class="line">511字节(511 B)已复制，0.000360275 秒，1.4 MB&#x2F;秒</span><br></pre></td></tr></table></figure>
-
-<p>如果想要了解更多”磁盘io对齐”相关知识，可以参考 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/rqq-GgZMMs5gj6p_VJqEVA">存储基础 —— 磁盘 IO 为什么总叫你对齐？</a> 这篇。</p>
-</li>
-<li><p>实验过程中遇到的报错</p>
-<p>在向配置中”写正在使用的分区”和”不正确的设备号”都会提示”无效的参数”报错，如下：</p>
-<p>似乎不能写正在使用的分区”/dev/vda1”</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# df -h</span><br><span class="line">...</span><br><span class="line">&#x2F;dev&#x2F;vda1        79G   71G  4.6G  94% &#x2F;</span><br><span class="line">[root@instance-fj5pftdp ~]# cat &#x2F;proc&#x2F;partitions</span><br><span class="line">major minor  #blocks  name</span><br><span class="line"></span><br><span class="line"> 253        0   83886080 vda</span><br><span class="line"> 253        1   83885039 vda1</span><br><span class="line"></span><br><span class="line">[root@instance-fj5pftdp test1]# echo &#39;253:1 100&#39; &gt; blkio.throttle.read_bps_device   &#x2F;&#x2F; 253对应&#x2F;dev&#x2F;vda1，似乎因为已经被挂载使用，所以不能被写入配置</span><br><span class="line">-bash: echo: 写错误: 无效的参数</span><br><span class="line">[root@instance-fj5pftdp test1]# echo &#39;253:0 100&#39; &gt; blkio.throttle.read_bps_device</span><br></pre></td></tr></table></figure>
-
-<p>不能限制”字符设备”，只能限制”块设备”。当写入”字符设备的设备号”到配置时，就会报错</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# ll &#x2F;dev|grep &quot;5,&quot;</span><br><span class="line">crw-------  1 root root      5,   1 Apr 28 21:51 console</span><br><span class="line">crw-rw-rw-  1 root tty       5,   2 Oct 22 13:45 ptmx</span><br><span class="line">crw-rw-rw-  1 root tty       5,   0 Oct 12 13:06 tty</span><br><span class="line">[root@instance-fj5pftdp test1]# echo &#39;5:1 100&#39; &gt; blkio.throttle.read_bps_device   &#x2F;&#x2F; 5(主设备号)代表了&quot;字符设备&quot;</span><br><span class="line">-bash: echo: 写错误: 无效的参数</span><br></pre></td></tr></table></figure>
-
+<p>  这种方式和其他三种方式的区别在于：因为可以删掉没用的节，所以就很容易就把”其他三种方式”修改的elf给还原回来。</p>
+<p>  比如strip后，文件大小就还原了<br>  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# ll -h id</span><br><span class="line">-rwxr-xr-x 1 root root 10T 9月   6 20:03 id</span><br><span class="line">[root@instance-fj5pftdp y]# strip id</span><br><span class="line">[root@instance-fj5pftdp y]# ll -h id</span><br><span class="line">-rwxr-xr-x 1 root root 37K 9月   6 20:27 id</span><br></pre></td></tr></table></figure></p>
+<ul>
+<li><p>怎么”向elf文件节中添加垃圾数据”？</p>
+<p>没有找到linux自带的命令，找到 <a target="_blank" rel="noopener" href="https://firmianay.gitbook.io/ctf-all-in-one/3_topics/reverse/3.2.1_patch_binary#patchkit">patch elf工具-patchkit</a>。</p>
+<p>看文档感觉有点麻烦，就没有做测试了。</p>
 </li>
 </ul>
-<h1 id="限制cpu使用"><a href="#限制cpu使用" class="headerlink" title="限制cpu使用"></a>限制cpu使用</h1><ul>
-<li><p>怎么限制cpu使用？</p>
-<p>同样使用cgroup。</p>
-</li>
-</ul>
-<h2 id="使用cgroup限制cpu使用"><a href="#使用cgroup限制cpu使用" class="headerlink" title="使用cgroup限制cpu使用"></a>使用cgroup限制cpu使用</h2><ul>
-<li><p>利用<code>stress</code>命令创建高cpu占用的”测试进程”</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp test]# stress -c 1 &amp;</span><br><span class="line">[1] 27924</span><br><span class="line">[root@instance-fj5pftdp test]# stress: info: [27924] dispatching hogs: 1 cpu, 0 io, 0 vm, 0 hdd</span><br><span class="line"></span><br><span class="line">[root@instance-fj5pftdp test]# ps aux|grep stress</span><br><span class="line">root     27924  0.0  0.0   7312   424 pts&#x2F;65   S    23:02   0:00 stress -c 1</span><br><span class="line">root     27925 96.0  0.0   7312    96 pts&#x2F;65   R    23:02   0:10 stress -c 1    &#x2F;&#x2F; 实际工作的进程</span><br></pre></td></tr></table></figure>
-
-<p>验证cpu占用，可以看出来单核cpu占用100%</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp test]# top -b -p 27925</span><br><span class="line">...</span><br><span class="line">  PID USER      PR  NI    VIRT    RES    SHR S  %CPU %MEM     TIME+ COMMAND</span><br><span class="line">27925 root      20   0    7312     96      0 R 100.0  0.0   2:32.58 stress</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>利用<code>cgroup</code>限制”测试进程”的使用</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# mkdir &#x2F;sys&#x2F;fs&#x2F;cgroup&#x2F;cpu&#x2F;test-cpu-limit</span><br><span class="line">[root@instance-fj5pftdp ~]# echo 27925 &gt; &#x2F;sys&#x2F;fs&#x2F;cgroup&#x2F;cpu&#x2F;test-cpu-limit&#x2F;tasks    &#x2F;&#x2F; 进程号是27925</span><br><span class="line">[root@instance-fj5pftdp ~]# echo 10000 &gt; &#x2F;sys&#x2F;fs&#x2F;cgroup&#x2F;cpu&#x2F;test-cpu-limit&#x2F;cpu.cfs_quota_us   &#x2F;&#x2F; quota &#x3D; 10ms</span><br><span class="line">[root@instance-fj5pftdp ~]# echo 50000 &gt; &#x2F;sys&#x2F;fs&#x2F;cgroup&#x2F;cpu&#x2F;test-cpu-limit&#x2F;cpu.cfs_period_us  &#x2F;&#x2F; period &#x3D; 50ms</span><br></pre></td></tr></table></figure>
-
-<p>限制cpu使用率是20%（10ms/50ms）</p>
-<p>查看是否限制stress进程</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# top -b -p 27925</span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">  PID USER      PR  NI    VIRT    RES    SHR S  %CPU %MEM     TIME+ COMMAND</span><br><span class="line">27925 root      20   0    7312     96      0 R  20.0  0.0   9:30.61 stress</span><br></pre></td></tr></table></figure>
-<p>可以看到限制成功</p>
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>使用cgroup限制cpu、io等是很简单的。</p>
-<p>因为用cgroup”限制网络流量”没有测试成功，所以也就没有记录。</p>
-<p>本文提到的手段没有在真实的对抗中实践过，仅仅是我自己的研究，欢迎与我交流。</p>
-<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a target="_blank" rel="noopener" href="https://qastack.cn/superuser/287371/obtain-kernel-config-from-currently-running-linux-system">怎么查看内核配置</a></p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>“文件末尾追加数据”和”向elf文件节中填充垃圾数据”这两种方式是真的修改了文件内容，所以受限于磁盘空间大小也不可能生成几个T大小的文件。</p>
+<p>“稀疏文件”这种方式，可以方便快速地生成几个T大小的文件，并且让上传、下载此文件 耗费很多时间，甚至是不可能成功。</p>
+<p>“修改inode元数据”，虽然也可以快速地将文件大小修改为几个T，但是并不会让上传、下载此文件 耗费很多时间，传输的文件大小还是实际大小。</p>
+<p>如果应急时碰到超大的elf文件，就先用strip看看体积会不会变小。</p>
+<p>本文提到的手段没有在真实的对抗中实践过，仅仅是我自己的研究，欢迎有对抗经验的读者与我交流。</p>
 
       
     </div>
@@ -582,6 +570,171 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%A6%82%E4%BD%95%E9%99%90%E5%88%B6agent%E8%BF%9B%E7%A8%8B%E7%9A%84%E8%B5%84%E6%BA%90%E4%BD%BF%E7%94%A8/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E5%A6%82%E4%BD%95%E9%99%90%E5%88%B6agent%E8%BF%9B%E7%A8%8B%E7%9A%84%E8%B5%84%E6%BA%90%E4%BD%BF%E7%94%A8/" class="post-title-link" itemprop="url">如何限制agent进程的资源使用</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>在 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/WQeOfZtyKndbDebe66-V_g">如何避免文件上报-制作大文件</a> 问题背景中提到：agent会上报信息，甚至会上传文件。</p>
+<p>如果能够限制agent进程对系统资源的使用，是不是可能对”信息上报”造成影响。比如限制agent进程每秒只能读1字节的文件内容、限制agent上报文件带宽在1字节每秒、限制agent只能使用很少的cpu分片等等。</p>
+<p>本文记录对”限制资源使用”的实践：</p>
+<ul>
+<li>怎么限制进程的网络带宽</li>
+<li>怎么限制进程的io读速度</li>
+<li>怎么限制进程的cpu使用率</li>
+</ul>
+<p>“对进程资源的限制”有很多使用场景，比如我看到有人问 <a target="_blank" rel="noopener" href="https://github.com/Qianlitp/crawlergo/issues/22">怎么控制crawlergo爬虫的cpu和内存使用率</a>，再比如 hids本身也需要对cpu、内存等使用做限制。</p>
+<h1 id="agent进程带宽限速"><a href="#agent进程带宽限速" class="headerlink" title="agent进程带宽限速"></a>agent进程带宽限速</h1><ul>
+<li><p>为什么限速？</p>
+<p>如果能让agent进程每秒只能传输很少的字节数，就有可能拖慢agent上报信息的进度，从而干扰安全检测。重点是”网速变慢”能保证”agent心跳”能正常传到server，不至于在server端看到agent异常。</p>
+</li>
+<li><p>在linux主机上怎么给进程限流呢？</p>
+<p>调研总结有两种方式：</p>
+<blockquote>
+<p>cgroups + tc命令：可以实现对指定的进程限速</p>
+<p>iptables：可以实现对指定的tcp通信限速</p>
+</blockquote>
+</li>
+</ul>
+<h2 id="使用iptables对进程限速"><a href="#使用iptables对进程限速" class="headerlink" title="使用iptables对进程限速"></a>使用iptables对进程限速</h2><ul>
+<li><p>怎么用iptables对进程限速？</p>
+<p>可以使用iptables的limit模块来完成。</p>
+<p>根据<code>man iptables-extensions</code>手册可知：limit模块使用”令牌桶算法”实现。</p>
+<p><code>--limit-burst</code>参数指定初始令牌数，<code>--limit</code>参数指定补充令牌的速率。</p>
+<p>举个例子，下面命令可以对目标ip”1.2.3.4”端口为5001的tcp通信做限速：桶最大值也是初始值就是10个tcp包，每秒新增1个tcp包，所以发包速率峰值基本上可以认为是”10个包/每秒”；当客户端每秒有100个包要发出去时，基本上到后面发包速度会基本限制在”1个包/每秒”；</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# iptables -A OUTPUT -d 1.2.3.4&#x2F;32 -p tcp -m limit --limit 1&#x2F;sec --limit-burst 10 --dport 5001 -j ACCEPT</span><br><span class="line">[root@instance-fj5pftdp ~]# iptables -A OUTPUT -d 1.2.3.4&#x2F;32 -p tcp --dport 5001 -j DROP</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>实践验证限速效果</p>
+<p>准备两台机器：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* &#96;instance-fj5pftdp&#96;发包</span><br><span class="line">* &#96;1.2.3.4&#96;收包 (为了我避免暴露自己的虚机ip，这里用1.2.3.4代替)</span><br></pre></td></tr></table></figure>
+
+<p>在发包机器上 使用iptables限制通信，然后传输大文件，并使用tcpdump观察包速率</p>
+<p>第一步：设置iptables，指令如上</p>
+<p>第二步：传输大文件</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 使用&#96;truncate -s 1G bigfil&#96;创建&quot;稀疏文件&quot;</span><br><span class="line">* 使用&#96;nc 1.2.3.4 5001 &lt; bigfile&#96;传输文件</span><br></pre></td></tr></table></figure>
+
+<p>第三步：使用tcpdump观察包速率：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# tcpdump -i eth0 &#39;port 5001 and ip dst 1.2.3.4&#39;</span><br><span class="line">22:52:00.743321 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [S], seq 2314647925, win 27200, options [mss 1360,sackOK,TS val 2324847321 ecr 0,nop,wscale 7], length 0</span><br><span class="line">22:52:00.780074 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], ack 1736746942, win 213, options [nop,nop,TS val 2324847358 ecr 3661297505], length 0</span><br><span class="line">22:52:00.780253 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 0:2696, ack 1, win 213, options [nop,nop,TS val 2324847358 ecr 3661297505], length 2696</span><br><span class="line">22:52:00.780516 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 2696:5392, ack 1, win 213, options [nop,nop,TS val 2324847359 ecr 3661297505], length 2696</span><br><span class="line">22:52:00.780533 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 5392:8088, ack 1, win 213, options [nop,nop,TS val 2324847359 ecr 3661297505], length 2696</span><br><span class="line">22:52:00.780538 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 8088:8192, ack 1, win 213, options [nop,nop,TS val 2324847359 ecr 3661297505], length 104</span><br><span class="line">22:52:00.780571 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 8192:10888, ack 1, win 213, options [nop,nop,TS val 2324847359 ecr 3661297505], length 2696</span><br><span class="line">22:52:00.780587 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 10888:12236, ack 1, win 213, options [nop,nop,TS val 2324847359 ecr 3661297505], length 1348</span><br><span class="line">22:52:00.816636 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 12236:14932, ack 1, win 213, options [nop,nop,TS val 2324847395 ecr 3661297542], length 2696</span><br><span class="line">22:52:00.816674 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [.], seq 14932:17628, ack 1, win 213, options [nop,nop,TS val 2324847395 ecr 3661297542], length 2696</span><br><span class="line">22:52:02.513394 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 17628:18976, ack 1, win 213, options [nop,nop,TS val 2324849092 ecr 3661297578], length 1348</span><br><span class="line">22:52:02.786393 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 18976:20324, ack 1, win 213, options [nop,nop,TS val 2324849365 ecr 3661299275], length 1348</span><br><span class="line">22:52:04.485382 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 20324:21672, ack 1, win 213, options [nop,nop,TS val 2324851064 ecr 3661299548], length 1348</span><br><span class="line">22:52:04.759396 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 21672:23020, ack 1, win 213, options [nop,nop,TS val 2324851338 ecr 3661301247], length 1348</span><br><span class="line">22:52:06.457405 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 23020:24368, ack 1, win 213, options [nop,nop,TS val 2324853036 ecr 3661301521], length 1348</span><br><span class="line">22:52:07.205354 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 24368:25716, ack 1, win 213, options [nop,nop,TS val 2324853784 ecr 3661303219], length 1348</span><br><span class="line">22:52:07.953399 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 25716:27064, ack 1, win 213, options [nop,nop,TS val 2324854532 ecr 3661303967], length 1348</span><br><span class="line">22:52:09.651384 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 27064:28412, ack 1, win 213, options [nop,nop,TS val 2324856230 ecr 3661304715], length 1348</span><br><span class="line">22:52:09.924396 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 28412:29760, ack 1, win 213, options [nop,nop,TS val 2324856503 ecr 3661306413], length 1348</span><br><span class="line">22:52:11.621372 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 29760:31108, ack 1, win 213, options [nop,nop,TS val 2324858200 ecr 3661306686], length 1348</span><br><span class="line">22:52:11.894385 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 31108:32456, ack 1, win 213, options [nop,nop,TS val 2324858473 ecr 3661308383], length 1348</span><br><span class="line">22:52:13.593387 IP instance-fj5pftdp.56634 &gt; 1.2.3.4.commplex-link: Flags [P.], seq 32456:33804, ack 1, win 213, options [nop,nop,TS val 2324860172 ecr 3661308656], length 1348</span><br></pre></td></tr></table></figure>
+<p>可以看到最开始<code>22:52:00</code>通过了10个包，然后大概每秒可以通过1个包。</p>
+</li>
+</ul>
+<h1 id="agent进程io读限速"><a href="#agent进程io读限速" class="headerlink" title="agent进程io读限速"></a>agent进程io读限速</h1><ul>
+<li><p>在linux主机上怎么给进程io读写限速呢？</p>
+<p>可以通过cgroup实现：cgroup是一种文件系统，可以用来限制cpu、内存、io等资源使用；cgroup也是docker的核心原理之一。</p>
+<p>cgroup有v1、v2两个版本，其中v1 只能限制”直接io”，v2版本对内核版本要求在4.5以上（似乎）。而hids等应用程序读文件大部分应该都是”缓冲io”，所以无法用v1版本的cgroup限制。我也只实验验证v1版本的对”直接io”的限制。</p>
+<blockquote>
+<p>如果想要了解更多”直接io”和”缓冲io”相关概念，可以参考 <a target="_blank" rel="noopener" href="https://time.geekbang.org/column/article/76876">23 | 基础篇：Linux 文件系统是怎么工作的？</a> 这篇。</p>
+</blockquote>
+<p>关于cgroup的介绍和使用可以参考网上的很多文章，比如 <a target="_blank" rel="noopener" href="https://tech.meituan.com/2015/03/31/cgroups.html">Linux资源管理之cgroups简介</a> 和 <a target="_blank" rel="noopener" href="https://man7.org/linux/man-pages/man7/cgroups.7.html">man手册</a></p>
+<p>“利用cgroup对进程io读写做限速”可以参考 <a target="_blank" rel="noopener" href="https://andrestc.com/post/cgroups-io/">Using cgroups to limit I/O</a>，这一篇文章有完整的实验过程。此小节我只记录”需要注意的细节”和文章没有提到的内容。</p>
+</li>
+</ul>
+<h2 id="细节"><a href="#细节" class="headerlink" title="细节"></a>细节</h2><ul>
+<li><p>确认配置</p>
+<p>根据 <a target="_blank" rel="noopener" href="https://www.kernel.org/doc/Documentation/cgroup-v1/blkio-controller.txt">cgroup-v1文档</a> 手册说明，需要先确认内核是否支持cgroup io限速</p>
+<p>比如确认如下选项是否开启</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# cat &#x2F;boot&#x2F;config-$(uname -r)|grep -i CONFIG_BLK_CGROUP</span><br><span class="line">CONFIG_BLK_CGROUP&#x3D;y</span><br><span class="line">[root@instance-fj5pftdp ~]# cat &#x2F;boot&#x2F;config-$(uname -r)|grep -i CONFIG_BLK_DEV_THROTTLING</span><br><span class="line">CONFIG_BLK_DEV_THROTTLING&#x3D;y</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>dd命令需要添加<code>oflag=direct</code>参数和bs参数必须是512（一个扇区的大小）的倍数</p>
+<p>因为cgroup v1 只能限制”直接io”，所以dd需要添加<code>oflag=direct</code>参数。</p>
+<p>而使用”直接io”，磁盘io需要扇区对齐，也就是每次写入的字节大小必须是一个扇区大小的倍数。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# dd if&#x3D;&#x2F;dev&#x2F;zero of&#x3D;&#x2F;tmp&#x2F;file2 bs&#x3D;512 count&#x3D;1 oflag&#x3D;direct</span><br><span class="line">...</span><br><span class="line">512字节(512 B)已复制，0.00518424 秒，98.8 kB&#x2F;秒</span><br><span class="line">[root@instance-fj5pftdp ~]# dd if&#x3D;&#x2F;dev&#x2F;zero of&#x3D;&#x2F;tmp&#x2F;file2 bs&#x3D;511 count&#x3D;1 oflag&#x3D;direct   &#x2F;&#x2F; 非512倍数时，写入报错</span><br><span class="line">dd: 写入&quot;&#x2F;tmp&#x2F;file2&quot; 出错: 无效的参数</span><br><span class="line">...</span><br><span class="line">[root@instance-fj5pftdp ~]# dd if&#x3D;&#x2F;dev&#x2F;zero of&#x3D;&#x2F;tmp&#x2F;file2 bs&#x3D;511 count&#x3D;1    &#x2F;&#x2F; &quot;缓冲io&quot;（非&quot;直接io&quot;）时，不需要用户对齐</span><br><span class="line">...</span><br><span class="line">511字节(511 B)已复制，0.000360275 秒，1.4 MB&#x2F;秒</span><br></pre></td></tr></table></figure>
+
+<p>如果想要了解更多”磁盘io对齐”相关知识，可以参考 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/rqq-GgZMMs5gj6p_VJqEVA">存储基础 —— 磁盘 IO 为什么总叫你对齐？</a> 这篇。</p>
+</li>
+<li><p>实验过程中遇到的报错</p>
+<p>在向配置中”写正在使用的分区”和”不正确的设备号”都会提示”无效的参数”报错，如下：</p>
+<p>似乎不能写正在使用的分区”/dev/vda1”</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# df -h</span><br><span class="line">...</span><br><span class="line">&#x2F;dev&#x2F;vda1        79G   71G  4.6G  94% &#x2F;</span><br><span class="line">[root@instance-fj5pftdp ~]# cat &#x2F;proc&#x2F;partitions</span><br><span class="line">major minor  #blocks  name</span><br><span class="line"></span><br><span class="line"> 253        0   83886080 vda</span><br><span class="line"> 253        1   83885039 vda1</span><br><span class="line"></span><br><span class="line">[root@instance-fj5pftdp test1]# echo &#39;253:1 100&#39; &gt; blkio.throttle.read_bps_device   &#x2F;&#x2F; 253对应&#x2F;dev&#x2F;vda1，似乎因为已经被挂载使用，所以不能被写入配置</span><br><span class="line">-bash: echo: 写错误: 无效的参数</span><br><span class="line">[root@instance-fj5pftdp test1]# echo &#39;253:0 100&#39; &gt; blkio.throttle.read_bps_device</span><br></pre></td></tr></table></figure>
+
+<p>不能限制”字符设备”，只能限制”块设备”。当写入”字符设备的设备号”到配置时，就会报错</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# ll &#x2F;dev|grep &quot;5,&quot;</span><br><span class="line">crw-------  1 root root      5,   1 Apr 28 21:51 console</span><br><span class="line">crw-rw-rw-  1 root tty       5,   2 Oct 22 13:45 ptmx</span><br><span class="line">crw-rw-rw-  1 root tty       5,   0 Oct 12 13:06 tty</span><br><span class="line">[root@instance-fj5pftdp test1]# echo &#39;5:1 100&#39; &gt; blkio.throttle.read_bps_device   &#x2F;&#x2F; 5(主设备号)代表了&quot;字符设备&quot;</span><br><span class="line">-bash: echo: 写错误: 无效的参数</span><br></pre></td></tr></table></figure>
+
+</li>
+</ul>
+<h1 id="限制cpu使用"><a href="#限制cpu使用" class="headerlink" title="限制cpu使用"></a>限制cpu使用</h1><ul>
+<li><p>怎么限制cpu使用？</p>
+<p>同样使用cgroup。</p>
+</li>
+</ul>
+<h2 id="使用cgroup限制cpu使用"><a href="#使用cgroup限制cpu使用" class="headerlink" title="使用cgroup限制cpu使用"></a>使用cgroup限制cpu使用</h2><ul>
+<li><p>利用<code>stress</code>命令创建高cpu占用的”测试进程”</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp test]# stress -c 1 &amp;</span><br><span class="line">[1] 27924</span><br><span class="line">[root@instance-fj5pftdp test]# stress: info: [27924] dispatching hogs: 1 cpu, 0 io, 0 vm, 0 hdd</span><br><span class="line"></span><br><span class="line">[root@instance-fj5pftdp test]# ps aux|grep stress</span><br><span class="line">root     27924  0.0  0.0   7312   424 pts&#x2F;65   S    23:02   0:00 stress -c 1</span><br><span class="line">root     27925 96.0  0.0   7312    96 pts&#x2F;65   R    23:02   0:10 stress -c 1    &#x2F;&#x2F; 实际工作的进程</span><br></pre></td></tr></table></figure>
+
+<p>验证cpu占用，可以看出来单核cpu占用100%</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp test]# top -b -p 27925</span><br><span class="line">...</span><br><span class="line">  PID USER      PR  NI    VIRT    RES    SHR S  %CPU %MEM     TIME+ COMMAND</span><br><span class="line">27925 root      20   0    7312     96      0 R 100.0  0.0   2:32.58 stress</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>利用<code>cgroup</code>限制”测试进程”的使用</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# mkdir &#x2F;sys&#x2F;fs&#x2F;cgroup&#x2F;cpu&#x2F;test-cpu-limit</span><br><span class="line">[root@instance-fj5pftdp ~]# echo 27925 &gt; &#x2F;sys&#x2F;fs&#x2F;cgroup&#x2F;cpu&#x2F;test-cpu-limit&#x2F;tasks    &#x2F;&#x2F; 进程号是27925</span><br><span class="line">[root@instance-fj5pftdp ~]# echo 10000 &gt; &#x2F;sys&#x2F;fs&#x2F;cgroup&#x2F;cpu&#x2F;test-cpu-limit&#x2F;cpu.cfs_quota_us   &#x2F;&#x2F; quota &#x3D; 10ms</span><br><span class="line">[root@instance-fj5pftdp ~]# echo 50000 &gt; &#x2F;sys&#x2F;fs&#x2F;cgroup&#x2F;cpu&#x2F;test-cpu-limit&#x2F;cpu.cfs_period_us  &#x2F;&#x2F; period &#x3D; 50ms</span><br></pre></td></tr></table></figure>
+
+<p>限制cpu使用率是20%（10ms/50ms）</p>
+<p>查看是否限制stress进程</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# top -b -p 27925</span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">  PID USER      PR  NI    VIRT    RES    SHR S  %CPU %MEM     TIME+ COMMAND</span><br><span class="line">27925 root      20   0    7312     96      0 R  20.0  0.0   9:30.61 stress</span><br></pre></td></tr></table></figure>
+<p>可以看到限制成功</p>
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>使用cgroup限制cpu、io等是很简单的。</p>
+<p>因为用cgroup”限制网络流量”没有测试成功，所以也就没有记录。</p>
+<p>本文提到的手段没有在真实的对抗中实践过，仅仅是我自己的研究，欢迎与我交流。</p>
+<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a target="_blank" rel="noopener" href="https://qastack.cn/superuser/287371/obtain-kernel-config-from-currently-running-linux-system">怎么查看内核配置</a></p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%80%9F%E5%8A%A9crash%E5%B7%A5%E5%85%B7%E7%90%86%E8%A7%A3linux%E7%B3%BB%E7%BB%9F%E7%9A%84%E5%86%85%E5%AD%98%E5%88%86%E9%85%8D/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -814,6 +967,116 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%8F%8D%E6%B7%B7%E6%B7%86%22%E6%8E%A7%E5%88%B6%E6%B5%81%E5%B9%B3%E5%9D%A6%E5%8C%96%22/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E5%8F%8D%E6%B7%B7%E6%B7%86%22%E6%8E%A7%E5%88%B6%E6%B5%81%E5%B9%B3%E5%9D%A6%E5%8C%96%22/" class="post-title-link" itemprop="url">反混淆"控制流平坦化"</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>业务逻辑非常依赖前端的安全产品，比如<a target="_blank" rel="noopener" href="https://www.geetest.com/">极验</a>、<a target="_blank" rel="noopener" href="https://www.dingxiang-inc.com/docs/detail/captcha">顶象-无感验证</a>、瑞数 等都会对前端代码做混淆。其中有一种强度较高的混淆方式，叫”控制流平坦化”。</p>
+<blockquote>
+<p>“控制流平坦化”是将一些顺序执行的代码，变化成阅读难度更大的<code>while-switch-case</code>或者<code>for-switch-case</code>代码。可以见<a target="_blank" rel="noopener" href="https://github.com/Tsaiboss/ControlFlow">ControlFlow</a>这个项目的例子。</p>
+</blockquote>
+<p>如果能够”反混淆”这种”控制流平坦化”混淆后的代码，就能让代码变得更容易阅读一些。</p>
+<p>本文介绍”反控制流平坦化”的思路和实践过程，最终可以反混淆<code>ControlFlow</code>和<code>https://obfuscator.io/</code>两个工具的”控制流平坦化”。</p>
+<p>反混淆思路：</p>
+<ul>
+<li>按照”while-switch-case”执行顺序，拼接case语句</li>
+</ul>
+<h1 id="实现过程"><a href="#实现过程" class="headerlink" title="实现过程"></a>实现过程</h1><ul>
+<li><p>怎么实现？</p>
+<p>分为两步：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 第一步获取case块的执行顺序</span><br><span class="line">* 第二部根据case块的执行顺序，拼接case块</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>怎么获取”case块的执行顺序”？</p>
+<p>思路是在每个case块中”注入代码”，然后在浏览器中执行js代码，执行过程”注入代码”就可以记录执行顺序。我理解这个类似”软件测试”中计算”代码覆盖率”时用到的插桩。</p>
+<p>原始代码如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">while (!![])&#123;</span><br><span class="line">  switch (...)&#123;</span><br><span class="line">    case &quot;0&quot;:</span><br><span class="line">      ...</span><br><span class="line">    case &quot;1&quot;:</span><br><span class="line">      ...</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>插桩后,代码如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;&#x2F; 利用&quot;插桩&quot;记录while-switch-case执行顺序</span><br><span class="line">&#x2F;&#x2F; 集合 &#x3D; &#123;while id: [case1节点, case2节点，case3节点，case2节点]&#125;</span><br><span class="line"></span><br><span class="line">let while_id_stack &#x3D; []  &#x2F;&#x2F; 栈</span><br><span class="line"></span><br><span class="line">let collection &#x3D; &#123;&#125;</span><br><span class="line"></span><br><span class="line">while (!![])&#123;</span><br><span class="line">  while_statement_id &#x3D; 111</span><br><span class="line">  while_id_stack.push(while_statement_id)</span><br><span class="line">  collection[while_statement_id] &#x3D; []</span><br><span class="line"></span><br><span class="line">  switch (...)&#123;</span><br><span class="line">    case &quot;0&quot;:</span><br><span class="line">      case_statement_id &#x3D; 222</span><br><span class="line">      while_id_on_stack_op &#x3D; while_id_stack[while_id_stack.length-1]</span><br><span class="line">      collection[while_id_on_stack_op].push(case_statement_id)</span><br><span class="line">      ...</span><br><span class="line">    case &quot;1&quot;:</span><br><span class="line">      ...</span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">  while_id_stack.pop()</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">record(collection)</span><br></pre></td></tr></table></figure>
+
+<p>浏览器运行后，集合中就存放有case节点的执行顺序。</p>
+<p>上面都是伪代码，具体实现见 hook.js</p>
+</li>
+<li><p>怎么拼接case块？</p>
+<p>伪代码如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line">集合 &#x3D; &#123;while id: [case1节点, case2节点，case3节点，case2节点]&#125;</span><br><span class="line"></span><br><span class="line">函数1：</span><br><span class="line"></span><br><span class="line">  遍历ast，如果遇到while语句 &#123;</span><br><span class="line">    得到当前while id</span><br><span class="line"></span><br><span class="line">    if while id in 集合:</span><br><span class="line">      顺序拼接各个case块内容</span><br><span class="line"></span><br><span class="line">      用&quot;拼接后的顺序语句&quot;替换&quot;while语句&quot;</span><br><span class="line"></span><br><span class="line">      从集合中删除 while id记录</span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">while 集合中还有元素:</span><br><span class="line"></span><br><span class="line">  调用 函数1</span><br></pre></td></tr></table></figure>
+
+<p>具体实现见 simple_decode.js</p>
+</li>
+</ul>
+<h1 id="实现结果"><a href="#实现结果" class="headerlink" title="实现结果"></a>实现结果</h1><p>可以将”while-switch-case代码块”变成”顺序执行的代码块”。</p>
+<p>比如 PlayWithObfuscator/tests/encoded_js/simple.js 中的混淆后的代码</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">while (!![]) &#123;</span><br><span class="line">    switch (_0xcgcd3c[_0x3922ce++]) &#123;</span><br><span class="line">        case &quot;0&quot;:</span><br><span class="line">            if (_0x33g15b &#x3D; _0x5153cd.charCodeAt(_0xeea791 +&#x3D; .75), _0x33g15b &gt; 255) throw new t(&quot;&#39;btoa&#39; failed: The string to be encoded contains characters outside of the Latin1 range.&quot;);</span><br><span class="line">            continue;</span><br><span class="line"></span><br><span class="line">        case &quot;1&quot;:</span><br><span class="line">            _0xed1fcd &#x3D; _0xed1fcd &lt;&lt; 8 | _0x33g15b;</span><br><span class="line">            continue;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    break;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>转换成 阅读性更好一些的代码</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">if (_0x33g15b &#x3D; _0x5153cd.charCodeAt(_0xeea791 +&#x3D; .75), _0x33g15b &gt; 255) throw new t(&quot;&#39;btoa&#39; failed: The string to be encoded contains characters outside of the Latin1 range.&quot;);</span><br><span class="line">_0xed1fcd &#x3D; _0xed1fcd &lt;&lt; 8 | _0x33g15b;</span><br></pre></td></tr></table></figure>
+
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>目前属于demo阶段，可以对以下工具的”控制流平坦化”做反混淆：</p>
+<ul>
+<li><a target="_blank" rel="noopener" href="https://obfuscator.io/">https://obfuscator.io/</a></li>
+<li><a target="_blank" rel="noopener" href="https://github.com/Tsaiboss/ControlFlow">https://github.com/Tsaiboss/ControlFlow</a></li>
+</ul>
+<p>测试结果在 <a target="_blank" rel="noopener" href="https://github.com/leveryd/PlayWithObfuscator/tree/main/tests">tests目录</a> 看到</p>
+<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a target="_blank" rel="noopener" href="https://blog.csdn.net/a314131070/article/details/106567825?spm=1001.2014.3001.5501">JS反混淆-控制流平展（一）</a></p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%88%86%E6%9E%90bash%E5%8F%8D%E5%BC%B9shell%E7%9A%84%E8%AF%AD%E6%B3%95/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -908,116 +1171,6 @@
 <li><a target="_blank" rel="noopener" href="https://www.jianshu.com/p/f10736931b93">【bash】关于 /dev/tcp/${HOST}/${PORT}</a></li>
 <li><a target="_blank" rel="noopener" href="https://www.jianshu.com/p/80d6b5a61372">Bash /dev/(tcp|udp)/${HOST}/${PORT} 分析</a></li>
 </ul>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%8F%8D%E6%B7%B7%E6%B7%86%22%E6%8E%A7%E5%88%B6%E6%B5%81%E5%B9%B3%E5%9D%A6%E5%8C%96%22/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E5%8F%8D%E6%B7%B7%E6%B7%86%22%E6%8E%A7%E5%88%B6%E6%B5%81%E5%B9%B3%E5%9D%A6%E5%8C%96%22/" class="post-title-link" itemprop="url">反混淆"控制流平坦化"</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>业务逻辑非常依赖前端的安全产品，比如<a target="_blank" rel="noopener" href="https://www.geetest.com/">极验</a>、<a target="_blank" rel="noopener" href="https://www.dingxiang-inc.com/docs/detail/captcha">顶象-无感验证</a>、瑞数 等都会对前端代码做混淆。其中有一种强度较高的混淆方式，叫”控制流平坦化”。</p>
-<blockquote>
-<p>“控制流平坦化”是将一些顺序执行的代码，变化成阅读难度更大的<code>while-switch-case</code>或者<code>for-switch-case</code>代码。可以见<a target="_blank" rel="noopener" href="https://github.com/Tsaiboss/ControlFlow">ControlFlow</a>这个项目的例子。</p>
-</blockquote>
-<p>如果能够”反混淆”这种”控制流平坦化”混淆后的代码，就能让代码变得更容易阅读一些。</p>
-<p>本文介绍”反控制流平坦化”的思路和实践过程，最终可以反混淆<code>ControlFlow</code>和<code>https://obfuscator.io/</code>两个工具的”控制流平坦化”。</p>
-<p>反混淆思路：</p>
-<ul>
-<li>按照”while-switch-case”执行顺序，拼接case语句</li>
-</ul>
-<h1 id="实现过程"><a href="#实现过程" class="headerlink" title="实现过程"></a>实现过程</h1><ul>
-<li><p>怎么实现？</p>
-<p>分为两步：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 第一步获取case块的执行顺序</span><br><span class="line">* 第二部根据case块的执行顺序，拼接case块</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>怎么获取”case块的执行顺序”？</p>
-<p>思路是在每个case块中”注入代码”，然后在浏览器中执行js代码，执行过程”注入代码”就可以记录执行顺序。我理解这个类似”软件测试”中计算”代码覆盖率”时用到的插桩。</p>
-<p>原始代码如下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">while (!![])&#123;</span><br><span class="line">  switch (...)&#123;</span><br><span class="line">    case &quot;0&quot;:</span><br><span class="line">      ...</span><br><span class="line">    case &quot;1&quot;:</span><br><span class="line">      ...</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>插桩后,代码如下</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;&#x2F; 利用&quot;插桩&quot;记录while-switch-case执行顺序</span><br><span class="line">&#x2F;&#x2F; 集合 &#x3D; &#123;while id: [case1节点, case2节点，case3节点，case2节点]&#125;</span><br><span class="line"></span><br><span class="line">let while_id_stack &#x3D; []  &#x2F;&#x2F; 栈</span><br><span class="line"></span><br><span class="line">let collection &#x3D; &#123;&#125;</span><br><span class="line"></span><br><span class="line">while (!![])&#123;</span><br><span class="line">  while_statement_id &#x3D; 111</span><br><span class="line">  while_id_stack.push(while_statement_id)</span><br><span class="line">  collection[while_statement_id] &#x3D; []</span><br><span class="line"></span><br><span class="line">  switch (...)&#123;</span><br><span class="line">    case &quot;0&quot;:</span><br><span class="line">      case_statement_id &#x3D; 222</span><br><span class="line">      while_id_on_stack_op &#x3D; while_id_stack[while_id_stack.length-1]</span><br><span class="line">      collection[while_id_on_stack_op].push(case_statement_id)</span><br><span class="line">      ...</span><br><span class="line">    case &quot;1&quot;:</span><br><span class="line">      ...</span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">  while_id_stack.pop()</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">record(collection)</span><br></pre></td></tr></table></figure>
-
-<p>浏览器运行后，集合中就存放有case节点的执行顺序。</p>
-<p>上面都是伪代码，具体实现见 hook.js</p>
-</li>
-<li><p>怎么拼接case块？</p>
-<p>伪代码如下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line">集合 &#x3D; &#123;while id: [case1节点, case2节点，case3节点，case2节点]&#125;</span><br><span class="line"></span><br><span class="line">函数1：</span><br><span class="line"></span><br><span class="line">  遍历ast，如果遇到while语句 &#123;</span><br><span class="line">    得到当前while id</span><br><span class="line"></span><br><span class="line">    if while id in 集合:</span><br><span class="line">      顺序拼接各个case块内容</span><br><span class="line"></span><br><span class="line">      用&quot;拼接后的顺序语句&quot;替换&quot;while语句&quot;</span><br><span class="line"></span><br><span class="line">      从集合中删除 while id记录</span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">while 集合中还有元素:</span><br><span class="line"></span><br><span class="line">  调用 函数1</span><br></pre></td></tr></table></figure>
-
-<p>具体实现见 simple_decode.js</p>
-</li>
-</ul>
-<h1 id="实现结果"><a href="#实现结果" class="headerlink" title="实现结果"></a>实现结果</h1><p>可以将”while-switch-case代码块”变成”顺序执行的代码块”。</p>
-<p>比如 PlayWithObfuscator/tests/encoded_js/simple.js 中的混淆后的代码</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">while (!![]) &#123;</span><br><span class="line">    switch (_0xcgcd3c[_0x3922ce++]) &#123;</span><br><span class="line">        case &quot;0&quot;:</span><br><span class="line">            if (_0x33g15b &#x3D; _0x5153cd.charCodeAt(_0xeea791 +&#x3D; .75), _0x33g15b &gt; 255) throw new t(&quot;&#39;btoa&#39; failed: The string to be encoded contains characters outside of the Latin1 range.&quot;);</span><br><span class="line">            continue;</span><br><span class="line"></span><br><span class="line">        case &quot;1&quot;:</span><br><span class="line">            _0xed1fcd &#x3D; _0xed1fcd &lt;&lt; 8 | _0x33g15b;</span><br><span class="line">            continue;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    break;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>转换成 阅读性更好一些的代码</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">if (_0x33g15b &#x3D; _0x5153cd.charCodeAt(_0xeea791 +&#x3D; .75), _0x33g15b &gt; 255) throw new t(&quot;&#39;btoa&#39; failed: The string to be encoded contains characters outside of the Latin1 range.&quot;);</span><br><span class="line">_0xed1fcd &#x3D; _0xed1fcd &lt;&lt; 8 | _0x33g15b;</span><br></pre></td></tr></table></figure>
-
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>目前属于demo阶段，可以对以下工具的”控制流平坦化”做反混淆：</p>
-<ul>
-<li><a target="_blank" rel="noopener" href="https://obfuscator.io/">https://obfuscator.io/</a></li>
-<li><a target="_blank" rel="noopener" href="https://github.com/Tsaiboss/ControlFlow">https://github.com/Tsaiboss/ControlFlow</a></li>
-</ul>
-<p>测试结果在 <a target="_blank" rel="noopener" href="https://github.com/leveryd/PlayWithObfuscator/tree/main/tests">tests目录</a> 看到</p>
-<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a target="_blank" rel="noopener" href="https://blog.csdn.net/a314131070/article/details/106567825?spm=1001.2014.3001.5501">JS反混淆-控制流平展（一）</a></p>
 
       
     </div>
@@ -1275,137 +1428,6 @@
 <p>但是如果直接<code>cat /proc/&#123;pid&#125;/exe</code>，就会发现仍然可以读到源二进制程序内容。</p>
 <p>那怎么让<code>/proc/&#123;pid&#125;/exe</code>也无法还原出二进制程序呢，这个问题留给读者思考。</p>
 <p>本文提到的手段没有在真实的对抗中实践过，仅仅是我自己的研究，欢迎与我交流。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-requests.get%E5%8D%A1%E4%BD%8F/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-requests.get%E5%8D%A1%E4%BD%8F/" class="post-title-link" itemprop="url">requests.get卡住</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>之前线上的漏洞扫描遇到一个奇怪的问题:requests.get即使设置了timeout，仍然卡住。</p>
-<p>看lijiejie大佬 <a target="_blank" rel="noopener" href="http://www.lijiejie.com/requests-get-hang/">requests.get 异常hang住</a> 也碰到过这个问题。</p>
-<p>所以，我想要探究以下问题:</p>
-<ul>
-<li>requests库中timeout参数的具体含义是什么?</li>
-<li>为什么requests.get时timeout参数”失效”?</li>
-</ul>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><h2 id="requests库中timeout参数的具体含义是什么"><a href="#requests库中timeout参数的具体含义是什么" class="headerlink" title="requests库中timeout参数的具体含义是什么?"></a>requests库中timeout参数的具体含义是什么?</h2><ul>
-<li><p>requests库中timeout参数是什么?</p>
-<p>根据<a target="_blank" rel="noopener" href="https://docs.python-requests.org/en/master/user/advanced/#timeouts">官网文档</a>所说,timeout可以表示(connect超时时间,read超时时间)</p>
-</li>
-<li><p>什么是connect超时?</p>
-<p>客户端需要connect系统调用来和服务端做tcp三次握手，当服务地址在互联网上不存在时，connect系统调用耗时就会比较长。</p>
-<p>比如请求1.1.2.3 过一段时间后会返回一个connect tiemout:</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">python -c &#39;import requests;requests.get(&quot;http:&#x2F;&#x2F;1.1.2.3&quot;)&#39;</span><br></pre></td></tr></table></figure>
-
-<p>在上面请求1.1.2.3这个不存在的ip时，客户端发出的 syn 包没有任何响应，于是客户端会重传syn包</p>
-<ul>
-<li>重传次数在 /proc/sys/net/ipv4/tcp_syn_retries 可以配置</li>
-<li>重传间隔时间并不是固定的，在Linux系统上测试结果是 [1,3,7,15,31]s，似乎就是 2^(n+1)-1</li>
-</ul>
-<p>如果重试完后仍然没有收到ack包，就会出现connect timeout</p>
-<p>而request的timeout参数就可以减少这个等重传的时间。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">python -c &#39;import requests;requests.get(&quot;http:&#x2F;&#x2F;1.1.2.3&quot;, timeout&#x3D;(1, 100))&#39; # 1s的connect超时设置</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>怎么实现的connect超时控制?</p>
-<p>connect、read等系统调用是没有参数可以控制超时时间的，那connect超时控制是怎么实现的呢?</p>
-<p>在Modules/socketmodule.c可以找到connect函数的实现</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">1. socket设置成非阻塞模式</span><br><span class="line"></span><br><span class="line">...</span><br><span class="line">sock_call_ex(...,_PyTime_t timeout) &#123;</span><br><span class="line">  ...</span><br><span class="line">  interval &#x3D; timeout;</span><br><span class="line">  ...</span><br><span class="line">  res &#x3D; internal_select(s, writing, interval, connect);</span><br><span class="line">  ...</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">static int internal_select(PySocketSockObject *s, int writing, _PyTime_t interval,</span><br><span class="line">            int connect)&#123;</span><br><span class="line">  ...</span><br><span class="line">  ms &#x3D; _PyTime_AsMilliseconds(interval, _PyTime_ROUND_CEILING);</span><br><span class="line">  ...</span><br><span class="line">  n &#x3D; poll(&amp;pollfd, 1, (int)ms);  2. poll系统调用，如果超时,poll系统调用就会返回</span><br></pre></td></tr></table></figure>
-
-<p>流程如下:</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 设置socket为非阻塞模式后，调用connect系统调用</span><br><span class="line">* 使用poll系统调用来判断是否超时</span><br></pre></td></tr></table></figure>
-
-<p>实际上这是一种很通用的对connect做超时控制的方式，在其他tcp客户端中也可以这么实现超时控制。</p>
-</li>
-<li><p>什么是read超时?</p>
-<p>客户端需要调用read系统调用来读取服务端发送的数据，如果服务端一直不发送数据，读数据时就会卡住。</p>
-<p>比如我们用nc命令开启一个服务端只负责监听建立链接,不发送数据.</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">nc -l 8081</span><br></pre></td></tr></table></figure>
-<p>客户端请求nc开启的服务,代码如下,3s后会出现读超时</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">import requests</span><br><span class="line">requests.get(&quot;http:&#x2F;&#x2F;127.0.0.1:8081&quot;, timeout&#x3D;(1,3)) # read超时时间设置成3s</span><br></pre></td></tr></table></figure>
-
-</li>
-</ul>
-<h2 id="为什么requests-get时timeout参数”失效”"><a href="#为什么requests-get时timeout参数”失效”" class="headerlink" title="为什么requests.get时timeout参数”失效”?"></a>为什么requests.get时timeout参数”失效”?</h2><p>  requests.get在 dns解析、connect、read 这些阶段都有可能耗时比较久。下面分别说一下timeout在这三个阶段中是否生效。</p>
-<p>  文档中只说了timeout控制connect、read两个阶段，说明dns解析耗时很久时timeout是管不了的。<br>  我自己实验，也得出相同的结论：dns解析时间即使超过timeout，也不会抛出异常。</p>
-<p>  connect阶段在上面已经分析过，timeout是可以控制这一阶段最多花费多长时间的。</p>
-<p>  Python中的read超时不是一个全局的时间，它只是在每一次读socket时不能超过这个时间。而一次响应的读取可能有多次read操作。这儿可能和其他的http客户端（比如curl）等超时时间含义不同。</p>
-<p>  如果服务端能够让客户端read非常多次，且每一次时间都不超过read timeout值，这个时候客户端会卡住。</p>
-<p>  所以，在下面两种情况下是会造成read timeout参数“失效”的:</p>
-<ul>
-<li><p>响应中content-length是一个特别大的数，服务端缓慢的每次响应1字节</p>
-</li>
-<li><p>服务端返回的响应码是100，同时服务端持续不断地返回响应头，也会导致客户端持续不断的read</p>
-<p>比如下面的服务端持续不断地返回响应头，会导致客户端卡住。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br></pre></td><td class="code"><pre><span class="line"># coding:utf-8</span><br><span class="line">from socket import *</span><br><span class="line">from multiprocessing import *</span><br><span class="line">from time import sleep</span><br><span class="line"></span><br><span class="line">def dealWithClient(newSocket,destAddr):</span><br><span class="line">    recvData &#x3D; newSocket.recv(1024)</span><br><span class="line">    newSocket.send(b&quot;&quot;&quot;HTTP&#x2F;1.1 100 OK\n&quot;&quot;&quot;)</span><br><span class="line"></span><br><span class="line">    while True:</span><br><span class="line">        # recvData &#x3D; newSocket.recv(1024)</span><br><span class="line">        newSocket.send(b&quot;&quot;&quot;x:a\n&quot;&quot;&quot;)</span><br><span class="line"></span><br><span class="line">        if len(recvData)&gt;0:</span><br><span class="line">            # print(&#39;recv[%s]:%s&#39;%(str(destAddr), recvData))</span><br><span class="line">            pass</span><br><span class="line">        else:</span><br><span class="line">            print(&#39;[%s]close&#39;%str(destAddr))</span><br><span class="line">            sleep(10)</span><br><span class="line">            print(&#39;over&#39;)</span><br><span class="line">            break</span><br><span class="line"></span><br><span class="line">    # newSocket.close()</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def main():</span><br><span class="line"></span><br><span class="line">    serSocket &#x3D; socket(AF_INET, SOCK_STREAM)</span><br><span class="line">    serSocket.setsockopt(SOL_SOCKET, SO_REUSEADDR  , 1)</span><br><span class="line">    localAddr &#x3D; (&#39;&#39;, 8085)</span><br><span class="line">    serSocket.bind(localAddr)</span><br><span class="line">    serSocket.listen(5)</span><br><span class="line"></span><br><span class="line">    try:</span><br><span class="line">        while True:</span><br><span class="line">            newSocket,destAddr &#x3D; serSocket.accept()</span><br><span class="line"></span><br><span class="line">            client &#x3D; Process(target&#x3D;dealWithClient, args&#x3D;(newSocket,destAddr))</span><br><span class="line">            client.start()</span><br><span class="line"></span><br><span class="line">            newSocket.close()</span><br><span class="line">    finally:</span><br><span class="line">        serSocket.close()</span><br><span class="line"></span><br><span class="line">if __name__ &#x3D;&#x3D; &#39;__main__&#39;:</span><br><span class="line">    main()</span><br></pre></td></tr></table></figure>
-
-<p>更多的讨论可以见提交的bug <a target="_blank" rel="noopener" href="https://bugs.python.org/issue44022">urllib http client possible infinite loop on a 100 Continue response</a></p>
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>请求在 dns解析、connect、read 这些阶段都有可能耗时很久，其中：</p>
-<ul>
-<li>dns解析阶段 不受timeout参数控制</li>
-<li>connect阶段 受timeout参数控制</li>
-<li>read阶段 timeout不是全局的，如果服务端让客户端有很多次read操作，就有可能让客户端卡住</li>
-</ul>
-<p>阻塞时的connect系统调用是有默认的最大时间限制，这个和系统配置有关；可以用”非阻塞connect+select/poll”来实现connect的超时控制。</p>
-<p>在排查这个case原因时，发现这里存在潜在的dos攻击问题，也上报给Python官方，很快被修复了。</p>
 
       
     </div>

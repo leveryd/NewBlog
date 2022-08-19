@@ -125,7 +125,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">56</span>
+          <span class="site-state-item-count">57</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
@@ -159,6 +159,143 @@
 
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E9%AA%8C%E8%AF%81pf_ring%E6%80%A7%E8%83%BD/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E9%AA%8C%E8%AF%81pf_ring%E6%80%A7%E8%83%BD/" class="post-title-link" itemprop="url">验证pf_ring性能</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>本实验主要为了验证<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/kernel">pf_ring.ko</a>内核模块是否能够提升抓包率。</p>
+<p>实验思路很多参考自 <a target="_blank" rel="noopener" href="http://cea.ceaj.org/CN/article/downloadArticleFile.do?attachType=PDF&id=30309">PF_RING与NAPI结合的捕包性能优化和仿真.pdf</a></p>
+<p>通过分析源码得知：</p>
+<ul>
+<li>pf_ring.ko未加载到内核时，<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/libpcap-1.9.1">libpcap</a> 会使用PCAP_MMAP方式来抓包</li>
+<li>pf_ring.ko加载到内核时，<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/libpcap-1.9.1">libpcap</a> 会通过<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/lib">libpfring</a>配合pf_ring.ko内核模块来抓包</li>
+<li>pf_ring基本没有对 <a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/tcpdump-4.9.3">tcpdump</a> 做改动</li>
+</ul>
+<p>实验思路：</p>
+<ul>
+<li>使用pf_ring项目中的tcpdump抓包，计算抓包率</li>
+<li>使用pktgen发包</li>
+<li>在”加载pf_ring.ko”和”不加载pf_ring.ko”两种场景下分别测试三次</li>
+</ul>
+<p>实验环境：</p>
+<table>
+<thead>
+<tr>
+<th>机器用途</th>
+<th>配置</th>
+<th>操作系统</th>
+<th>备注</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>发包机</td>
+<td>2核4G、pps 40w</td>
+<td>CentOS 7.5</td>
+<td>云虚机</td>
+</tr>
+<tr>
+<td>收包机</td>
+<td>2核4G、pps 40w</td>
+<td>CentOS 7.5</td>
+<td>云虚机</td>
+</tr>
+</tbody></table>
+<h1 id="过程"><a href="#过程" class="headerlink" title="过程"></a>过程</h1><h2 id="准备测试环境"><a href="#准备测试环境" class="headerlink" title="准备测试环境"></a>准备测试环境</h2><ul>
+<li><p>收包机器编译安装tcpdump</p>
+<p>安装依赖</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">yum install flex bison kernel-headers kernel-devel gcc stress -y</span><br></pre></td></tr></table></figure>
+
+<p>依次编译<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/kernel">pf_ring.ko</a>、<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/lib">libpfring</a>、<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/libpcap-1.9.1">libpcap</a>、<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/tcpdump-4.9.3">tcpdump</a></p>
+</li>
+<li><p>发包机器编写发包脚本</p>
+<p>此bash脚本配置来自网络</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line"># 定义一个工具函数，方便后面配置各种测试选项</span><br><span class="line">function pgset() &#123;</span><br><span class="line">    local result</span><br><span class="line"># 定义一个工具函数，方便后面配置各种测试选项</span><br><span class="line">    echo $1 &gt; $PGDEV</span><br><span class="line"></span><br><span class="line">    result&#x3D;&#96;cat $PGDEV | fgrep &quot;Result: OK:&quot;&#96;</span><br><span class="line">    if [ &quot;$result&quot; &#x3D; &quot;&quot; ]; then</span><br><span class="line">         cat $PGDEV | fgrep Result:</span><br><span class="line">    fi</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"># 为0号线程绑定eth0网卡</span><br><span class="line">PGDEV&#x3D;&#x2F;proc&#x2F;net&#x2F;pktgen&#x2F;kpktgend_0</span><br><span class="line"></span><br><span class="line">pgset &quot;rem_device_all&quot;   # 清空网卡绑定</span><br><span class="line">pgset &quot;add_device eth0&quot;  # 添加eth0网卡</span><br><span class="line"></span><br><span class="line"># 配置eth0网卡的测试选项</span><br><span class="line">PGDEV&#x3D;&#x2F;proc&#x2F;net&#x2F;pktgen&#x2F;eth0</span><br><span class="line">pgset &quot;count 2000&quot;    # 总发包数量</span><br><span class="line">pgset &quot;delay 0&quot;       # 不同包之间的发送延迟(单位纳秒)</span><br><span class="line">pgset &quot;clone_skb 0&quot;      # SKB包复制</span><br><span class="line">pgset &quot;pkt_size 64&quot;      # 网络包大小</span><br><span class="line">pgset &quot;dst 172.16.32.12&quot; # 目的IP</span><br><span class="line">pgset &quot;dst_mac fa:28:00:06:df:6c&quot;  # 目的MAC</span><br><span class="line"></span><br><span class="line"># 启动测试</span><br><span class="line">PGDEV&#x3D;&#x2F;proc&#x2F;net&#x2F;pktgen&#x2F;pgctrl</span><br><span class="line">pgset &quot;start&quot;</span><br></pre></td></tr></table></figure>
+
+<p>modprobe pktgen</p>
+</li>
+<li><p>人为调高收包机cpu利用率</p>
+<p>为什么要调高呢？因为实验过程中发现，如果不调高，即使收包机pps达到最大值40w，机器cpu仍然很低、tcpdump不会丢包，这样就看不出来效果。</p>
+<p>怎么调高cpu利用率？可以使用 <code>stress -c 2</code> 命令 故意占用cpu。</p>
+</li>
+</ul>
+<h2 id="观察测试数据"><a href="#观察测试数据" class="headerlink" title="观察测试数据"></a>观察测试数据</h2><ul>
+<li><p>发包为<code>pgset &quot;pkt_size 64&quot;</code>时，收包机的收包率</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4265694 packets captured</span><br><span class="line">4268967 packets received by filter</span><br><span class="line">3273 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4190808 packets captured</span><br><span class="line">4196105 packets received by filter</span><br><span class="line">5297 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4192817 packets captured</span><br><span class="line">4197737 packets received by filter</span><br><span class="line">4920 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# insmod ..&#x2F;..&#x2F;kernel&#x2F;pf_ring.ko</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4212730 packets captured</span><br><span class="line">4212730 packets received by filter</span><br><span class="line">0 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4217341 packets captured</span><br><span class="line">4217341 packets received by filter</span><br><span class="line">0 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4358870 packets captured</span><br><span class="line">4358870 packets received by filter</span><br><span class="line">0 packets dropped by kernel</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>测试数据汇总</p>
+<p>| 包大小 | 是否加载pf_ring.ko | captured | received | dropped |<br>| - | - | - | - | - | - |<br>| 64 | 否 | 4265694 | 4268967 | 3273 |<br>| 64 | 否 | 4192817 | 4197737 | 4920 |<br>| 64 | 否 | 4190808 | 4196105 | 5297 |<br>| 64 | 是 | 4212730 | 4212730 | 0 |<br>| 64 | 是 | 4217341 | 4217341 | 0 |<br>| 64 | 是 | 4358870 | 4358870 | 0 |<br>| 1500 | 否 | 2113248 | 2421024 | 307776 |<br>| 1500 | 否 | 1988029 | 2370209 | 382180 |<br>| 1500 | 否 | 2121627 | 2424882 | 303255 |<br>| 1500 | 是 | 2382563 | 2382563 | 0 |<br>| 1500 | 是 | 2422587 | 2422587 | 0 |<br>| 1500 | 是 | 2479560 | 2479560 | 0 |</p>
+<p><code>pgset &quot;pkt_size 64&quot;</code>命令调整包大小</p>
+<p>可以看到上面收包机tcpdump的数据：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 加载pf_ring.ko内核模块前，六次都有丢包</span><br><span class="line">* 加载pf_ring.ko内核模块后，六次都没有丢包</span><br><span class="line">* 大包时，丢包更严重</span><br></pre></td></tr></table></figure>
+
+<p>所以可以得出结论：</p>
+<ul>
+<li>pf_ring版本的tcpdump抓包率更高</li>
+</ul>
+</li>
+</ul>
+<h1 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h1><ul>
+<li>pf_ring版本的tcpdump抓包率更高</li>
+</ul>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -420,6 +557,99 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E7%94%A8strace%E5%AE%9A%E4%BD%8Dbug/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E7%94%A8strace%E5%AE%9A%E4%BD%8Dbug/" class="post-title-link" itemprop="url">用strace定位bug</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>今年年初(<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/mp/profile_ext?action=home&__biz=MzkzMzI3OTczNA==&scene=124#wechat_redirect">2021年我的学习计划</a>)我就计划补一下”操作系统”这门计算机专业课.</p>
+<p>最近我就在学一门网课，是极客时间的<a target="_blank" rel="noopener" href="https://time.geekbang.org/column/intro/100078401?tab=catalog">操作系统实战 45 讲</a>，感觉还可以：代码量是1w行多点，课程我就把它当做一个45讲的代码说明文档。</p>
+<p>网上也有一些类似的”实验教学”，比如：</p>
+<ul>
+<li><a target="_blank" rel="noopener" href="https://github.com/chyyuu/os_kernel_lab">kernel实验</a></li>
+<li><a target="_blank" rel="noopener" href="https://github.com/sunym1993/flash-linux0.11-talk">linux0.11内核解读</a></li>
+<li><a target="_blank" rel="noopener" href="https://reactos.org/">reactos-操作系统</a></li>
+</ul>
+<p>目前我学习<a target="_blank" rel="noopener" href="https://gitee.com/lmos/cosmos">操作系统实战</a>有两个学习目标：</p>
+<ul>
+<li>完全理解<a target="_blank" rel="noopener" href="https://gitee.com/lmos/cosmos/tree/master/lesson13/Cosmos">第十三课的代码</a>：十三课之前的内容包括了整个机器初始化过程</li>
+<li>完全理解<a target="_blank" rel="noopener" href="https://gitee.com/lmos/cosmos/tree/master/lesson25~26/Cosmos">第二十六课的代码</a>：比”十三课”内容多了”进程”和”内存”</li>
+</ul>
+<p>本文记录我在学习时遇到的第一个小问题：编译”第十三课的代码”时遇到一个报错</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/141682853-e5976402-09ba-4478-aae6-4406e44c7dc3.png" alt="image"></p>
+<p>问题解决思路：</p>
+<ul>
+<li>搞清楚”编译器”去哪里找”kernel.inc”文件</li>
+</ul>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
+<li><p>最简便的方法找到”kernel.inc”文件位置</p>
+<p>strace -f可以跟踪子进程的系统调用</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp Cosmos]# strace -f make 2&gt;&#x2F;tmp&#x2F;q.txt</span><br><span class="line">[root@instance-fj5pftdp Cosmos]# cat &#x2F;tmp&#x2F;q.txt</span><br><span class="line">...</span><br><span class="line">[pid 20451] open(&quot;kernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;includekernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;bastypeinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;halinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;knlinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;libinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;drvinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] write(2, &quot;..&#x2F;hal&#x2F;x86&#x2F;kernel.asm:6: &quot;, 25..&#x2F;hal&#x2F;x86&#x2F;kernel.asm:6: ) &#x3D; 25</span><br></pre></td></tr></table></figure>
+
+<p>可以发现 <code>../includekernel.inc</code>等路径少了一个<code>/</code>符号</p>
+<p>修改后，就编译成功了</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/141683341-8053e5e0-850c-437f-9105-94ae1a4809fe.png" alt="image"></p>
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p><code>strace -f</code> 真香：不需要我去研究”代码”或者”编译器”是怎么包含”kernel.inc文件”。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E6%9F%90%E5%8E%82%E5%95%86%E7%9A%84%E5%8F%8D%E5%BC%B9shell%E9%98%B2%E6%8A%A4%E8%83%BD%E5%8A%9B%E6%B5%8B%E8%AF%95/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -499,99 +729,6 @@
 <li>检测到反弹shell后不会立马告警：厂商会检测shell是否执行命令，如果仅仅反弹shell但是没有执行命令就不会被拦截</li>
 </ul>
 <h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a target="_blank" rel="noopener" href="https://github.com/swisskyrepo/PayloadsAllTheThings/blob/master/Methodology%20and%20Resources/Reverse%20Shell%20Cheatsheet.md">Reverse Shell Cheat Sheet</a><br><a target="_blank" rel="noopener" href="https://www.freebuf.com/articles/network/263684.html">云上威胁检测 | 详解反弹shell多维检测技术</a></p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E7%94%A8strace%E5%AE%9A%E4%BD%8Dbug/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E7%94%A8strace%E5%AE%9A%E4%BD%8Dbug/" class="post-title-link" itemprop="url">用strace定位bug</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>今年年初(<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/mp/profile_ext?action=home&__biz=MzkzMzI3OTczNA==&scene=124#wechat_redirect">2021年我的学习计划</a>)我就计划补一下”操作系统”这门计算机专业课.</p>
-<p>最近我就在学一门网课，是极客时间的<a target="_blank" rel="noopener" href="https://time.geekbang.org/column/intro/100078401?tab=catalog">操作系统实战 45 讲</a>，感觉还可以：代码量是1w行多点，课程我就把它当做一个45讲的代码说明文档。</p>
-<p>网上也有一些类似的”实验教学”，比如：</p>
-<ul>
-<li><a target="_blank" rel="noopener" href="https://github.com/chyyuu/os_kernel_lab">kernel实验</a></li>
-<li><a target="_blank" rel="noopener" href="https://github.com/sunym1993/flash-linux0.11-talk">linux0.11内核解读</a></li>
-<li><a target="_blank" rel="noopener" href="https://reactos.org/">reactos-操作系统</a></li>
-</ul>
-<p>目前我学习<a target="_blank" rel="noopener" href="https://gitee.com/lmos/cosmos">操作系统实战</a>有两个学习目标：</p>
-<ul>
-<li>完全理解<a target="_blank" rel="noopener" href="https://gitee.com/lmos/cosmos/tree/master/lesson13/Cosmos">第十三课的代码</a>：十三课之前的内容包括了整个机器初始化过程</li>
-<li>完全理解<a target="_blank" rel="noopener" href="https://gitee.com/lmos/cosmos/tree/master/lesson25~26/Cosmos">第二十六课的代码</a>：比”十三课”内容多了”进程”和”内存”</li>
-</ul>
-<p>本文记录我在学习时遇到的第一个小问题：编译”第十三课的代码”时遇到一个报错</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/141682853-e5976402-09ba-4478-aae6-4406e44c7dc3.png" alt="image"></p>
-<p>问题解决思路：</p>
-<ul>
-<li>搞清楚”编译器”去哪里找”kernel.inc”文件</li>
-</ul>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
-<li><p>最简便的方法找到”kernel.inc”文件位置</p>
-<p>strace -f可以跟踪子进程的系统调用</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp Cosmos]# strace -f make 2&gt;&#x2F;tmp&#x2F;q.txt</span><br><span class="line">[root@instance-fj5pftdp Cosmos]# cat &#x2F;tmp&#x2F;q.txt</span><br><span class="line">...</span><br><span class="line">[pid 20451] open(&quot;kernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;includekernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;bastypeinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;halinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;knlinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;libinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] open(&quot;..&#x2F;include&#x2F;drvinckernel.inc&quot;, O_RDONLY) &#x3D; -1 ENOENT (没有那个文件或目录)</span><br><span class="line">[pid 20451] write(2, &quot;..&#x2F;hal&#x2F;x86&#x2F;kernel.asm:6: &quot;, 25..&#x2F;hal&#x2F;x86&#x2F;kernel.asm:6: ) &#x3D; 25</span><br></pre></td></tr></table></figure>
-
-<p>可以发现 <code>../includekernel.inc</code>等路径少了一个<code>/</code>符号</p>
-<p>修改后，就编译成功了</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/141683341-8053e5e0-850c-437f-9105-94ae1a4809fe.png" alt="image"></p>
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p><code>strace -f</code> 真香：不需要我去研究”代码”或者”编译器”是怎么包含”kernel.inc文件”。</p>
 
       
     </div>
@@ -1003,155 +1140,6 @@ Nginx提供 `lua_regex_match_limit` 指令限制回溯次数</code></pre>
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%A6%82%E4%BD%95%E6%94%B9%E5%8F%98%E8%BF%9B%E7%A8%8B%E5%90%8D%E7%A7%B0/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E5%A6%82%E4%BD%95%E6%94%B9%E5%8F%98%E8%BF%9B%E7%A8%8B%E5%90%8D%E7%A7%B0/" class="post-title-link" itemprop="url">如何改变进程名称</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>之前在<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/pFpGujKnXMhOh5ef3Z9H2g">测试反弹shell</a>时，测试发现：某厂商会根判断程命令是否是bash、sh等脚本解释器，如果修改bash、sh等文件名后反弹shell，就会绕过厂商的反弹shell防护。</p>
-<blockquote>
-<p>需要注意的的是：”修改敏感文件名、复制敏感文件“本身非常有可能被hids当作一种”异常文件操作”行为。</p>
-</blockquote>
-<p>还有一些场景下也会涉及到”进程名称的修改”：比如某些恶意软件会修改进程名称，伪装成”内核线程”。</p>
-<p>所以可以说，在”进程名称的修改”这个点上是存在一些攻防对抗的。</p>
-<p>本文研究：</p>
-<ul>
-<li>除了直接修改程序文件名，还有哪些方式来修改进程名称？</li>
-<li>作为防守方，怎么发现和检测这些”修改方式”？</li>
-</ul>
-<p>本文应该适合 做应急响应、hids和”对linux后渗透感兴趣”的读者阅读，文章中给出了我对每种隐藏方式的效果验证，方便读者对隐藏效果做评估。</p>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
-<li><p>怎么查看”进程名称”？</p>
-<p>在 /proc/{pid} 目录下有好几个文件都存放有”进程名称”相关的信息，如下图：<br><img src="https://user-images.githubusercontent.com/1846319/131244474-9dbb39c7-ba13-4033-a213-809a7773e443.png" alt="image"></p>
-<p>更常见的情况下，我们是通过ps、top等命令来查看进程信息。</p>
-<p>ps命令也是基于 /proc/{pid}/stat、/proc/{pid}/status、/proc/{pid}/cmdline 等文件来获取进程信息。可以通过strace命令查看系统调用验证一下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# strace ps aux 2&gt;&amp;1 |grep proc |grep 29224</span><br><span class="line">stat(&quot;&#x2F;proc&#x2F;29224&quot;, &#123;st_mode&#x3D;S_IFDIR|0555, st_size&#x3D;0, ...&#125;) &#x3D; 0</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;stat&quot;, O_RDONLY)      &#x3D; 6</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;status&quot;, O_RDONLY)    &#x3D; 6</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;cmdline&quot;, O_RDONLY)   &#x3D; 6</span><br><span class="line">readlink(&quot;&#x2F;proc&#x2F;29224&#x2F;fd&#x2F;2&quot;, &quot;&#x2F;42&quot;, 127) &#x3D; 3</span><br><span class="line">[root@instance-fj5pftdp ~]#</span><br><span class="line">[root@instance-fj5pftdp ~]# strace ps -A 2&gt;&amp;1 |grep proc |grep 29224</span><br><span class="line">stat(&quot;&#x2F;proc&#x2F;29224&quot;, &#123;st_mode&#x3D;S_IFDIR|0555, st_size&#x3D;0, ...&#125;) &#x3D; 0</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;stat&quot;, O_RDONLY)      &#x3D; 6</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;status&quot;, O_RDONLY)    &#x3D; 6</span><br><span class="line">readlink(&quot;&#x2F;proc&#x2F;29224&#x2F;fd&#x2F;2&quot;, &quot;&#x2F;42&quot;, 127) &#x3D; 3</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>怎么修改”进程名称”？</p>
-<p>改变进程名包括以下方式：</p>
-<ul>
-<li>execve系统调用</li>
-<li>prctl系统调用</li>
-<li>修改进程argv</li>
-<li>软链接</li>
-</ul>
-</li>
-</ul>
-<h1 id="通过”execve系统调用”改变进程名称"><a href="#通过”execve系统调用”改变进程名称" class="headerlink" title="通过”execve系统调用”改变进程名称"></a>通过”execve系统调用”改变进程名称</h1><ul>
-<li><p>怎么通过”execve系统调用”可以改变进程名称？</p>
-<p>execve系统调用的第二个参数可以指定cmdline，如下：</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/131255950-11235b12-c64c-4572-8a0d-521a299b3ee6.png" alt="image"></p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">#include&lt;unistd.h&gt;</span><br><span class="line">int main()</span><br><span class="line">&#123;</span><br><span class="line">     char * execve_str[] &#x3D; &#123;&quot;test_sleep&quot;,&quot;10000&quot;&#125;;   &#x2F;&#x2F; 第一个参数会出现在&#x2F;pro&#x2F;&#123;pid&#125;&#x2F;cmdline</span><br><span class="line">     char * env[] &#x3D; &#123;NULL&#125;;</span><br><span class="line">     if (execve(&quot;&#x2F;usr&#x2F;bin&#x2F;sleep&quot;,execve_str,env) &lt;0 )&#123;</span><br><span class="line">         perror(&quot;error on exec&quot;);</span><br><span class="line">     &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>更简便的方式是：通过bash的exec命令的<code>-a</code>参数改变进程名称</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">exec -a &quot;xxx&quot; sleep 10000</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>效果</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/131254028-441d0792-68b5-4eab-b2a2-6208fe6f2c70.png" alt="image"></p>
-<p>可以看到：<code>ps -A</code>可以看到sleep文件名信息，<code>ps aux</code>无法看到。</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/131253952-c2ea6b18-614f-4145-b7a5-c05b97235a29.png" alt="image"></p>
-<p>可以看到：只有cmdline被修改了。</p>
-</li>
-</ul>
-<h1 id="通过”prctl系统调用”改变进程名称"><a href="#通过”prctl系统调用”改变进程名称" class="headerlink" title="通过”prctl系统调用”改变进程名称"></a>通过”prctl系统调用”改变进程名称</h1><ul>
-<li><p>怎么通过”prctl系统调用”改变进程名称？</p>
-<p><a target="_blank" rel="noopener" href="https://www.freebuf.com/articles/system/250654.html">Linux进程隐藏：初级篇</a> 这篇文章有demo代码</p>
-</li>
-<li><p>效果<br><img src="https://user-images.githubusercontent.com/1846319/131256636-e9edd238-3856-4f90-a126-30570e44a472.png" alt="image"></p>
-<p>可以看到虽然stat、comm、status文件已经修改，但是cmdline、exe等文件仍然有原程序名信息。</p>
-</li>
-<li><p>怎么检测？</p>
-<p><a target="_blank" rel="noopener" href="https://github.com/bytedance/Elkeid/blob/main/driver/README-zh_CN.md">字节hids</a> hook了这个系统调用</p>
-</li>
-</ul>
-<h1 id="通过”修改进程argv-0-”隐藏进程名称"><a href="#通过”修改进程argv-0-”隐藏进程名称" class="headerlink" title="通过”修改进程argv[0]”隐藏进程名称"></a>通过”修改进程argv[0]”隐藏进程名称</h1><ul>
-<li><p>怎么通过”修改进程argv[0]”隐藏进程名称？</p>
-<p><a target="_blank" rel="noopener" href="https://www.freebuf.com/articles/system/250654.html">Linux进程隐藏：初级篇</a> 这篇文章有demo代码</p>
-</li>
-<li><p>谁用了这种方式？</p>
-<p>恶意软件<a target="_blank" rel="noopener" href="https://github.com/n1nj4sec/pupy/blob/unstable/pupy/packages/linux/all/hide_process.py">puppy</a> 就用到了这种方式修改进程名为”[kworker/2:0]”。</p>
-<blockquote>
-<p>“[XXXX]”这种进程名都是内核线程</p>
-</blockquote>
-<p><img src="https://user-images.githubusercontent.com/1846319/131245230-c8f97321-5d04-41f9-a347-f7a4f69e3794.png" alt="image"></p>
-</li>
-<li><p>效果</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/131253587-ec40a6c2-2b19-4df1-90d3-68a6772be975.png" alt="image"></p>
-<p>可以看到：只有cmdline被修改了。</p>
-</li>
-</ul>
-<h1 id="通过”软链接”改变进程名称"><a href="#通过”软链接”改变进程名称" class="headerlink" title="通过”软链接”改变进程名称"></a>通过”软链接”改变进程名称</h1><ul>
-<li><p>是什么？</p>
-<p>在 <a target="_blank" rel="noopener" href="https://cloud.tencent.com/developer/article/1609832">两个主题：躲避execve与分析/proc/目录</a> 这篇文章提到了：利用”软链接”可以改变进程信息，并且文件哈希和源文件不一致，这样可以用来躲避安全产品的监控。</p>
-</li>
-<li><p>效果<br><img src="https://user-images.githubusercontent.com/1846319/131256254-29bd80e0-8475-47f2-a13f-c6d4bfcc3b39.png" alt="image"></p>
-<p>可以看到：只有exe文件还有原程序信息，所以这种方式隐藏进程名的效果是最好的。</p>
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>可以有以下结论：</p>
-<ul>
-<li>单看四种隐藏方式，”软链接”这种方式隐蔽得最好；其他几种方式，comm、stat、cmdline、status文件中总会有原程序相关信息</li>
-<li>不论哪种方式，exe文件仍然有原程序相关信息</li>
-<li>像”prctl系统调用”这种方式应该避免使用</li>
-</ul>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%A6%82%E4%BD%95%E7%BB%93%E6%9D%9F%E5%92%8C%E6%9A%82%E5%81%9Cagent%E8%BF%9B%E7%A8%8B/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -1295,7 +1283,7 @@ Nginx提供 `lua_regex_match_limit` 指令限制回溯次数</code></pre>
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%A6%82%E4%BD%95%E9%81%BF%E5%85%8D%E6%96%87%E4%BB%B6%E4%B8%8A%E6%8A%A5-%E5%88%B6%E4%BD%9C%E5%A4%A7%E6%96%87%E4%BB%B6/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%A6%82%E4%BD%95%E6%94%B9%E5%8F%98%E8%BF%9B%E7%A8%8B%E5%90%8D%E7%A7%B0/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -1308,7 +1296,7 @@ Nginx提供 `lua_regex_match_limit` 指令限制回溯次数</code></pre>
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E5%A6%82%E4%BD%95%E9%81%BF%E5%85%8D%E6%96%87%E4%BB%B6%E4%B8%8A%E6%8A%A5-%E5%88%B6%E4%BD%9C%E5%A4%A7%E6%96%87%E4%BB%B6/" class="post-title-link" itemprop="url">如何避免文件上报-制作大文件</a>
+          <a href="/2021-12-26-%E5%A6%82%E4%BD%95%E6%94%B9%E5%8F%98%E8%BF%9B%E7%A8%8B%E5%90%8D%E7%A7%B0/" class="post-title-link" itemprop="url">如何改变进程名称</a>
         </h2>
 
         <div class="post-meta-container">
@@ -1332,96 +1320,92 @@ Nginx提供 `lua_regex_match_limit` 指令限制回溯次数</code></pre>
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>了解hids的读者应该知道hids agent会有上报很多信息，其中有的agent会将可疑文件上报到云端做恶意分析。</p>
-<p>同事问我一个问题：文件如果特别大，也会被上报吗？不会影响性能吗？</p>
-<p>这个问题让我联想到 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/qAv2wspeuCfhCjTaz03hNg">你的扫描器可以绕过防火墙么（三）</a> 中大包绕过waf的场景，接着很容易想到：如果agent碰到大文件就不上传了，不就很容易绕过云端的恶意分析了嘛。</p>
-<p>另外，一个恶意文件如果体积过大，可能对安全研究人员做”样本分析”造成一些困难，比如无法将文件下载到本地电脑（网速、磁盘空间可能不够）、ida等静态分析软件内存占用过大。</p>
-<p>基于以上”安全攻防”的业务场景，加上我最近在学习一些操作系统相关的知识，所以就研究下”怎么让elf文件变大”。</p>
-<p>文件变大的同时，还要满足以下条件：</p>
-<ul>
-<li>不影响elf文件执行</li>
-<li>从实用角度来说，攻击队也不会生成一个大文件，然后上传到目标。最好是上传一个小文件，上传到目标机器，然后本地让文件变大。</li>
-</ul>
-<p>先说结论，有以下方式让”文件大小”变大：</p>
-<ul>
-<li>文件末尾追加数据</li>
-<li>稀疏文件</li>
-<li>修改inode元数据</li>
-<li>向elf文件节中填充垃圾数据</li>
-</ul>
-<p>说明一下测试环境：测试程序是id命令，复制到了/tmp/y目录下</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# \cp &#x2F;usr&#x2F;bin&#x2F;id &#x2F;tmp&#x2F;y</span><br></pre></td></tr></table></figure>
-
-<h1 id="文件末尾追加数据"><a href="#文件末尾追加数据" class="headerlink" title="文件末尾追加数据"></a>文件末尾追加数据</h1><ul>
-<li><p>怎么实现？</p>
-<p>这种方式实现很简单，如下</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# echo 1111 &gt;&gt; .&#x2F;id</span><br><span class="line">[root@instance-fj5pftdp y]# .&#x2F;id</span><br><span class="line">uid&#x3D;0(root) gid&#x3D;0(root) 组&#x3D;0(root)</span><br></pre></td></tr></table></figure>
-<p>关键是这样修改后的文件，还能正常执行。</p>
-</li>
-</ul>
-<h1 id="稀疏文件"><a href="#稀疏文件" class="headerlink" title="稀疏文件"></a>稀疏文件</h1><ul>
-<li><p>“稀疏文件”是什么？</p>
-<p>“稀疏文件”的”文件大小”和实际占用磁盘空间是不一致的，比如:</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# ll -h id</span><br><span class="line">-rwxr-xr-x 1 root root 10T 9月   6 20:03 id</span><br><span class="line">[root@instance-fj5pftdp y]# du -sh id</span><br><span class="line">40K	id</span><br></pre></td></tr></table></figure>
-<p>从上面命令可以看到：”文件大小”是10T，但实际数据只占用40K的磁盘大小。</p>
-<p>对于原理感兴趣的读者，可以参考 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/bLiqURdK_dtgr0GqU7yD9w">深度剖析 Linux cp 的秘密</a> 这篇文章。</p>
-</li>
-<li><p>怎么修改成”稀疏文件”？</p>
-<p>可以利用fallocate、truncate命令。</p>
-<p>使用起来也很简单，以truncate举例：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# ls -alh id</span><br><span class="line">-rwxr-xr-x 1 root root 37K 9月   5 20:18 id</span><br><span class="line">[root@instance-fj5pftdp y]# time truncate -s 10T id   &#x2F;&#x2F; 将id程序稀疏成10T大小</span><br><span class="line"></span><br><span class="line">real	0m0.007s</span><br><span class="line">user	0m0.000s</span><br><span class="line">sys	0m0.007s</span><br><span class="line">[root@instance-fj5pftdp y]# ls -alh id</span><br><span class="line">-rwxr-xr-x 1 root root 10T 9月   5 20:02 id    &#x2F;&#x2F; 文件大小已经变成10T</span><br><span class="line">[root@instance-fj5pftdp y]# .&#x2F;id</span><br><span class="line">uid&#x3D;0(root) gid&#x3D;0(root) 组&#x3D;0(root)</span><br></pre></td></tr></table></figure>
-
-<p>这种方式修改文件有两个特点：</p>
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>之前在<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/pFpGujKnXMhOh5ef3Z9H2g">测试反弹shell</a>时，测试发现：某厂商会根判断程命令是否是bash、sh等脚本解释器，如果修改bash、sh等文件名后反弹shell，就会绕过厂商的反弹shell防护。</p>
 <blockquote>
-<p>文件改动非常快，上面的例子中将id文件大小扩大到”10T”只用了1s不到</p>
-<p>文件大小最大可以是10T以上，但不需要本地磁盘空间真的有10T</p>
+<p>需要注意的的是：”修改敏感文件名、复制敏感文件“本身非常有可能被hids当作一种”异常文件操作”行为。</p>
 </blockquote>
-<p>当你想下载或者读这个文件(比如<code>cat</code>)时，却是会有实实在在的<code>10T</code>流量。10T流量，按照”10M/s”的速度下载，也需要下载291个小时。</p>
+<p>还有一些场景下也会涉及到”进程名称的修改”：比如某些恶意软件会修改进程名称，伪装成”内核线程”。</p>
+<p>所以可以说，在”进程名称的修改”这个点上是存在一些攻防对抗的。</p>
+<p>本文研究：</p>
+<ul>
+<li>除了直接修改程序文件名，还有哪些方式来修改进程名称？</li>
+<li>作为防守方，怎么发现和检测这些”修改方式”？</li>
+</ul>
+<p>本文应该适合 做应急响应、hids和”对linux后渗透感兴趣”的读者阅读，文章中给出了我对每种隐藏方式的效果验证，方便读者对隐藏效果做评估。</p>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
+<li><p>怎么查看”进程名称”？</p>
+<p>在 /proc/{pid} 目录下有好几个文件都存放有”进程名称”相关的信息，如下图：<br><img src="https://user-images.githubusercontent.com/1846319/131244474-9dbb39c7-ba13-4033-a213-809a7773e443.png" alt="image"></p>
+<p>更常见的情况下，我们是通过ps、top等命令来查看进程信息。</p>
+<p>ps命令也是基于 /proc/{pid}/stat、/proc/{pid}/status、/proc/{pid}/cmdline 等文件来获取进程信息。可以通过strace命令查看系统调用验证一下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# strace ps aux 2&gt;&amp;1 |grep proc |grep 29224</span><br><span class="line">stat(&quot;&#x2F;proc&#x2F;29224&quot;, &#123;st_mode&#x3D;S_IFDIR|0555, st_size&#x3D;0, ...&#125;) &#x3D; 0</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;stat&quot;, O_RDONLY)      &#x3D; 6</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;status&quot;, O_RDONLY)    &#x3D; 6</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;cmdline&quot;, O_RDONLY)   &#x3D; 6</span><br><span class="line">readlink(&quot;&#x2F;proc&#x2F;29224&#x2F;fd&#x2F;2&quot;, &quot;&#x2F;42&quot;, 127) &#x3D; 3</span><br><span class="line">[root@instance-fj5pftdp ~]#</span><br><span class="line">[root@instance-fj5pftdp ~]# strace ps -A 2&gt;&amp;1 |grep proc |grep 29224</span><br><span class="line">stat(&quot;&#x2F;proc&#x2F;29224&quot;, &#123;st_mode&#x3D;S_IFDIR|0555, st_size&#x3D;0, ...&#125;) &#x3D; 0</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;stat&quot;, O_RDONLY)      &#x3D; 6</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;status&quot;, O_RDONLY)    &#x3D; 6</span><br><span class="line">readlink(&quot;&#x2F;proc&#x2F;29224&#x2F;fd&#x2F;2&quot;, &quot;&#x2F;42&quot;, 127) &#x3D; 3</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>怎么修改”进程名称”？</p>
+<p>改变进程名包括以下方式：</p>
+<ul>
+<li>execve系统调用</li>
+<li>prctl系统调用</li>
+<li>修改进程argv</li>
+<li>软链接</li>
+</ul>
 </li>
 </ul>
-<h1 id="修改inode元数据"><a href="#修改inode元数据" class="headerlink" title="修改inode元数据"></a>修改inode元数据</h1><ul>
-<li><p>为什么修改”inode元数据”就可以修改文件大小信息？</p>
-<p>inode元数据包含了文件大小信息，而inode元数据也是存储在磁盘扇区中的，所以应该可以通过修改inode元数据来”伪造”文件大小。</p>
-<p>其实不光大小信息，inode元数据中还包括 文件是否删除、创建时间、修改时间、访问时间 等信息，所以这些都可以被伪造。</p>
-<p>可以通过stat命令查看inode元数据：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# stat id</span><br><span class="line">  文件：&quot;id&quot;</span><br><span class="line">  大小：37400     	块：80         IO 块：4096   普通文件</span><br><span class="line">设备：fd01h&#x2F;64769d	Inode：171252      硬链接：1</span><br><span class="line">权限：(0755&#x2F;-rwxr-xr-x)  Uid：(    0&#x2F;    root)   Gid：(    0&#x2F;    root)</span><br><span class="line">最近访问：2021-09-06 20:27:26.224913458 +0800</span><br><span class="line">最近更改：2021-09-06 20:27:26.218913032 +0800</span><br><span class="line">最近改动：2021-09-06 20:27:26.224913458 +0800</span><br><span class="line">创建时间：-</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>怎么修改”inode元数据”？</p>
-<p>利用debugfs命令，如下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# debugfs -w &#x2F;dev&#x2F;vda1</span><br><span class="line">debugfs:  mi &#x2F;tmp&#x2F;y&#x2F;id</span><br><span class="line">                          Mode    [0100755]</span><br><span class="line">                       User ID    [0]</span><br><span class="line">                      Group ID    [0]</span><br><span class="line">                          Size    [37400] 100000      &#x2F;&#x2F; 这里修改文件大小为100000</span><br><span class="line">                 Creation time    [1630929039]</span><br><span class="line">             ...</span><br><span class="line">debugfs:  quit</span><br><span class="line">[root@instance-fj5pftdp ~]# ll &#x2F;tmp&#x2F;y&#x2F;id</span><br><span class="line">-rwxr-xr-x 1 root root 37400 9月   6 19:50 &#x2F;tmp&#x2F;y&#x2F;id</span><br><span class="line">[root@instance-fj5pftdp ~]# echo 3 &gt; &#x2F;proc&#x2F;sys&#x2F;vm&#x2F;drop_caches   &#x2F;&#x2F; 清理inode缓存后，修改才生效</span><br><span class="line">[root@instance-fj5pftdp ~]# ll &#x2F;tmp&#x2F;y&#x2F;id</span><br><span class="line">-rwxr-xr-x 1 root root 100000 9月   6 19:50 &#x2F;tmp&#x2F;y&#x2F;id    &#x2F;&#x2F; 文件大小变成了100000</span><br><span class="line">[root@instance-fj5pftdp ~]# &#x2F;tmp&#x2F;y&#x2F;id</span><br><span class="line">uid&#x3D;0(root) gid&#x3D;0(root) 组&#x3D;0(root)</span><br></pre></td></tr></table></figure>
+<h1 id="通过”execve系统调用”改变进程名称"><a href="#通过”execve系统调用”改变进程名称" class="headerlink" title="通过”execve系统调用”改变进程名称"></a>通过”execve系统调用”改变进程名称</h1><ul>
+<li><p>怎么通过”execve系统调用”可以改变进程名称？</p>
+<p>execve系统调用的第二个参数可以指定cmdline，如下：</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/131255950-11235b12-c64c-4572-8a0d-521a299b3ee6.png" alt="image"></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">#include&lt;unistd.h&gt;</span><br><span class="line">int main()</span><br><span class="line">&#123;</span><br><span class="line">     char * execve_str[] &#x3D; &#123;&quot;test_sleep&quot;,&quot;10000&quot;&#125;;   &#x2F;&#x2F; 第一个参数会出现在&#x2F;pro&#x2F;&#123;pid&#125;&#x2F;cmdline</span><br><span class="line">     char * env[] &#x3D; &#123;NULL&#125;;</span><br><span class="line">     if (execve(&quot;&#x2F;usr&#x2F;bin&#x2F;sleep&quot;,execve_str,env) &lt;0 )&#123;</span><br><span class="line">         perror(&quot;error on exec&quot;);</span><br><span class="line">     &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 
-<p>在测试过程中，需要读者注意的是：</p>
-<blockquote>
-<p>因为会对磁盘数据做写操作，所以最好找一个没数据的机器做测试</p>
-<p>记得清理inode缓存</p>
-<p>测试时如果使用文件当作设备，在挂载文件系统时去修改文件大小 会不生效。原因未知</p>
-</blockquote>
+<p>更简便的方式是：通过bash的exec命令的<code>-a</code>参数改变进程名称</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">exec -a &quot;xxx&quot; sleep 10000</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>效果</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/131254028-441d0792-68b5-4eab-b2a2-6208fe6f2c70.png" alt="image"></p>
+<p>可以看到：<code>ps -A</code>可以看到sleep文件名信息，<code>ps aux</code>无法看到。</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/131253952-c2ea6b18-614f-4145-b7a5-c05b97235a29.png" alt="image"></p>
+<p>可以看到：只有cmdline被修改了。</p>
 </li>
 </ul>
-<h1 id="向elf文件节中添加垃圾数据"><a href="#向elf文件节中添加垃圾数据" class="headerlink" title="向elf文件节中添加垃圾数据"></a>向elf文件节中添加垃圾数据</h1><ul>
+<h1 id="通过”prctl系统调用”改变进程名称"><a href="#通过”prctl系统调用”改变进程名称" class="headerlink" title="通过”prctl系统调用”改变进程名称"></a>通过”prctl系统调用”改变进程名称</h1><ul>
+<li><p>怎么通过”prctl系统调用”改变进程名称？</p>
+<p><a target="_blank" rel="noopener" href="https://www.freebuf.com/articles/system/250654.html">Linux进程隐藏：初级篇</a> 这篇文章有demo代码</p>
+</li>
+<li><p>效果<br><img src="https://user-images.githubusercontent.com/1846319/131256636-e9edd238-3856-4f90-a126-30570e44a472.png" alt="image"></p>
+<p>可以看到虽然stat、comm、status文件已经修改，但是cmdline、exe等文件仍然有原程序名信息。</p>
+</li>
+<li><p>怎么检测？</p>
+<p><a target="_blank" rel="noopener" href="https://github.com/bytedance/Elkeid/blob/main/driver/README-zh_CN.md">字节hids</a> hook了这个系统调用</p>
+</li>
+</ul>
+<h1 id="通过”修改进程argv-0-”隐藏进程名称"><a href="#通过”修改进程argv-0-”隐藏进程名称" class="headerlink" title="通过”修改进程argv[0]”隐藏进程名称"></a>通过”修改进程argv[0]”隐藏进程名称</h1><ul>
+<li><p>怎么通过”修改进程argv[0]”隐藏进程名称？</p>
+<p><a target="_blank" rel="noopener" href="https://www.freebuf.com/articles/system/250654.html">Linux进程隐藏：初级篇</a> 这篇文章有demo代码</p>
+</li>
+<li><p>谁用了这种方式？</p>
+<p>恶意软件<a target="_blank" rel="noopener" href="https://github.com/n1nj4sec/pupy/blob/unstable/pupy/packages/linux/all/hide_process.py">puppy</a> 就用到了这种方式修改进程名为”[kworker/2:0]”。</p>
+<blockquote>
+<p>“[XXXX]”这种进程名都是内核线程</p>
+</blockquote>
+<p><img src="https://user-images.githubusercontent.com/1846319/131245230-c8f97321-5d04-41f9-a347-f7a4f69e3794.png" alt="image"></p>
+</li>
+<li><p>效果</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/131253587-ec40a6c2-2b19-4df1-90d3-68a6772be975.png" alt="image"></p>
+<p>可以看到：只有cmdline被修改了。</p>
+</li>
+</ul>
+<h1 id="通过”软链接”改变进程名称"><a href="#通过”软链接”改变进程名称" class="headerlink" title="通过”软链接”改变进程名称"></a>通过”软链接”改变进程名称</h1><ul>
 <li><p>是什么？</p>
-<p>elf文件中包含很多的<em>节</em>，比如：</p>
-<blockquote>
-<p>.text存放代码</p>
-<p>.data存放初始化的全局变量和静态变量</p>
-</blockquote>
-<p>关于elf的文件格式，更多信息可以参考 《程序员的自我修养—链接、装载与库》第三章 elf文件结构描述。</p>
-<p>可以向elf的节（比如.data、.text、.bss等）中写入垃圾数据，而不影响程序的正常运行。</p>
+<p>在 <a target="_blank" rel="noopener" href="https://cloud.tencent.com/developer/article/1609832">两个主题：躲避execve与分析/proc/目录</a> 这篇文章提到了：利用”软链接”可以改变进程信息，并且文件哈希和源文件不一致，这样可以用来躲避安全产品的监控。</p>
+</li>
+<li><p>效果<br><img src="https://user-images.githubusercontent.com/1846319/131256254-29bd80e0-8475-47f2-a13f-c6d4bfcc3b39.png" alt="image"></p>
+<p>可以看到：只有exe文件还有原程序信息，所以这种方式隐藏进程名的效果是最好的。</p>
 </li>
 </ul>
-<p>  这种方式和其他三种方式的区别在于：因为可以删掉没用的节，所以就很容易就把”其他三种方式”修改的elf给还原回来。</p>
-<p>  比如strip后，文件大小就还原了<br>  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp y]# ll -h id</span><br><span class="line">-rwxr-xr-x 1 root root 10T 9月   6 20:03 id</span><br><span class="line">[root@instance-fj5pftdp y]# strip id</span><br><span class="line">[root@instance-fj5pftdp y]# ll -h id</span><br><span class="line">-rwxr-xr-x 1 root root 37K 9月   6 20:27 id</span><br></pre></td></tr></table></figure></p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>可以有以下结论：</p>
 <ul>
-<li><p>怎么”向elf文件节中添加垃圾数据”？</p>
-<p>没有找到linux自带的命令，找到 <a target="_blank" rel="noopener" href="https://firmianay.gitbook.io/ctf-all-in-one/3_topics/reverse/3.2.1_patch_binary#patchkit">patch elf工具-patchkit</a>。</p>
-<p>看文档感觉有点麻烦，就没有做测试了。</p>
-</li>
+<li>单看四种隐藏方式，”软链接”这种方式隐蔽得最好；其他几种方式，comm、stat、cmdline、status文件中总会有原程序相关信息</li>
+<li>不论哪种方式，exe文件仍然有原程序相关信息</li>
+<li>像”prctl系统调用”这种方式应该避免使用</li>
 </ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>“文件末尾追加数据”和”向elf文件节中填充垃圾数据”这两种方式是真的修改了文件内容，所以受限于磁盘空间大小也不可能生成几个T大小的文件。</p>
-<p>“稀疏文件”这种方式，可以方便快速地生成几个T大小的文件，并且让上传、下载此文件 耗费很多时间，甚至是不可能成功。</p>
-<p>“修改inode元数据”，虽然也可以快速地将文件大小修改为几个T，但是并不会让上传、下载此文件 耗费很多时间，传输的文件大小还是实际大小。</p>
-<p>如果应急时碰到超大的elf文件，就先用strip看看体积会不会变小。</p>
-<p>本文提到的手段没有在真实的对抗中实践过，仅仅是我自己的研究，欢迎有对抗经验的读者与我交流。</p>
 
       
     </div>
