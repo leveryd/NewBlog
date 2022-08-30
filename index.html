@@ -125,7 +125,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">57</span>
+          <span class="site-state-item-count">58</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
@@ -159,6 +159,149 @@
 
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2022-08-21-%E5%9F%BA%E4%BA%8Enetfilter%E7%9A%84%E5%90%8E%E9%97%A8/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2022-08-21-%E5%9F%BA%E4%BA%8Enetfilter%E7%9A%84%E5%90%8E%E9%97%A8/" class="post-title-link" itemprop="url">基于netfilter的后门</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2022-08-21 19:53:47" itemprop="dateCreated datePublished" datetime="2022-08-21T19:53:47+08:00">2022-08-21</time>
+    </span>
+      <span class="post-meta-item">
+        <span class="post-meta-item-icon">
+          <i class="far fa-calendar-check"></i>
+        </span>
+        <span class="post-meta-item-text">更新于</span>
+        <time title="修改时间：2022-08-30 14:47:13" itemprop="dateModified" datetime="2022-08-30T14:47:13+08:00">2022-08-30</time>
+      </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>蜜罐产品有个功能是对任何端口的访问都会被记录，即使是”nmap扫描后显示关闭”的端口访问也会被记录。它的实现原理是iptables的NFLOG。</p>
+<p>学习NFLOG概念后，我想到也可以用它来做后门通信。</p>
+<p>本文包括以下内容</p>
+<ul>
+<li>讨论NFLOG是什么</li>
+<li>用NFLOG机制实现后门的优势分析</li>
+<li>NFQUEUE后门demo</li>
+</ul>
+<p>希望能对主机安全感兴趣的读者有点帮助</p>
+<h1 id="NFLOG是什么"><a href="#NFLOG是什么" class="headerlink" title="NFLOG是什么"></a>NFLOG是什么</h1><p>它是一个target，就像<code>ACCEPT</code>、<code>DROP</code>等可以作为<code>iptables -j</code>后的参数值。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-h9w7mlyv ~]# iptables -A INPUT -p tcp -m multiport --dports 1:65535 -j NFLOG --nflog-group 2333</span><br></pre></td></tr></table></figure>
+
+<p>比如上面规则就会告诉内核协议栈，在收到包时，目的端口是1到65535的包，全部执行NFLOG动作。</p>
+<p><code>man iptables-extensions</code> 文档中也有关于NFLOG的说明</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">NFLOG</span><br><span class="line">    This  target  provides  logging of matching packets. When this target is set for a rule, the Linux kernel will pass the packet to the loaded logging backend to log the packet. This is usually</span><br><span class="line">    used in combination with nfnetlink_log as logging backend, which will multicast the packet through a netlink socket to the specified multicast group. One or more userspace processes may  sub-</span><br><span class="line">    scribe to the group to receive the packets. Like LOG, this is a non-terminating target, i.e. rule traversal continues at the next rule.</span><br><span class="line"></span><br><span class="line">    --nflog-group nlgroup</span><br><span class="line">           The netlink group (0 - 2^16-1) to which packets are (only applicable for nfnetlink_log). The default value is 0.</span><br><span class="line">    ...</span><br></pre></td></tr></table></figure>
+
+<p><code>-j NFLOG</code>和<code>-j LOG</code>有些类似，都可以记录数据包信息，执行动作后会继续匹配iptables规则中的下一条。区别是<code>-j NFLOG</code>可以让用户态程序通过<code>netlink</code>从内核获得数据包信息。</p>
+<p>下面你可以和我一起做个小实验来验证一下,用户态程序是否可以通过<code>netlink</code>获取到数据包。</p>
+<h1 id="用tcpdump验证"><a href="#用tcpdump验证" class="headerlink" title="用tcpdump验证"></a>用tcpdump验证</h1><p><img src="https://user-images.githubusercontent.com/1846319/185792120-a040054d-efd4-41a4-a1f5-5399df7ac8d6.png"></p>
+<p>第一步，你需要配置iptables的nflog规则。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-h9w7mlyv ~]# iptables -A INPUT -p tcp -m multiport --dports 65530:65535 -j NFLOG --nflog-group 2333</span><br></pre></td></tr></table></figure>
+
+<p>第二步，使用<code>tcpdump</code>订阅netlink消息。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-h9w7mlyv ~]# tcpdump -i nflog:2333</span><br></pre></td></tr></table></figure>
+
+<p>第三步，访问主机，验证<code>tcpdump</code>是否能获取到数据包。</p>
+<p><code>curl x.x.x.x:65533</code> 后，可以抓到数据包。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-h9w7mlyv ~]# tcpdump -i nflog:2333</span><br><span class="line">...</span><br><span class="line">listening on nflog:2333, link-type NFLOG (Linux netfilter log messages), capture size 262144 bytes</span><br><span class="line">11:42:15.175375 IP 111.197.238.30.22293 &gt; instance-h9w7mlyv.65533: Flags [S], seq 3599662212, win 65535, options [mss 1452,nop,wscale 6,nop,nop,TS val 3053845653 ecr 0,sackOK,eol], length 0</span><br></pre></td></tr></table></figure>
+
+<p>或许你会有一个问题：<code>tcpdump -i nflog:2333</code>和<code>tcpdump -i eth0</code>都可以获取数据包，有啥区别。</p>
+<p>从编程实现来看是有区别的，<code>tcpdump -i eth0</code>是基于<code>AF_PACKET</code>获取数据</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-h9w7mlyv ~]# strace tcpdump -i lo</span><br><span class="line">socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL)) &#x3D; 3</span><br><span class="line">...</span><br><span class="line">setsockopt(3, SOL_PACKET, PACKET_RX_RING, 0x7ffeef157d10, 28) &#x3D; 0     &#x2F;&#x2F; Packet MMAP提高抓包性能，参考 https:&#x2F;&#x2F;github.com&#x2F;torvalds&#x2F;linux&#x2F;blob&#x2F;master&#x2F;Documentation&#x2F;networking&#x2F;packet_mmap.rst</span><br><span class="line">mmap(NULL, 4194304, PROT_READ|PROT_WRITE, MAP_SHARED, 3, 0) &#x3D; 0x7fedba9a5000</span><br><span class="line">...</span><br><span class="line">setsockopt(3, SOL_SOCKET, SO_ATTACH_FILTER, &#123;len&#x3D;1, filter&#x3D;0x7ff0a4ee8000&#125;, 16) &#x3D; 0   &#x2F;&#x2F; bpf filter</span><br><span class="line">setsockopt(3, SOL_SOCKET, SO_ATTACH_FILTER, &#123;len&#x3D;1, filter&#x3D;0x56436b7fe480&#125;, 16) &#x3D; 0</span><br><span class="line">...</span><br><span class="line">poll([&#123;fd&#x3D;3, events&#x3D;POLLIN&#125;], 1, 1000)  &#x3D; 0 (Timeout)</span><br><span class="line">poll([&#123;fd&#x3D;3, events&#x3D;POLLIN&#125;], 1, 1000)  &#x3D; 1 ([&#123;fd&#x3D;3, revents&#x3D;POLLIN&#125;])</span><br><span class="line">write(1, &quot;12:27:16.575888 IP localhost.416&quot;..., 16512:27:16.575888 IP localhost.41616 &gt; localhost.http: Flags [S], seq 3517707840, win 43690, options [mss 65495,sackOK,TS val 1304864277 ecr 0,nop,wscale 7], length 0</span><br></pre></td></tr></table></figure>
+
+<p><code>tcpdump -i nflog:2333</code>是基于<code>AF_NETLINK</code>获取数据</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-h9w7mlyv ~]# strace tcpdump -i nflog:2333</span><br><span class="line">socket(AF_NETLINK, SOCK_RAW, NETLINK_NETFILTER) &#x3D; 3</span><br><span class="line">...</span><br><span class="line">recvfrom(3,[&#123;&#123;len&#x3D;184, type&#x3D;NFNL_SUBSYS_ULOG&lt;&lt;8|NFULNL_MSG_PACKET, flags&#x3D;0, seq&#x3D;0, pid&#x3D;0&#125;, &#123;nfgen_family&#x3D;AF_INET, version&#x3D;NFNETLINK_V0, res_id&#x3D;htons(2333), [&#123;&#123;nla_len&#x3D;8, nla_type&#x3D;NFNETLINK_V1&#125;, &quot;\x08\x00\x01\x00&quot;&#125;, &#123;&#123;nla_len&#x3D;5, nla_type&#x3D;0xa&#125;, &quot;\x00&quot;&#125;, &#123;&#123;nla_len&#x3D;8, nla_type&#x3D;0x4&#125;, &quot;\x00\x00\x00\x02&quot;&#125;, &#123;&#123;nla_len&#x3D;16, nla_type&#x3D;0x8&#125;, &quot;\x00\x06\x00\x00\xfa\x16\x3e\xd1\x8d\x2d\x00\x00&quot;&#125;, &#123;&#123;nla_len&#x3D;6, nla_type&#x3D;0xf&#125;, &quot;\x00\x01&quot;&#125;, &#123;&#123;nla_len&#x3D;6, nla_type&#x3D;0x11&#125;, &quot;\x00\x0e&quot;&#125;, &#123;&#123;nla_len&#x3D;18, nla_type&#x3D;0x10&#125;, &quot;\xfa\x28\x00\x0d\x3f\xff\xfa\x16\x3e\xd1\x8d\x2d\x08\x00&quot;&#125;, &#123;&#123;nla_len&#x3D;20, nla_type&#x3D;0x3&#125;, &quot;\x00\x00\x00\x00\x63\x08\x57\x83\x00\x00\x00\x00\x00\x03\x49\x03&quot;&#125;, &#123;&#123;nla_len&#x3D;68, nla_type&#x3D;0x9&#125;, &quot;\x45\x00\x00\x40\x00\x00\x40\x00\x32\x06\x1e\xc0\x6f\xc5\xee\x1e\xac\x10\x20\x04\x5b\x41\xff\xfd\x5a\x0c\x47\xf0\x00\x00\x00\x00&quot;...&#125;]&#125;, &#123;&#123;len&#x3D;184, type&#x3D;NFNL_SUBSYS_ULOG&lt;&lt;8|NFULNL_MSG_PACKET, flags&#x3D;0, seq&#x3D;0, pid&#x3D;0&#125;, &#123;nfgen_family&#x3D;AF_INET, version&#x3D;NFNETLINK_V0, res_id&#x3D;htons(2333), [&#123;&#123;nla_len&#x3D;8, nla_type&#x3D;NFNETLINK_V1&#125;, &quot;\x08\x00\x01\x00&quot;&#125;, &#123;&#123;nla_len&#x3D;5, nla_type&#x3D;0xa&#125;, &quot;\x00&quot;&#125;, &#123;&#123;nla_len&#x3D;8, nla_type&#x3D;0x4&#125;, &quot;\x00\x00\x00\x02&quot;&#125;, &#123;&#123;nla_len&#x3D;16, nla_type&#x3D;0x8&#125;, &quot;\x00\x06\x00\x00\xfa\x16\x3e\xd1\x8d\x2d\x00\x00&quot;&#125;, &#123;&#123;nla_len&#x3D;6, nla_type&#x3D;0xf&#125;, &quot;\x00\x01&quot;&#125;, &#123;&#123;nla_len&#x3D;6, nla_type&#x3D;0x11&#125;, &quot;\x00\x0e&quot;&#125;, &#123;&#123;nla_len&#x3D;18, nla_type&#x3D;0x10&#125;, &quot;\xfa\x28\x00\x0d\x3f\xff\xfa\x16\x3e\xd1\x8d\x2d\x08\x00&quot;&#125;, &#123;&#123;nla_len&#x3D;20, nla_type&#x3D;0x3&#125;, &quot;\x00\x00\x00\x00\x63\x08\x57\x84\x00\x00\x00\x00\x00\x03\x4b\x6c&quot;&#125;, &#123;&#123;nla_len&#x3D;68, nla_type&#x3D;0x9&#125;, &quot;\x45\x00\x00\x40\x00\x00\x40\x00\x32\x06\x1e\xc0\x6f\xc5\xee\x1e\xac\x10\x20\x04\x5b\x41\xff\xfd\x5a\x0c\x47\xf0\x00\x00\x00\x00&quot;...&#125;]&#125;, &#123;&#123;len&#x3D;20, type&#x3D;NLMSG_DONE, flags&#x3D;0, seq&#x3D;0, pid&#x3D;0&#125;, 0&#125;], 262272, 0, NULL, NULL) &#x3D; 388</span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p>不知道为什么实现监听流量时，厂家选择了基于<code>NFLOG</code>而不是<code>AF_PACKET</code>来做。</p>
+</blockquote>
+<p>而在实现后门中，我们也可以用<code>NFLOG</code>作为被控端和主控端的通信方式，下面来看一下它有什么好处。</p>
+<h1 id="利用NFLOG做后门有什么好处"><a href="#利用NFLOG做后门有什么好处" class="headerlink" title="利用NFLOG做后门有什么好处"></a>利用<code>NFLOG</code>做后门有什么好处</h1><p>就像在 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/Rezm05kP6fxB5Pwib1HxDA">聊一聊基于”ebpf xdp”的rootkit</a> 中我看到的: “rootkit用xdp ebpf和bpf技术都是为了通信时不监听端口，从而在网络行为上隐藏痕迹”。同样<code>NFLOG</code>也可以达到这个目的，甚至使用<code>NFLOG</code>相对于基于<code>AF_PACKET</code>的bpf后门从网络行为上看更隐蔽一点。为什么这么说呢？</p>
+<p>举个例子，<code>chkrootkit</code>反入侵工具会通过<code>/proc/net/packet</code>检查哪些进程创建了<code>PF_PACKET</code>类型socket，因此可以发现bpf后门痕迹。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-h9w7mlyv tmp]# gcc ifpromisc.c</span><br><span class="line">[root@instance-h9w7mlyv tmp]# .&#x2F;a.out</span><br><span class="line">eth0: PF_PACKET(&#x2F;usr&#x2F;decoy&#x2F;decoysvc, &#x2F;usr&#x2F;sbin&#x2F;NetworkManager)</span><br><span class="line">docker0: PF_PACKET(&#x2F;usr&#x2F;sbin&#x2F;NetworkManager)</span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p>AF_PACKET 和 PF_PACKET 同义</p>
+</blockquote>
+<p><code>chkrootkit</code>目前就不会检查<code>NFLOG</code>后门。虽然从<code>/proc/net/netlink</code>也可以看到哪些进程创建了<code>AF_NETLINK</code>类型socket，但是系统上正常进程也会创建很多<code>AF_NETLINK</code>类型socket，比如我在centos8虚机上看到有30多个记录。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-h9w7mlyv tmp]# cat &#x2F;proc&#x2F;net&#x2F;netlink | wc -l</span><br><span class="line">32</span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p><a target="_blank" rel="noopener" href="https://tttang.com/archive/340">聊一聊chkrookit的误信和误用</a> 文章提到<code>chkrootkit</code>会扫描PF_PACKET</p>
+</blockquote>
+<p>利用<code>NFLOG</code>也应该比较稳定。为什么我这么认为呢？</p>
+<p><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/Il80jMO7YbsgctQZJtq7Mw">一种HTTP隧道内核态远控的实现方法</a> 文中提到一个思路: 在内核态基于netfilter实现一个可回显的后门。</p>
+<p>而<code>NFLOG</code>有现成的lib库做用户态编程，相比于内核编程，我想用户态程序应该更稳定、适配性更好吧。</p>
+<p>另外，iptables还提供了一个和<code>NFLOG</code>类似的扩展<code>NFQUEUE</code>，<code>man iptables-extensions</code>文档提到<code>NFQUEUE</code>可以修改数据包。所以是不是可以用<code>NFQUEUE</code>在用户态基于netfilter实现一个可回显的后门呢？</p>
+<h1 id="NFQUEUE后门demo"><a href="#NFQUEUE后门demo" class="headerlink" title="NFQUEUE后门demo"></a>NFQUEUE后门demo</h1><p>我基于<code>libnetfilter_queue</code>写了一个后门demo</p>
+<p>代码我放在了 <a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/f70bd0adbf8088446d98ec11ef16f478">https://gist.github.com/leveryd/f70bd0adbf8088446d98ec11ef16f478</a></p>
+<p>运行效果如下</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/186878339-7d1982a5-23af-42a8-a137-31711061719c.png"></p>
+<blockquote>
+<p>因为我懒，所以这个后门没有实现回显。</p>
+</blockquote>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>NFLOG在蜜罐、后门实现时都可以用到。</p>
+<p>实现后门时，它的优点包括通信较为隐蔽、稳定、可回显。</p>
+<!--
+# 疑问
+* netlink需要什么权限？
+* 是否可以不用 sock_raw 实现抓包？
+
+权限问题: 必须要有cap_net_admin权限，cap_net_raw权限都不管用.
+-->
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -1393,108 +1536,6 @@ https://man7.org/linux/man-pages/man7/bpf-helpers.7.html
 <p>实现”全局变量”这种方式时，因为web服务可能是在多线程或者多协程的环境，所以需要每个线程或者协程使用”全局变量”时互不干扰，就涉及到”线程私有数据”的概念。</p>
 <p>SpringWeb中在使用”RequestContextHolder.getRequestAttributes()静态方法”获取请求时，也是类似的业务逻辑。</p>
 <h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a target="_blank" rel="noopener" href="https://geektutu.com/post/gee-day2.html">Go语言动手写Web框架 - Gee第二天 上下文Context</a><br><a target="_blank" rel="noopener" href="https://cizixs.com/2017/01/13/flask-insight-context/">flask 源码解析：上下文</a></p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2022-03-12-CVE-2021-45232%E5%88%86%E6%9E%90(APISIX%E7%BD%91%E5%85%B3%E6%9C%AA%E6%8E%88%E6%9D%83%E8%AE%BF%E9%97%AE)/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2022-03-12-CVE-2021-45232%E5%88%86%E6%9E%90(APISIX%E7%BD%91%E5%85%B3%E6%9C%AA%E6%8E%88%E6%9D%83%E8%AE%BF%E9%97%AE)/" class="post-title-link" itemprop="url">CVE-2021-45232分析(APISIX网关未授权访问)</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-      
-
-      <time title="创建时间：2022-03-12 17:39:29 / 修改时间：17:40:24" itemprop="dateCreated datePublished" datetime="2022-03-12T17:39:29+08:00">2022-03-12</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>apisix网关之前出过一个<a target="_blank" rel="noopener" href="https://apisix.apache.org/zh/blog/2021/12/28/dashboard-cve-2021-45232/">dashboard api未授权访问漏洞</a>：因为访问下面两个接口不需要身份认证，所以可以利用这两个接口进行rce。<br><img src="https://user-images.githubusercontent.com/1846319/156925927-5d9399cd-4cbb-4e59-aeea-80c2d7cca367.png" alt="image"></p>
-<p>在刚分析这个漏洞时，我有点困惑：</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/156883003-33dabe8f-5699-4626-92dc-c22a128a97d5.png" alt="image"></p>
-<p>filter目录下的代码看着像是”中间件”(或者叫”过滤器”)的实现，而”中间件”应该是所有请求都会经过”中间件”的业务逻辑，那为什么访问上面的两个接口就没有经过<code>filter.AuthenticationMiddleware</code>中间件的认证逻辑呢？为什么访问其他接口就会经过<code>filter.AuthenticationMiddleware</code>中间件的认证逻辑呢？</p>
-<p>虽然动态调试下个断点，就能看到函数调用流程，但是我还想知道”路由”和”中间件”从web框架层来看是怎么设计的。</p>
-<p>apisix项目用到了gin框架和droplet框架，本文记录我对这两个框架”路由”和”中间件”使用和设计的研究，以解决自己的疑惑。</p>
-<h1 id="分析"><a href="#分析" class="headerlink" title="分析"></a>分析</h1><ul>
-<li><p>为什么其他接口就会经过<code>filter.AuthenticationMiddleware</code>中间件的逻辑?</p>
-<p>“业务代码”可以使用”gin框架提供的Use接口”注册中间件，比如下面这样</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/156915960-94aa9733-2934-41e8-8f00-dbf6142fe215.png" alt="image"></p>
-<p>从上图中并没有看到<code>filter.AuthenticationMiddleware</code>中间件被注册，那么为什么其他接口就会经过auth中间件的逻辑？比如<code>GET /apisix/admin/routes HTTP/1.1</code></p>
-<p>答案在droplet库：apisix通过droplet接口注册了<code>filter.AuthenticationMiddleware</code>中间件<br><img src="https://user-images.githubusercontent.com/1846319/156916363-6ccf78a7-2221-4859-b8cc-c50bd2325b6d.png" alt="image"></p>
-<p>这样当访问<code>/apisix/admin/routes</code>路径时，请求会经过gin框架注册的”中间件”、droplet注册的”中间件”。</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/156916844-1325010b-0954-4315-8ff5-f2df64b9f12c.png" alt="img"></p>
-<p><img src="https://user-images.githubusercontent.com/1846319/156917018-1b89fb90-ff27-42f9-ab75-4b9b30a45c42.png" alt="img"></p>
-<p>有一个不严谨的结论：上面的两张图中，handlers和mws数组中的所有”函数”会被依次调用。</p>
-</li>
-<li><p>为什么<code>/apisix/admin/migrate/export</code>接口不会经过<code>filter.AuthenticationMiddleware</code>中间件的逻辑?</p>
-<p><code>/apisix/admin/migrate/export</code>路由对应的”处理函数”并不是<code>wgin.Wraps</code>包装的，这样代码流程会不从gin框架转移到droplet框架</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/156926700-17315f4f-df4b-4d47-bf8a-7f17c1d1bda5.png" alt="image"></p>
-<p>对比可以看到<code>/apisix/admin/routes</code>路由对应的”处理函数”是<code>wgin.Wraps</code>返回的，这样代码流程会从gin框架转移到droplet框架</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/156926238-c77ffdc4-5a05-4c4b-88a6-930bee04cb66.png" alt="image"></p>
-<p>小结：gin框架和droplet框架通过<code>wgin.Wraps</code>包装的<code>func(ctx *gin.Context)</code>函数类型连接到了一起。</p>
-</li>
-<li><p>怎么修复的？</p>
-<p>从这个<a target="_blank" rel="noopener" href="https://github.com/apache/apisix-dashboard/commit/b565f7cd090e9ee2043fbb726fbaae01737f83cd">commit</a>中可以看到:</p>
-<ul>
-<li>gin框架中<code>filter.AuthenticationMiddleware</code>中间件被添加</li>
-<li>droplet框架中<code>filter.AuthenticationMiddleware</code>中间件被删除</li>
-</ul>
-<p><img src="https://user-images.githubusercontent.com/1846319/156908241-5462b3c3-c281-4fcf-bdd7-2853c850f772.png" alt="image"></p>
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><ul>
-<li>本文只零散地记录一小部分gin和droplet框架的内部逻辑，对gin路由和中间件实现有兴趣的可以看<a target="_blank" rel="noopener" href="https://www.liwenzhou.com/posts/Go/read_gin_sourcecode/">这篇文章</a></li>
-<li>在分析过程中感觉”实现一个web框架”非常需要”接口”或者”函数类型”，比如net/http和gin框架的连接、gin框架和droplet框架的连接，都是依靠”接口”或者”函数类型”来通信。</li>
-</ul>
-<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s?__biz=Mzg3MTU0MjkwNw==&mid=2247486811&idx=1&sn=a189cc3923d1ec6494deb956f687b1be">漏洞分析</a></p>
 
       
     </div>
