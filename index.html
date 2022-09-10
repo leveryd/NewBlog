@@ -125,7 +125,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">58</span>
+          <span class="site-state-item-count">59</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
@@ -159,6 +159,164 @@
 
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2022-09-07-%E5%85%B3%E4%BA%8E%22linux%20capability%22%E7%9A%84%E4%B8%A4%E4%B8%AA%E7%89%B9%E6%AE%8A%E6%A1%88%E4%BE%8B/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2022-09-07-%E5%85%B3%E4%BA%8E%22linux%20capability%22%E7%9A%84%E4%B8%A4%E4%B8%AA%E7%89%B9%E6%AE%8A%E6%A1%88%E4%BE%8B/" class="post-title-link" itemprop="url">关于"linux capability"的两个特殊案例</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2022-09-07 14:51:10" itemprop="dateCreated datePublished" datetime="2022-09-07T14:51:10+08:00">2022-09-07</time>
+    </span>
+      <span class="post-meta-item">
+        <span class="post-meta-item-icon">
+          <i class="far fa-calendar-check"></i>
+        </span>
+        <span class="post-meta-item-text">更新于</span>
+        <time title="修改时间：2022-09-10 10:35:44" itemprop="dateModified" datetime="2022-09-10T10:35:44+08:00">2022-09-10</time>
+      </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>虽然官方文档(man capabilities)和《Linux 内核安全模块深入剖析》书的第六章对”能力”有很全面详细的描述，但是我之前遇到了两个和能力有关的案例，从文档中看不出来原因，只好猜测原因并从源码中确认结论。</p>
+<p>本文记录这两个特殊案例，加深自己对”能力”概念的理解，也希望能对linux安全有兴趣的读者有点帮助。</p>
+<p>第一个案例是普通用户执行<code>dumpcap</code>时可以按照预期运行，而<code>strace dumpcap</code>时提示权限不足。如下</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/188832721-3d1d74e3-e94f-4389-9ccf-ac930bc43403.png"></p>
+<p>更详细的问题背景可以见正文，或者看我提的issue： <a target="_blank" rel="noopener" href="https://github.com/strace/strace/issues/221">https://github.com/strace/strace/issues/221</a></p>
+<p>第二个案例是我好奇root用户执行<code>su - test</code>变成非root用户后会有哪些能力？</p>
+<p>先来看第一个案例。</p>
+<h1 id="普通用户执行strace-dumpcap时提示权限不足"><a href="#普通用户执行strace-dumpcap时提示权限不足" class="headerlink" title="普通用户执行strace dumpcap时提示权限不足"></a>普通用户执行<code>strace dumpcap</code>时提示权限不足</h1><h2 id="研究这个问题的起因"><a href="#研究这个问题的起因" class="headerlink" title="研究这个问题的起因"></a>研究这个问题的起因</h2><p>在 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/UL7Rd56MtSB6If_Tu_2N7w">基于netfilter的后门</a> 文章中，我最早是用<code>dumpcap -i nflog:2333</code>代替<code>tcpdump -i nflog:2333</code>抓包的。</p>
+<p>我在安装dumpcap命令、添加x权限后，发现非root用户也可以用dumpcap抓整个主机上的包。如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-h9w7mlyv ~]# yum install wireshark -y    &#x2F;&#x2F; 安装dumpcap命令</span><br><span class="line">[root@instance-h9w7mlyv ~]# chmod +x &#x2F;usr&#x2F;bin&#x2F;dumpcap   &#x2F;&#x2F; 添加执行权限</span><br><span class="line">[test@instance-h9w7mlyv ~]$ dumpcap -i eth0     &#x2F;&#x2F; 抓eth0网卡的包</span><br><span class="line">Capturing on &#39;eth0&#39;</span><br><span class="line">File: &#x2F;var&#x2F;tmp&#x2F;wireshark_eth0_20220907165305_9Quu6X.pcapng</span><br><span class="line">Packets captured: 17</span><br><span class="line">Packets received&#x2F;dropped on interface &#39;eth0&#39;: 17&#x2F;0 (pcap:0&#x2F;dumpcap:0&#x2F;flushed:0&#x2F;ps_ifdrop:0) (100.0%)</span><br></pre></td></tr></table></figure>
+
+<p>一个普通用户能够获取主机上的所有流量，听着就很不安全，所以我就想看看为什么非root用户可以用dumpcap命令监听网卡流量。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">[test@instance-h9w7mlyv ~]$ getcap &#x2F;usr&#x2F;bin&#x2F;dumpcap</span><br><span class="line">&#x2F;usr&#x2F;bin&#x2F;dumpcap &#x3D; cap_net_admin,cap_net_raw+ep</span><br></pre></td></tr></table></figure>
+<p>如上，可以看到dumpcap有<code>cap_net_raw</code>文件能力。或许你知道只要线程有<code>cap_net_raw</code>能力，就可以用<code>socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL))</code>创建socket来抓包。</p>
+<p>所以可以猜测dumpcap也是用<code>AF_PACKET socket</code>抓包的，于是我想执行<code>strace dumpcap</code>看一下系统调用中是否有创建<code>AF_PACKET socket</code>。然后发现普通用户执行<code>strace dumpcap</code>时提示报错，如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">[test@instance-h9w7mlyv ~]$ strace -o strace.log dumpcap</span><br><span class="line">Capturing on &#39;eth0&#39;</span><br><span class="line">dumpcap: The capture session could not be initiated on interface &#39;eth0&#39; (You don&#39;t have permission to capture on that device).</span><br><span class="line">Please check to make sure you have sufficient permissions.</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
+
+<p>这里就让我感觉很奇怪：为什么普通用户执行<code>dumpcap</code>时可以按照预期运行，而<code>strace dumpcap</code>时提示权限不足？</p>
+<blockquote>
+<p>还有类似的现象：普通用户<code>strace ping www.baidu.com</code>也会提示权限不足</p>
+</blockquote>
+<h2 id="为什么普通用户执行strace-dumpcap时提示权限不足？"><a href="#为什么普通用户执行strace-dumpcap时提示权限不足？" class="headerlink" title="为什么普通用户执行strace dumpcap时提示权限不足？"></a>为什么普通用户执行<code>strace dumpcap</code>时提示权限不足？</h2><p><code>man execve</code>看到下面一段文档</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">The aforementioned transformations of the effective IDs are not performed (i.e., the set-user-ID and set-group-ID bits are ignored) if any of the following is true:</span><br><span class="line"></span><br><span class="line"> *  the no_new_privs attribute is set for the calling thread (see prctl(2));</span><br><span class="line"></span><br><span class="line"> *  the underlying filesystem is mounted nosuid (the MS_NOSUID flag for mount(2)); or</span><br><span class="line"></span><br><span class="line"> *  the calling process is being ptraced.   &#x2F;&#x2F; 进程正在被ptrace</span><br><span class="line"></span><br><span class="line">The capabilities of the program file (see capabilities(7)) are also ignored if any of the above are true.</span><br></pre></td></tr></table></figure>
+
+<p><a target="_blank" rel="noopener" href="https://man7.org/linux/man-pages/man7/capabilities.7.html"><code>man capabilities</code></a>看到下面一段文档</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">Note: the capability transitions described above may not be performed (i.e., file capabilities may be ignored) for the same reasons that the set-user-ID and set-group-ID bits are ignored; see</span><br><span class="line">execve(2).</span><br></pre></td></tr></table></figure>
+
+<p>从文档得出结论：只要进程被ptrace，那么execve时就会忽略文件能力和set-uid/set-gid等。因为strace底层就是ptrace，所以似乎这个结论可以解释我遇到的现象。</p>
+<p>但是当用root用户给strace文件添加能力后，普通用户运行<code>strace dumpcap</code>又可以正常工作，上面的结论就解释不通了。如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-h9w7mlyv ~]# setcap cap_net_admin,cap_net_raw+ep &#x2F;usr&#x2F;bin&#x2F;strace   &#x2F;&#x2F; 给strace文件添加能力</span><br><span class="line">[root@instance-h9w7mlyv ~]#</span><br><span class="line">[root@instance-h9w7mlyv ~]# su - test     &#x2F;&#x2F; 切换到普通用户</span><br><span class="line">...</span><br><span class="line">[test@instance-h9w7mlyv ~]$ getcap &#x2F;usr&#x2F;bin&#x2F;strace</span><br><span class="line">&#x2F;usr&#x2F;bin&#x2F;strace &#x3D; cap_net_admin,cap_net_raw+ep</span><br><span class="line">[test@instance-h9w7mlyv ~]$ getcap &#x2F;usr&#x2F;bin&#x2F;dumpcap</span><br><span class="line">&#x2F;usr&#x2F;bin&#x2F;dumpcap &#x3D; cap_net_admin,cap_net_raw+ep</span><br><span class="line">[test@instance-h9w7mlyv ~]$ strace -o strace.log dumpcap      &#x2F;&#x2F; strace dumpcap现在可以抓包</span><br><span class="line">Capturing on &#39;eth0&#39;</span><br><span class="line">File: &#x2F;var&#x2F;tmp&#x2F;wireshark_eth0_20220908182215_A7Uikl.pcapng</span><br><span class="line">Packets captured: 11</span><br><span class="line">Packets received&#x2F;dropped on interface &#39;eth0&#39;: 11&#x2F;0 (pcap:0&#x2F;dumpcap:0&#x2F;flushed:0&#x2F;ps_ifdrop:0) (100.0%)</span><br></pre></td></tr></table></figure>
+
+<p>所以看起来，普通用户执行<code>strace dumpcap</code>后dumpcap进程的有效能力集是strace文件能力和dumpcap文件能力交集。</p>
+<p>那到底是不是这样呢？</p>
+<h2 id="是不是交集"><a href="#是不是交集" class="headerlink" title="是不是交集?"></a>是不是交集?</h2><p><code>strace dumpcap</code>时,从用户态看strace原理大概如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;&#x2F; fork后，strace子进程能力集和strace进程是相同的</span><br><span class="line">pid_t pid &#x3D; fork();</span><br><span class="line">&#x2F;&#x2F; 子进程</span><br><span class="line">if (pid &#x3D;&#x3D; 0) &#123;</span><br><span class="line">    ptrace(PTRACE_TRACEME,0,NULL,NULL);</span><br><span class="line">    &#x2F;&#x2F; 加载被调试的程序</span><br><span class="line">    execve(&quot;&#x2F;usr&#x2F;bin&#x2F;dumpcap&quot;, NULL, NULL);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p>参考 <a target="_blank" rel="noopener" href="https://zhuanlan.zhihu.com/p/441291330">Linux ptrace 的实现</a></p>
+</blockquote>
+<p>内核在执行execve时，会执行到cap_bprm_set_creds函数，函数栈如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-h9w7mlyv ~]# bpftrace -e &#39;kprobe:cap_bprm_set_creds &#123;printf(&quot;%s\n&quot;,kstack)&#125;&#39;</span><br><span class="line">Attaching 1 probe...</span><br><span class="line"></span><br><span class="line">        cap_bprm_set_creds+1</span><br><span class="line">        security_bprm_set_creds+34</span><br><span class="line">        prepare_binprm+299</span><br><span class="line">        do_execveat_common.isra.37+1274</span><br><span class="line">        __x64_sys_execve+50   &#x2F;&#x2F; execve系统调用入口</span><br><span class="line">        do_syscall_64+91</span><br><span class="line">        entry_SYSCALL_64_after_hwframe+101</span><br></pre></td></tr></table></figure>
+
+<p>代码位置在：<a target="_blank" rel="noopener" href="https://elixir.bootlin.com/linux/v4.18/source/security/commoncap.c#L854">https://elixir.bootlin.com/linux/v4.18/source/security/commoncap.c#L854</a></p>
+<p>可以看到cap_bprm_set_creds函数会对能力做交集</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line">int cap_bprm_set_creds(struct linux_binprm *bprm)</span><br><span class="line">&#123;</span><br><span class="line">	const struct cred *old &#x3D; current_cred();</span><br><span class="line">	struct cred *new &#x3D; bprm-&gt;cred;</span><br><span class="line">	...</span><br><span class="line"></span><br><span class="line">  ret &#x3D; get_file_caps(bprm, &amp;effective, &amp;has_fcap);    &#x2F;&#x2F; 会从文件扩展属性中找到能力集合，赋值给brpm-&gt;cred相应字段</span><br><span class="line"></span><br><span class="line">  ...</span><br><span class="line">	if ((is_setid || __cap_gained(permitted, new, old)) &amp;&amp;</span><br><span class="line">	    ((bprm-&gt;unsafe &amp; ~LSM_UNSAFE_PTRACE) ||</span><br><span class="line">	     !ptracer_capable(current, new-&gt;user_ns))) &#123;</span><br><span class="line">		&#x2F;* downgrade; they get no more than they had, and maybe less *&#x2F;</span><br><span class="line">		if (!ns_capable(new-&gt;user_ns, CAP_SETUID) ||</span><br><span class="line">		    (bprm-&gt;unsafe &amp; LSM_UNSAFE_NO_NEW_PRIVS)) &#123;</span><br><span class="line">			new-&gt;euid &#x3D; new-&gt;uid;</span><br><span class="line">			new-&gt;egid &#x3D; new-&gt;gid;</span><br><span class="line">		&#125;</span><br><span class="line">		new-&gt;cap_permitted &#x3D; cap_intersect(new-&gt;cap_permitted,    &#x2F;&#x2F; new-&gt;cap_permitted是execve后的进程允许能力集，当前的值是dumpcap文件的允许能力集</span><br><span class="line">						   old-&gt;cap_permitted);   &#x2F;&#x2F; old-&gt;cap_permitted是当前进程的允许能力集，也就是strace fork后子进程的能力集</span><br><span class="line">	&#125;</span><br><span class="line">  ...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>那strace进程的能力集是怎么来的呢？</p>
+<h2 id="strace进程的能力集是怎么来的呢？"><a href="#strace进程的能力集是怎么来的呢？" class="headerlink" title="strace进程的能力集是怎么来的呢？"></a>strace进程的能力集是怎么来的呢？</h2><p>strace进程能力是根据bash进程能力和strace文件能力，按照计算规则得来的，如下</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/189352414-8ad8430f-7c55-4288-a645-dd834de4aaf1.png"></p>
+<p>那普通用户的bash进程能力集又是啥呢？它是怎么计算出来的呢？ 这就是我的第二个疑问</p>
+<h1 id="普通用户的bash进程能力集是啥？"><a href="#普通用户的bash进程能力集是啥？" class="headerlink" title="普通用户的bash进程能力集是啥？"></a>普通用户的bash进程能力集是啥？</h1><p>如下，可以看到普通用户的bash进程除了<code>限制能力集</code>其他能力集都是0</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-h9w7mlyv ~]# su - test</span><br><span class="line">[test@instance-h9w7mlyv ~]$ ps</span><br><span class="line">  PID TTY          TIME CMD</span><br><span class="line">18042 pts&#x2F;4    00:00:00 bash</span><br><span class="line">[test@instance-h9w7mlyv ~]$ cat &#x2F;proc&#x2F;18042&#x2F;status|grep -i cap</span><br><span class="line">CapInh:	0000000000000000</span><br><span class="line">CapPrm:	0000000000000000</span><br><span class="line">CapEff:	0000000000000000</span><br><span class="line">CapBnd:	000001ffffffffff</span><br><span class="line">CapAmb:	0000000000000000</span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p>test用户是<code>useradd test</code>创建的普通用户</p>
+</blockquote>
+<p>对比可以发现: root用户切换test用户后，能力变少了。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-h9w7mlyv ~]# ps</span><br><span class="line">  PID TTY          TIME CMD</span><br><span class="line">52739 pts&#x2F;0    00:00:00 bash</span><br><span class="line">[root@instance-h9w7mlyv ~]# cat &#x2F;proc&#x2F;52739&#x2F;status|grep -i cap</span><br><span class="line">CapInh:	0000000000000000</span><br><span class="line">CapPrm:	000001ffffffffff</span><br><span class="line">CapEff:	000001ffffffffff</span><br><span class="line">CapBnd:	000001ffffffffff</span><br><span class="line">CapAmb:	0000000000000000</span><br></pre></td></tr></table></figure>
+
+<p>root用户通过<code>su - test</code>切换新用户后，为什么能力会变少呢？</p>
+<h2 id="为什么root用户切换到新用户后能力变少？"><a href="#为什么root用户切换到新用户后能力变少？" class="headerlink" title="为什么root用户切换到新用户后能力变少？"></a>为什么root用户切换到新用户后能力变少？</h2><p>《Linux 内核安全模块深入剖析》6.4.2节中提到capset、capget、prctl三个系统调用都能改变进程的能力集，但是从下面可以看出来，su并没有用这三个系统调用</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-h9w7mlyv ~]# strace -f su - test 2&gt;&amp;1|grep -i cap</span><br><span class="line">[root@instance-h9w7mlyv ~]# strace -f su - test 2&gt;&amp;1|grep -i -E &#39;\bprctl&#39;</span><br></pre></td></tr></table></figure>
+
+<p>在《Linux系统编程手册》39.6节中提到这种情况</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">为了与用户 ID 在 0 与非 0 之间切换的传统含义保持兼容，在改变进程的用户 ID(使用 setuid()等)时，内核会完成下列操作。</span><br><span class="line"></span><br><span class="line">1. 如果真实用户ID、有效用户ID或saved set-user-ID之前的值为0，那么修改了用户 ID 之后，所有这三个 ID 的值都会变成非 0，并且进程的许可和有效能力集会被清除 (即所有的能力都被永久地删除了)。</span><br><span class="line">2. 如果有效用户 ID 从 0 变成了非 0，那么有效能力集会被清除(即有效能力被删除了，但那些位于许可集中的能力会被再次提升)。</span><br></pre></td></tr></table></figure>
+
+<p>也就是说，当用户调用setuid系统调用从特权用户变成非特权用户时，允许能力集和有效能力集会被清除。</p>
+<p>下面来验证一下，看看su程序是不是用到了setuid系统调用、setuid系统调用是不是真的可能清空能力集。</p>
+<h2 id="验证setuid和能力的关系"><a href="#验证setuid和能力的关系" class="headerlink" title="验证setuid和能力的关系"></a>验证setuid和能力的关系</h2><p>通过strace可以观察到su程序确实调用了setuid</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-h9w7mlyv ~]# strace -f su - test 2&gt;&amp;1|grep setuid</span><br><span class="line">[pid 23628] setuid(1000 &lt;unfinished ...&gt;</span><br><span class="line">[pid 23628] &lt;... setuid resumed&gt;)       &#x3D; 0</span><br></pre></td></tr></table></figure>
+
+<p>阅读内核代码后，也可以看到在cap_emulate_setxuid函数中内核清除了进程的能力集。</p>
+<p>代码位置在：<a target="_blank" rel="noopener" href="https://elixir.bootlin.com/linux/v4.18/source/security/commoncap.c#L1005">https://elixir.bootlin.com/linux/v4.18/source/security/commoncap.c#L1005</a></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">static inline void cap_emulate_setxuid(struct cred *new, const struct cred *old)</span><br><span class="line">&#123;</span><br><span class="line">	...</span><br><span class="line">			cap_clear(new-&gt;cap_permitted);</span><br><span class="line">			cap_clear(new-&gt;cap_effective);</span><br><span class="line">	...</span><br><span class="line">		cap_clear(new-&gt;cap_ambient);</span><br><span class="line">	&#125;</span><br><span class="line">	...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>cap_emulate_setxuid函数因为inline被内敛优化，所以没有办法被bpftrace观察到，但我们可以观察它的调用者cap_task_fix_setuid函数。</p>
+<p>在<code>su - test</code>时，可以观察到执行了cap_task_fix_setuid函数，并且有效能力集从0x1ffffffffff变成0。如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-h9w7mlyv ~]# bpftrace -e &#39;kfunc:cap_task_fix_setuid &#x2F;comm&#x3D;&#x3D;&quot;su&quot;&#x2F; &#123;printf(&quot;%x,%x\n&quot;, ((struct cred*)args-&gt;new)-&gt;cap_effective.cap[0], ((struct cred*)args-&gt;new)-&gt;cap_effective.cap[1]);&#125;&#39;</span><br><span class="line">...</span><br><span class="line">ffffffff,1ff</span><br><span class="line"></span><br><span class="line">[root@instance-h9w7mlyv ~]# bpftrace -e &#39;kretfunc:cap_task_fix_setuid &#x2F;comm&#x3D;&#x3D;&quot;su&quot;&#x2F; &#123;printf(&quot;%x,%x\n&quot;, ((struct cred*)args-&gt;new)-&gt;cap_effective.cap[0], ((struct cred*)args-&gt;new)-&gt;cap_effective.cap[1]);&#125;&#39;</span><br><span class="line">...</span><br><span class="line">0,0</span><br></pre></td></tr></table></figure>
+
+<p>从setuid到cap_task_fix_setuid，函数调用栈如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-h9w7mlyv ~]# bpftrace -e &#39;kprobe:cap_task_fix_setuid &#x2F;comm&#x3D;&#x3D;&quot;su&quot;&#x2F; &#123;printf(&quot;%s\n&quot;, kstack)&#125;&#39;</span><br><span class="line">Attaching 1 probe...</span><br><span class="line"></span><br><span class="line">  cap_task_fix_setuid+1</span><br><span class="line">  security_task_fix_setuid+48</span><br><span class="line">  __sys_setuid+151    &#x2F;&#x2F; setuid系统调用入口</span><br><span class="line">  do_syscall_64+91</span><br><span class="line">  entry_SYSCALL_64_after_hwframe+101</span><br></pre></td></tr></table></figure>
+
+<p><img src="https://user-images.githubusercontent.com/1846319/189155197-b4aeaa60-4ae6-48b5-9d19-17a87b5c8380.png"></p>
+<p>所以，setuid时root用户变成非root用户时，允许能力集和有效能力集会被清零。</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>能力的计算机制感觉很复杂。</p>
+<p>普通用户在执行<code>strace xxx</code>后，xxx进程的有效能力集可以认为是strace文件和xxx文件的允许能力集的交集。</p>
+<p>调用setuid系统调用从特权用户变成非特权用户时，允许能力集和有效能力集会被清除。</p>
+<p>通过阅读代码和bpftrace工具，可以定位到内核中处理能力的代码位置，进一步验证结论。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -1406,136 +1564,6 @@ https://man7.org/linux/man-pages/man7/bpf-helpers.7.html
 </ul>
 <h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>通过分析这三个”注册模式”的例子，我自己对”面向接口编程”有点感觉。后面感觉这种思想很基础、很常见、很实用，比如rpc、spring ioc容器、微服务的服务注册等都和这个”注册模式”很像。</p>
 <p>如果你觉得疑惑，或者觉得我写得比较怪，推荐你找一个你熟悉的库自己分析一下。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2022-04-07-web%E6%A1%86%E6%9E%B6%E7%9A%84%E8%AF%B7%E6%B1%82%E4%B8%8A%E4%B8%8B%E6%96%87/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2022-04-07-web%E6%A1%86%E6%9E%B6%E7%9A%84%E8%AF%B7%E6%B1%82%E4%B8%8A%E4%B8%8B%E6%96%87/" class="post-title-link" itemprop="url">web框架的请求上下文</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2022-04-07 19:45:56" itemprop="dateCreated datePublished" datetime="2022-04-07T19:45:56+08:00">2022-04-07</time>
-    </span>
-      <span class="post-meta-item">
-        <span class="post-meta-item-icon">
-          <i class="far fa-calendar-check"></i>
-        </span>
-        <span class="post-meta-item-text">更新于</span>
-        <time title="修改时间：2022-06-13 23:00:47" itemprop="dateModified" datetime="2022-06-13T23:00:47+08:00">2022-06-13</time>
-      </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>最近在研究web框架时，对”请求上下文”这个基础概念有了更多的了解，因此记录一下，包括以下内容：</p>
-<ul>
-<li>“请求上下文”是什么？</li>
-<li>web框架(flask和gin)实现”请求上下文”的区别？</li>
-<li>“线程私有数据”是什么？</li>
-</ul>
-<h1 id="学习过程"><a href="#学习过程" class="headerlink" title="学习过程"></a>学习过程</h1><ul>
-<li><p>“请求上下文”是什么？</p>
-<p>根据 <a target="_blank" rel="noopener" href="https://geektutu.com/post/gee-day2.html">Go语言动手写Web框架 - Gee第二天 上下文Context</a> 和 <a target="_blank" rel="noopener" href="https://time.geekbang.org/column/article/418283">Context：请求控制器，让每个请求都在掌控之中</a> 两篇文章，可以知道从”框架开发者”的角度看，”请求上下文”包括：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 请求对象：包括请求方法、路径、请求头等内容</span><br><span class="line">* 响应对象：可以用来返回http响应</span><br><span class="line">* 工具函数：可以用来更方便地操作&quot;请求对象&quot;和&quot;响应对象&quot;</span><br></pre></td></tr></table></figure>
-
-<p>那么web框架怎么让”框架的使用者”拿到”请求上下文”呢？</p>
-</li>
-<li><p>“框架的使用者怎么”拿到”请求上下文”？</p>
-<p>flask框架中请求上下文是一个全局变量，而gin框架中请求上下文被当作参数传递。</p>
-<p>根据<a target="_blank" rel="noopener" href="https://flask.palletsprojects.com/en/2.1.x/quickstart/#accessing-request-data">flask文档</a>知道request对象包含有请求信息，可以如下获取</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">from flask import request</span><br><span class="line"></span><br><span class="line">@app.route(&#39;&#x2F;login&#39;, methods&#x3D;[&#39;POST&#39;, &#39;GET&#39;])</span><br><span class="line">def login():</span><br><span class="line">    ...</span><br><span class="line">    if request.method &#x3D;&#x3D; &#39;POST&#39;:</span><br><span class="line">        if valid_login(request.form[&#39;username&#39;],</span><br><span class="line">                       request.form[&#39;password&#39;]):</span><br></pre></td></tr></table></figure>
-
-<p>根据<a target="_blank" rel="noopener" href="https://pkg.go.dev/github.com/gin-gonic/gin#section-readme">gin文档</a>知道gin.Context实例c中包含有请求信息，可以如下获取</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"> router :&#x3D; gin.Default()</span><br><span class="line"></span><br><span class="line">router.GET(&quot;&#x2F;welcome&quot;, func(c *gin.Context) &#123;</span><br><span class="line">	firstname :&#x3D; c.DefaultQuery(&quot;firstname&quot;, &quot;Guest&quot;)</span><br><span class="line">	lastname :&#x3D; c.Query(&quot;lastname&quot;) &#x2F;&#x2F; shortcut for c.Request.URL.Query().Get(&quot;lastname&quot;)</span><br><span class="line"></span><br><span class="line">	c.String(http.StatusOK, &quot;Hello %s %s&quot;, firstname, lastname)</span><br><span class="line">&#125;)</span><br></pre></td></tr></table></figure>
-
-<p>从上面的使用方法可以看出来，flask和gin框架实现”请求上下文”有一些区别：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* gin框架中&quot;框架使用者&quot;需要把&quot;请求上下文&quot;当作参数，显示地传递</span><br><span class="line">* flask框架中&quot;框架使用者&quot;只需要request这个全局变量，就能获得&quot;请求上下文&quot;</span><br></pre></td></tr></table></figure>
-
-<p>于是就有两个问题：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* flask的request是个全局变量，那&quot;基于多线程实现&quot;的服务端同时收到多个请求时，request怎么能代表当前线程处理的请求呢？</span><br><span class="line">* flask似乎对&quot;框架使用者&quot;来说更方便，毕竟不需要多传递一个参数。那为什么gin框架不也这么设计呢？</span><br></pre></td></tr></table></figure>
-
-<p>第一个问题其实涉及到”线程私有数据”的概念</p>
-</li>
-</ul>
-<h1 id="线程私有数据"><a href="#线程私有数据" class="headerlink" title="线程私有数据"></a>线程私有数据</h1><ul>
-<li><p>是什么？</p>
-<p>举个例子，下面代码中新线程看不到主线程的mydata变量，因为mydata是”主线程”和”新线程”的私有数据”</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">import threading</span><br><span class="line">from threading import local</span><br><span class="line"></span><br><span class="line">mydata &#x3D; local()</span><br><span class="line">mydata.number &#x3D; 42</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def f():</span><br><span class="line">    if getattr(mydata, &quot;number&quot;, None) is not None:</span><br><span class="line">        print(mydata.number)    # 这里会打印42吗？</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">thread &#x3D; threading.Thread(target&#x3D;f)</span><br><span class="line">thread.start()</span><br><span class="line">thread.join()</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>threading.local是怎么实现的？</p>
-<p>从<a target="_blank" rel="noopener" href="https://github.com/python/cpython/blob/main/Lib/_threading_local.py">源码</a>中可以看到localdict是实际存放数据的对象，每个线程对应一个localdict。</p>
-<p>线程在读写”线程私有数据”时，会找到自己的localdict。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line">class _localimpl:</span><br><span class="line">  ...</span><br><span class="line"></span><br><span class="line">  def get_dict(self):</span><br><span class="line">      &quot;&quot;&quot;Return the dict for the current thread. Raises KeyError if none</span><br><span class="line">      defined.&quot;&quot;&quot;</span><br><span class="line">      thread &#x3D; current_thread()</span><br><span class="line">      return self.dicts[id(thread)][1]    # id(thread)是当前线程对象内存地址，每个线程应该是唯一的</span><br><span class="line"></span><br><span class="line">  def create_dict(self):</span><br><span class="line">      &quot;&quot;&quot;Create a new dict for the current thread, and return it.&quot;&quot;&quot;</span><br><span class="line">      localdict &#x3D; &#123;&#125;</span><br><span class="line">      key &#x3D; self.key</span><br><span class="line">      thread &#x3D; current_thread()</span><br><span class="line">      idt &#x3D; id(thread)    # id(thread)是当前线程对象内存地址，每个线程应该是唯一的</span><br><span class="line">      ...</span><br><span class="line">      self.dicts[idt] &#x3D; wrthread, localdict</span><br><span class="line">      return localdict</span><br><span class="line"></span><br><span class="line">  from threading import current_thread, RLock</span><br></pre></td></tr></table></figure>
-
-<p>那flask框架是用了threading.local吗？</p>
-</li>
-<li><p>flask框架用了threading.local吗？</p>
-<p>先说结论：flask的request对象不是基于”threading.local”，而是”contextvars.ContextVar”，后者可以实现”协程私有数据”</p>
-<p>下面代码运行结果中，task1函数不会打印hello，可以看出来ContextVar是实现”协程私有数据”。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br></pre></td><td class="code"><pre><span class="line">from greenlet import greenlet</span><br><span class="line">from contextvars import ContextVar</span><br><span class="line">from greenlet import getcurrent as get_ident</span><br><span class="line"></span><br><span class="line">var &#x3D; ContextVar(&quot;var&quot;)</span><br><span class="line">var.set(&quot;hello&quot;)</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def p(s):</span><br><span class="line">    print(s, get_ident())</span><br><span class="line"></span><br><span class="line">    try:</span><br><span class="line">        print(var.get())</span><br><span class="line">    except LookupError:</span><br><span class="line">        pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def task1():</span><br><span class="line">    p(&quot;task1&quot;)    # 不会打印hello</span><br><span class="line">    # gr2.switch()</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"># 测试ContextVar能否支持&quot;协程私有数据&quot;</span><br><span class="line">p(&quot;main&quot;)</span><br><span class="line">gr1 &#x3D; greenlet(task1)</span><br><span class="line">gr1.switch()</span><br><span class="line"></span><br><span class="line"># 测试ContextVar能否支持&quot;线程私有数据&quot;，结论是支持</span><br><span class="line"># import threading</span><br><span class="line"># p(&quot;main&quot;)</span><br><span class="line"># thread &#x3D; threading.Thread(target&#x3D;task1)</span><br><span class="line"># thread.start()</span><br><span class="line"># thread.join()</span><br></pre></td></tr></table></figure>
-
-<p>从<a target="_blank" rel="noopener" href="https://github.com/pallets/flask/blob/main/src/flask/globals.py">flask/globals.py</a>中可以看到request是werkzeug库的Local类型</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">_request_ctx_stack &#x3D; LocalStack()</span><br><span class="line">...</span><br><span class="line">request: &quot;Request&quot; &#x3D; LocalProxy(partial(_lookup_req_object, &quot;request&quot;))  # type: ignore</span><br></pre></td></tr></table></figure>
-
-<p>而从<a target="_blank" rel="noopener" href="https://github.com/pallets/werkzeug/blob/main/src/werkzeug/local.py">werkzeug/local.py源码</a> 可以看出来werkzeug库的Local是基于contextvars.ContextVar实现的</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">class Local:</span><br><span class="line">  ...</span><br><span class="line"></span><br><span class="line">  def __init__(self) -&gt; None:</span><br><span class="line">      object.__setattr__(self, &quot;_storage&quot;, ContextVar(&quot;local_storage&quot;)) # 基于contextvars.ContextVar</span><br></pre></td></tr></table></figure>
-
-<p>所以，flask并没有用threading.local，而是werkzeug库的Local类型。也因此在”多线程”或者”多协程”环境下，flask的request全局变量能够代表到当前线程或者协程处理的请求。</p>
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>web框架让”框架使用者”拿到”请求对象”有两种方式，包括”参数传递”、”全局变量”。</p>
-<p>实现”全局变量”这种方式时，因为web服务可能是在多线程或者多协程的环境，所以需要每个线程或者协程使用”全局变量”时互不干扰，就涉及到”线程私有数据”的概念。</p>
-<p>SpringWeb中在使用”RequestContextHolder.getRequestAttributes()静态方法”获取请求时，也是类似的业务逻辑。</p>
-<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a target="_blank" rel="noopener" href="https://geektutu.com/post/gee-day2.html">Go语言动手写Web框架 - Gee第二天 上下文Context</a><br><a target="_blank" rel="noopener" href="https://cizixs.com/2017/01/13/flask-insight-context/">flask 源码解析：上下文</a></p>
 
       
     </div>

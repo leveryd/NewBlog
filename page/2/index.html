@@ -125,7 +125,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">58</span>
+          <span class="site-state-item-count">59</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
@@ -159,6 +159,136 @@
 
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2022-04-07-web%E6%A1%86%E6%9E%B6%E7%9A%84%E8%AF%B7%E6%B1%82%E4%B8%8A%E4%B8%8B%E6%96%87/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2022-04-07-web%E6%A1%86%E6%9E%B6%E7%9A%84%E8%AF%B7%E6%B1%82%E4%B8%8A%E4%B8%8B%E6%96%87/" class="post-title-link" itemprop="url">web框架的请求上下文</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2022-04-07 19:45:56" itemprop="dateCreated datePublished" datetime="2022-04-07T19:45:56+08:00">2022-04-07</time>
+    </span>
+      <span class="post-meta-item">
+        <span class="post-meta-item-icon">
+          <i class="far fa-calendar-check"></i>
+        </span>
+        <span class="post-meta-item-text">更新于</span>
+        <time title="修改时间：2022-06-13 23:00:47" itemprop="dateModified" datetime="2022-06-13T23:00:47+08:00">2022-06-13</time>
+      </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>最近在研究web框架时，对”请求上下文”这个基础概念有了更多的了解，因此记录一下，包括以下内容：</p>
+<ul>
+<li>“请求上下文”是什么？</li>
+<li>web框架(flask和gin)实现”请求上下文”的区别？</li>
+<li>“线程私有数据”是什么？</li>
+</ul>
+<h1 id="学习过程"><a href="#学习过程" class="headerlink" title="学习过程"></a>学习过程</h1><ul>
+<li><p>“请求上下文”是什么？</p>
+<p>根据 <a target="_blank" rel="noopener" href="https://geektutu.com/post/gee-day2.html">Go语言动手写Web框架 - Gee第二天 上下文Context</a> 和 <a target="_blank" rel="noopener" href="https://time.geekbang.org/column/article/418283">Context：请求控制器，让每个请求都在掌控之中</a> 两篇文章，可以知道从”框架开发者”的角度看，”请求上下文”包括：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 请求对象：包括请求方法、路径、请求头等内容</span><br><span class="line">* 响应对象：可以用来返回http响应</span><br><span class="line">* 工具函数：可以用来更方便地操作&quot;请求对象&quot;和&quot;响应对象&quot;</span><br></pre></td></tr></table></figure>
+
+<p>那么web框架怎么让”框架的使用者”拿到”请求上下文”呢？</p>
+</li>
+<li><p>“框架的使用者怎么”拿到”请求上下文”？</p>
+<p>flask框架中请求上下文是一个全局变量，而gin框架中请求上下文被当作参数传递。</p>
+<p>根据<a target="_blank" rel="noopener" href="https://flask.palletsprojects.com/en/2.1.x/quickstart/#accessing-request-data">flask文档</a>知道request对象包含有请求信息，可以如下获取</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">from flask import request</span><br><span class="line"></span><br><span class="line">@app.route(&#39;&#x2F;login&#39;, methods&#x3D;[&#39;POST&#39;, &#39;GET&#39;])</span><br><span class="line">def login():</span><br><span class="line">    ...</span><br><span class="line">    if request.method &#x3D;&#x3D; &#39;POST&#39;:</span><br><span class="line">        if valid_login(request.form[&#39;username&#39;],</span><br><span class="line">                       request.form[&#39;password&#39;]):</span><br></pre></td></tr></table></figure>
+
+<p>根据<a target="_blank" rel="noopener" href="https://pkg.go.dev/github.com/gin-gonic/gin#section-readme">gin文档</a>知道gin.Context实例c中包含有请求信息，可以如下获取</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"> router :&#x3D; gin.Default()</span><br><span class="line"></span><br><span class="line">router.GET(&quot;&#x2F;welcome&quot;, func(c *gin.Context) &#123;</span><br><span class="line">	firstname :&#x3D; c.DefaultQuery(&quot;firstname&quot;, &quot;Guest&quot;)</span><br><span class="line">	lastname :&#x3D; c.Query(&quot;lastname&quot;) &#x2F;&#x2F; shortcut for c.Request.URL.Query().Get(&quot;lastname&quot;)</span><br><span class="line"></span><br><span class="line">	c.String(http.StatusOK, &quot;Hello %s %s&quot;, firstname, lastname)</span><br><span class="line">&#125;)</span><br></pre></td></tr></table></figure>
+
+<p>从上面的使用方法可以看出来，flask和gin框架实现”请求上下文”有一些区别：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* gin框架中&quot;框架使用者&quot;需要把&quot;请求上下文&quot;当作参数，显示地传递</span><br><span class="line">* flask框架中&quot;框架使用者&quot;只需要request这个全局变量，就能获得&quot;请求上下文&quot;</span><br></pre></td></tr></table></figure>
+
+<p>于是就有两个问题：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* flask的request是个全局变量，那&quot;基于多线程实现&quot;的服务端同时收到多个请求时，request怎么能代表当前线程处理的请求呢？</span><br><span class="line">* flask似乎对&quot;框架使用者&quot;来说更方便，毕竟不需要多传递一个参数。那为什么gin框架不也这么设计呢？</span><br></pre></td></tr></table></figure>
+
+<p>第一个问题其实涉及到”线程私有数据”的概念</p>
+</li>
+</ul>
+<h1 id="线程私有数据"><a href="#线程私有数据" class="headerlink" title="线程私有数据"></a>线程私有数据</h1><ul>
+<li><p>是什么？</p>
+<p>举个例子，下面代码中新线程看不到主线程的mydata变量，因为mydata是”主线程”和”新线程”的私有数据”</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">import threading</span><br><span class="line">from threading import local</span><br><span class="line"></span><br><span class="line">mydata &#x3D; local()</span><br><span class="line">mydata.number &#x3D; 42</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def f():</span><br><span class="line">    if getattr(mydata, &quot;number&quot;, None) is not None:</span><br><span class="line">        print(mydata.number)    # 这里会打印42吗？</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">thread &#x3D; threading.Thread(target&#x3D;f)</span><br><span class="line">thread.start()</span><br><span class="line">thread.join()</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>threading.local是怎么实现的？</p>
+<p>从<a target="_blank" rel="noopener" href="https://github.com/python/cpython/blob/main/Lib/_threading_local.py">源码</a>中可以看到localdict是实际存放数据的对象，每个线程对应一个localdict。</p>
+<p>线程在读写”线程私有数据”时，会找到自己的localdict。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line">class _localimpl:</span><br><span class="line">  ...</span><br><span class="line"></span><br><span class="line">  def get_dict(self):</span><br><span class="line">      &quot;&quot;&quot;Return the dict for the current thread. Raises KeyError if none</span><br><span class="line">      defined.&quot;&quot;&quot;</span><br><span class="line">      thread &#x3D; current_thread()</span><br><span class="line">      return self.dicts[id(thread)][1]    # id(thread)是当前线程对象内存地址，每个线程应该是唯一的</span><br><span class="line"></span><br><span class="line">  def create_dict(self):</span><br><span class="line">      &quot;&quot;&quot;Create a new dict for the current thread, and return it.&quot;&quot;&quot;</span><br><span class="line">      localdict &#x3D; &#123;&#125;</span><br><span class="line">      key &#x3D; self.key</span><br><span class="line">      thread &#x3D; current_thread()</span><br><span class="line">      idt &#x3D; id(thread)    # id(thread)是当前线程对象内存地址，每个线程应该是唯一的</span><br><span class="line">      ...</span><br><span class="line">      self.dicts[idt] &#x3D; wrthread, localdict</span><br><span class="line">      return localdict</span><br><span class="line"></span><br><span class="line">  from threading import current_thread, RLock</span><br></pre></td></tr></table></figure>
+
+<p>那flask框架是用了threading.local吗？</p>
+</li>
+<li><p>flask框架用了threading.local吗？</p>
+<p>先说结论：flask的request对象不是基于”threading.local”，而是”contextvars.ContextVar”，后者可以实现”协程私有数据”</p>
+<p>下面代码运行结果中，task1函数不会打印hello，可以看出来ContextVar是实现”协程私有数据”。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br></pre></td><td class="code"><pre><span class="line">from greenlet import greenlet</span><br><span class="line">from contextvars import ContextVar</span><br><span class="line">from greenlet import getcurrent as get_ident</span><br><span class="line"></span><br><span class="line">var &#x3D; ContextVar(&quot;var&quot;)</span><br><span class="line">var.set(&quot;hello&quot;)</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def p(s):</span><br><span class="line">    print(s, get_ident())</span><br><span class="line"></span><br><span class="line">    try:</span><br><span class="line">        print(var.get())</span><br><span class="line">    except LookupError:</span><br><span class="line">        pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def task1():</span><br><span class="line">    p(&quot;task1&quot;)    # 不会打印hello</span><br><span class="line">    # gr2.switch()</span><br><span class="line"></span><br><span class="line"></span><br><span class="line"># 测试ContextVar能否支持&quot;协程私有数据&quot;</span><br><span class="line">p(&quot;main&quot;)</span><br><span class="line">gr1 &#x3D; greenlet(task1)</span><br><span class="line">gr1.switch()</span><br><span class="line"></span><br><span class="line"># 测试ContextVar能否支持&quot;线程私有数据&quot;，结论是支持</span><br><span class="line"># import threading</span><br><span class="line"># p(&quot;main&quot;)</span><br><span class="line"># thread &#x3D; threading.Thread(target&#x3D;task1)</span><br><span class="line"># thread.start()</span><br><span class="line"># thread.join()</span><br></pre></td></tr></table></figure>
+
+<p>从<a target="_blank" rel="noopener" href="https://github.com/pallets/flask/blob/main/src/flask/globals.py">flask/globals.py</a>中可以看到request是werkzeug库的Local类型</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">_request_ctx_stack &#x3D; LocalStack()</span><br><span class="line">...</span><br><span class="line">request: &quot;Request&quot; &#x3D; LocalProxy(partial(_lookup_req_object, &quot;request&quot;))  # type: ignore</span><br></pre></td></tr></table></figure>
+
+<p>而从<a target="_blank" rel="noopener" href="https://github.com/pallets/werkzeug/blob/main/src/werkzeug/local.py">werkzeug/local.py源码</a> 可以看出来werkzeug库的Local是基于contextvars.ContextVar实现的</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">class Local:</span><br><span class="line">  ...</span><br><span class="line"></span><br><span class="line">  def __init__(self) -&gt; None:</span><br><span class="line">      object.__setattr__(self, &quot;_storage&quot;, ContextVar(&quot;local_storage&quot;)) # 基于contextvars.ContextVar</span><br></pre></td></tr></table></figure>
+
+<p>所以，flask并没有用threading.local，而是werkzeug库的Local类型。也因此在”多线程”或者”多协程”环境下，flask的request全局变量能够代表到当前线程或者协程处理的请求。</p>
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>web框架让”框架使用者”拿到”请求对象”有两种方式，包括”参数传递”、”全局变量”。</p>
+<p>实现”全局变量”这种方式时，因为web服务可能是在多线程或者多协程的环境，所以需要每个线程或者协程使用”全局变量”时互不干扰，就涉及到”线程私有数据”的概念。</p>
+<p>SpringWeb中在使用”RequestContextHolder.getRequestAttributes()静态方法”获取请求时，也是类似的业务逻辑。</p>
+<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a target="_blank" rel="noopener" href="https://geektutu.com/post/gee-day2.html">Go语言动手写Web框架 - Gee第二天 上下文Context</a><br><a target="_blank" rel="noopener" href="https://cizixs.com/2017/01/13/flask-insight-context/">flask 源码解析：上下文</a></p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -1168,7 +1298,7 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E9%AA%8C%E8%AF%81pf_ring%E6%80%A7%E8%83%BD/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E8%AF%8D%E6%B3%95%E5%88%86%E6%9E%90%E5%9C%A8%E5%AE%89%E5%85%A8%E4%BA%A7%E5%93%81%E4%B8%AD%E7%9A%84%E5%BA%94%E7%94%A8/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -1181,7 +1311,7 @@
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E9%AA%8C%E8%AF%81pf_ring%E6%80%A7%E8%83%BD/" class="post-title-link" itemprop="url">验证pf_ring性能</a>
+          <a href="/2021-12-26-%E8%AF%8D%E6%B3%95%E5%88%86%E6%9E%90%E5%9C%A8%E5%AE%89%E5%85%A8%E4%BA%A7%E5%93%81%E4%B8%AD%E7%9A%84%E5%BA%94%E7%94%A8/" class="post-title-link" itemprop="url">词法分析在安全产品中的应用</a>
         </h2>
 
         <div class="post-meta-container">
@@ -1205,203 +1335,84 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>本实验主要为了验证<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/kernel">pf_ring.ko</a>内核模块是否能够提升抓包率。</p>
-<p>实验思路很多参考自 <a target="_blank" rel="noopener" href="http://cea.ceaj.org/CN/article/downloadArticleFile.do?attachType=PDF&id=30309">PF_RING与NAPI结合的捕包性能优化和仿真.pdf</a></p>
-<p>通过分析源码得知：</p>
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>最近分析了一些waf、rasp等安全产品，发现核心检测逻辑非常依赖词法分析。</p>
+<p>总结一点东西：</p>
 <ul>
-<li>pf_ring.ko未加载到内核时，<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/libpcap-1.9.1">libpcap</a> 会使用PCAP_MMAP方式来抓包</li>
-<li>pf_ring.ko加载到内核时，<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/libpcap-1.9.1">libpcap</a> 会通过<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/lib">libpfring</a>配合pf_ring.ko内核模块来抓包</li>
-<li>pf_ring基本没有对 <a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/tcpdump-4.9.3">tcpdump</a> 做改动</li>
+<li>词法分析是什么？</li>
+<li>举个例子：OpenRASP怎么用到词法分析做安全策略？</li>
+<li>怎么实现词法分析？</li>
+<li>还有哪些安全防护产品用到词法分析？</li>
 </ul>
-<p>实验思路：</p>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><h2 id="词法分析是什么？"><a href="#词法分析是什么？" class="headerlink" title="词法分析是什么？"></a>词法分析是什么？</h2><p>词法分析可以将字符串按照自己的规则变成一串token。</p>
+<p>比如一个算术表达式 <code>1+2*3</code>，按照一定规则做词法分析后可以变成 <code>NUM ADD NUM MUL NUM</code> 一串token。</p>
+<p>编程语言在执行前也要做词法分析，比如Python词法分析结果是这样子的</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">➜  ~ python -m tokenize</span><br><span class="line">a&#x3D;1</span><br><span class="line"></span><br><span class="line">1,0-1,1:	NAME	&#39;a&#39;</span><br><span class="line">1,1-1,2:	OP	&#39;&#x3D;&#39;</span><br><span class="line">1,2-1,3:	NUMBER	&#39;1&#39;</span><br><span class="line">1,3-1,4:	NEWLINE	&#39;\n&#39;</span><br></pre></td></tr></table></figure>
+
+<h2 id="安全产品怎么用到词法分析做安全策略？"><a href="#安全产品怎么用到词法分析做安全策略？" class="headerlink" title="安全产品怎么用到词法分析做安全策略？"></a>安全产品怎么用到词法分析做安全策略？</h2><p>拿OpenRASP举例，OpenRASP检测SQL注入、命令执行时核心检测算法非常依赖词法分析。</p>
 <ul>
-<li>使用pf_ring项目中的tcpdump抓包，计算抓包率</li>
-<li>使用pktgen发包</li>
-<li>在”加载pf_ring.ko”和”不加载pf_ring.ko”两种场景下分别测试三次</li>
-</ul>
-<p>实验环境：</p>
-<table>
-<thead>
-<tr>
-<th>机器用途</th>
-<th>配置</th>
-<th>操作系统</th>
-<th>备注</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>发包机</td>
-<td>2核4G、pps 40w</td>
-<td>CentOS 7.5</td>
-<td>云虚机</td>
-</tr>
-<tr>
-<td>收包机</td>
-<td>2核4G、pps 40w</td>
-<td>CentOS 7.5</td>
-<td>云虚机</td>
-</tr>
-</tbody></table>
-<h1 id="过程"><a href="#过程" class="headerlink" title="过程"></a>过程</h1><h2 id="准备测试环境"><a href="#准备测试环境" class="headerlink" title="准备测试环境"></a>准备测试环境</h2><ul>
-<li><p>收包机器编译安装tcpdump</p>
-<p>安装依赖</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">yum install flex bison kernel-headers kernel-devel gcc stress -y</span><br></pre></td></tr></table></figure>
+<li><p>先看看请求是怎么到检测插件的</p>
+<p>  OpenRASP可以作为PHP扩展保护PHP应用，在扩展被加载时hook了很多执行sql的函数，比如openrasp项目<code>agent/php5/hook/openrasp_mysqli.cc</code>文件中可以看到hook了mysqli模块的函数。</p>
+  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;**</span><br><span class="line"> * mysqli相关hook点</span><br><span class="line"> *&#x2F;</span><br><span class="line"></span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">PRE_HOOK_FUNCTION(mysqli_query, SQL);</span><br><span class="line">POST_HOOK_FUNCTION(mysqli_query, SQL_ERROR);</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
 
-<p>依次编译<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/kernel">pf_ring.ko</a>、<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/lib">libpfring</a>、<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/libpcap-1.9.1">libpcap</a>、<a target="_blank" rel="noopener" href="https://github.com/ntop/PF_RING/tree/7.8.0-stable/userland/tcpdump-4.9.3">tcpdump</a></p>
+<p>  当业务代码在做数据库查询时，如果调用<code>mysqli_query</code>等函数执行SQL，就会在执行SQL前经过OpenRASP的检测策略。</p>
+<p>  检测策略文件是JavaScript写的，代码位置在<code>plugins/official/plugin.js</code>。</p>
+<p>  在执行SQL注入检查时，会传入即将执行的SQL（如 “select * from users where a=1”）和完整的请求信息（包含请求参数）。</p>
+  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">...</span><br><span class="line">plugin.register(&#39;sql&#39;, function (params, context) &#123;  &#x2F;&#x2F;params.query包含完整sql，context包含完整请求</span><br><span class="line">    ...</span><br></pre></td></tr></table></figure>
 </li>
-<li><p>发包机器编写发包脚本</p>
-<p>此bash脚本配置来自网络</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line"># 定义一个工具函数，方便后面配置各种测试选项</span><br><span class="line">function pgset() &#123;</span><br><span class="line">    local result</span><br><span class="line"># 定义一个工具函数，方便后面配置各种测试选项</span><br><span class="line">    echo $1 &gt; $PGDEV</span><br><span class="line"></span><br><span class="line">    result&#x3D;&#96;cat $PGDEV | fgrep &quot;Result: OK:&quot;&#96;</span><br><span class="line">    if [ &quot;$result&quot; &#x3D; &quot;&quot; ]; then</span><br><span class="line">         cat $PGDEV | fgrep Result:</span><br><span class="line">    fi</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"># 为0号线程绑定eth0网卡</span><br><span class="line">PGDEV&#x3D;&#x2F;proc&#x2F;net&#x2F;pktgen&#x2F;kpktgend_0</span><br><span class="line"></span><br><span class="line">pgset &quot;rem_device_all&quot;   # 清空网卡绑定</span><br><span class="line">pgset &quot;add_device eth0&quot;  # 添加eth0网卡</span><br><span class="line"></span><br><span class="line"># 配置eth0网卡的测试选项</span><br><span class="line">PGDEV&#x3D;&#x2F;proc&#x2F;net&#x2F;pktgen&#x2F;eth0</span><br><span class="line">pgset &quot;count 2000&quot;    # 总发包数量</span><br><span class="line">pgset &quot;delay 0&quot;       # 不同包之间的发送延迟(单位纳秒)</span><br><span class="line">pgset &quot;clone_skb 0&quot;      # SKB包复制</span><br><span class="line">pgset &quot;pkt_size 64&quot;      # 网络包大小</span><br><span class="line">pgset &quot;dst 172.16.32.12&quot; # 目的IP</span><br><span class="line">pgset &quot;dst_mac fa:28:00:06:df:6c&quot;  # 目的MAC</span><br><span class="line"></span><br><span class="line"># 启动测试</span><br><span class="line">PGDEV&#x3D;&#x2F;proc&#x2F;net&#x2F;pktgen&#x2F;pgctrl</span><br><span class="line">pgset &quot;start&quot;</span><br></pre></td></tr></table></figure>
+<li><p>OpenRASP怎么做SQL注入检测？</p>
+<p>  SQL注入检测策略默认开启了三种：</p>
+<pre><code>* 词法分析后，判断用户输入是否改变SQL执行逻辑
+* 词法分析后，判断SQL语句是否有写文件操作、使用黑名单函数等
+* sql server执行异常</code></pre>
+<p>  第一类SQL注入检测策略：对即将执行的sql语句做分词，判断用户的输入占用了几个token，正常情况下，用户输入应该只占有一个token。 比如最终执行sql是select id from user where name=”user_input_name”， 正常请求时 “user_input_name” 会变成一个字符串token。如果碰到恶意请求闭合了双引号，用户输入就至少占用两个token。</p>
+<p>  详细可见官方文档 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/50AFAVp8dSwuc1ACY5kRKw">OpenRASP v0.20 发布 | 性能提升与零规则漏洞检测</a>。</p>
+<p>  实现的代码在 <code>plugins/official/plugin.js</code>文件</p>
+  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;&#x2F; raw_tokens包含有词法分析得到的token串</span><br><span class="line">&#x2F;&#x2F; userinput_idx是用户输入在最终执行的sql的开始位置</span><br><span class="line"></span><br><span class="line">if (is_token_changed(raw_tokens, userinput_idx, value.length, distance, is_sql&#x3D;true)) &#123;</span><br><span class="line">    reason &#x3D; _(&quot;SQLi - SQL query structure altered by user input, request parameter name: %1%, value: %2%&quot;, [name, value])</span><br><span class="line">    return true</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 
-<p>modprobe pktgen</p>
-</li>
-<li><p>人为调高收包机cpu利用率</p>
-<p>为什么要调高呢？因为实验过程中发现，如果不调高，即使收包机pps达到最大值40w，机器cpu仍然很低、tcpdump不会丢包，这样就看不出来效果。</p>
-<p>怎么调高cpu利用率？可以使用 <code>stress -c 2</code> 命令 故意占用cpu。</p>
+<p>  第二类SQL注入检测策略：检查分词后的token串中是否命中规则。</p>
+<p>  比如 为了对抗”利用SQL注入中写webshell”这种攻击方式，就检查最终执行的sql语句是否包含 [“into”,”outfile”]和[“into”,”dumpfile”] 两类token</p>
+<p>  <code>select &quot;webshell.txt&quot; into outfile &#39;/var/www/webshell.php&#39;</code> 可以用来写入Webshell</p>
+<p>  检测策略的实现代码也在 plugin.js 中可以看到</p>
+  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">else if (features[&#39;into_outfile&#39;] &amp;&amp; i &lt; tokens_lc.length - 2 &amp;&amp; tokens_lc[i] &#x3D;&#x3D; &#39;into&#39;)</span><br><span class="line"> &#123;</span><br><span class="line">     if (tokens_lc[i + 1] &#x3D;&#x3D; &#39;outfile&#39; || tokens_lc[i + 1] &#x3D;&#x3D; &#39;dumpfile&#39;)</span><br><span class="line">     &#123;</span><br><span class="line">         reason &#x3D; _(&quot;SQLi - Detected INTO OUTFILE phrase in sql query&quot;)</span><br><span class="line">         break</span><br><span class="line">     &#125;</span><br><span class="line"> &#125;</span><br></pre></td></tr></table></figure>
+
+<p>  命令执行检测同样也依赖词法分析。</p>
+<p>  可以看出来OpenRASP中词法分析在sql注入、命令执行检测算法中目前很重要。</p>
 </li>
 </ul>
-<h2 id="观察测试数据"><a href="#观察测试数据" class="headerlink" title="观察测试数据"></a>观察测试数据</h2><ul>
-<li><p>发包为<code>pgset &quot;pkt_size 64&quot;</code>时，收包机的收包率</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4265694 packets captured</span><br><span class="line">4268967 packets received by filter</span><br><span class="line">3273 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4190808 packets captured</span><br><span class="line">4196105 packets received by filter</span><br><span class="line">5297 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4192817 packets captured</span><br><span class="line">4197737 packets received by filter</span><br><span class="line">4920 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# insmod ..&#x2F;..&#x2F;kernel&#x2F;pf_ring.ko</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4212730 packets captured</span><br><span class="line">4212730 packets received by filter</span><br><span class="line">0 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4217341 packets captured</span><br><span class="line">4217341 packets received by filter</span><br><span class="line">0 packets dropped by kernel</span><br><span class="line">[root@instance-6b1djiud tcpdump]# .&#x2F;tcpdump  &#39;src host 172.16.32.25&#39; -w a.pcap</span><br><span class="line">tcpdump: listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes</span><br><span class="line">4358870 packets captured</span><br><span class="line">4358870 packets received by filter</span><br><span class="line">0 packets dropped by kernel</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>测试数据汇总</p>
-<p>| 包大小 | 是否加载pf_ring.ko | captured | received | dropped |<br>| - | - | - | - | - | - |<br>| 64 | 否 | 4265694 | 4268967 | 3273 |<br>| 64 | 否 | 4192817 | 4197737 | 4920 |<br>| 64 | 否 | 4190808 | 4196105 | 5297 |<br>| 64 | 是 | 4212730 | 4212730 | 0 |<br>| 64 | 是 | 4217341 | 4217341 | 0 |<br>| 64 | 是 | 4358870 | 4358870 | 0 |<br>| 1500 | 否 | 2113248 | 2421024 | 307776 |<br>| 1500 | 否 | 1988029 | 2370209 | 382180 |<br>| 1500 | 否 | 2121627 | 2424882 | 303255 |<br>| 1500 | 是 | 2382563 | 2382563 | 0 |<br>| 1500 | 是 | 2422587 | 2422587 | 0 |<br>| 1500 | 是 | 2479560 | 2479560 | 0 |</p>
-<p><code>pgset &quot;pkt_size 64&quot;</code>命令调整包大小</p>
-<p>可以看到上面收包机tcpdump的数据：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 加载pf_ring.ko内核模块前，六次都有丢包</span><br><span class="line">* 加载pf_ring.ko内核模块后，六次都没有丢包</span><br><span class="line">* 大包时，丢包更严重</span><br></pre></td></tr></table></figure>
+<h2 id="怎么实现词法分析？"><a href="#怎么实现词法分析？" class="headerlink" title="怎么实现词法分析？"></a>怎么实现词法分析？</h2><p>OpenRASP有两个JS接口可以获取分析后的token串，见<a target="_blank" rel="noopener" href="https://rasp.baidu.com/doc/dev/api/rasp.html#sql_tokenize">sql_tokenize</a></p>
+<p>实现接口的代码在openrasp-v8项目中<code>base/flex/flex.cc</code>文件，这个文件是flex工具生成的，原始的规则文件并没有开源出来。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">static sql_tokenize(query) &#123;</span><br><span class="line">    return tokenize(query, &quot;sql&quot;)</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">static cmd_tokenize(query) &#123;</span><br><span class="line">    return tokenize(query, &#39;bash&#39;)</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 
-<p>所以可以得出结论：</p>
+<p>从实现角度上看，词法分词可以分为三类：</p>
 <ul>
-<li>pf_ring版本的tcpdump抓包率更高</li>
+<li>借助工具，如flex、antlr。openrasp就是用借助flex做的</li>
+<li>纯手写实现，比如 <a target="_blank" rel="noopener" href="https://github.com/client9/libinjection">libinjection</a></li>
+<li>combinator库等半自动</li>
+</ul>
+<h2 id="哪些安全产品用到了词法分析？"><a href="#哪些安全产品用到了词法分析？" class="headerlink" title="哪些安全产品用到了词法分析？"></a>哪些安全产品用到了词法分析？</h2><ul>
+<li>openrasp</li>
+<li>waf<ul>
+<li>libinjection</li>
+<li>命令执行防护</li>
+<li>xss防护</li>
+<li>sql注入防护</li>
 </ul>
 </li>
+<li>hids<ul>
+<li>webshell检测</li>
 </ul>
-<h1 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h1><ul>
-<li>pf_ring版本的tcpdump抓包率更高</li>
-</ul>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E9%AA%8C%E8%AF%81%E6%98%AF%E5%90%A6%E5%AD%98%E5%9C%A8%E5%86%99%E6%96%87%E4%BB%B6%E6%BC%8F%E6%B4%9E%E5%B0%8F%E6%8A%80%E5%B7%A7/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E9%AA%8C%E8%AF%81%E6%98%AF%E5%90%A6%E5%AD%98%E5%9C%A8%E5%86%99%E6%96%87%E4%BB%B6%E6%BC%8F%E6%B4%9E%E5%B0%8F%E6%8A%80%E5%B7%A7/" class="post-title-link" itemprop="url">验证是否存在写文件漏洞小技巧</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>在安全黑盒测试时遇到一个疑似能写任意文件的漏洞点，想要验证漏洞是否存在。</p>
-<p>这里就猜测后端代码可能如下：存在可能的任意写文件漏洞，可写的内容部分可控、服务权限未知</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">content &#x3D; &quot;something start&quot; + &quot;用户可控的内容&quot; + &quot;something end&quot;</span><br><span class="line">f &#x3D; open(&quot;用户指定的文件路径&quot;, &quot;w&quot;)</span><br><span class="line">f.write(content)</span><br></pre></td></tr></table></figure>
-
-<p>最开始用”写入ping dnslog命令到crontab”来验证写文件漏洞是否存在，不过验证失败了，可能因为下面两个原因：</p>
-<ul>
-<li>目标机器没启动cron服务</li>
-<li>服务身份可能不是root，没有权限写 /var/spool/cron目录和/etc/crontab</li>
-</ul>
-<p>也可以写内容到 .bashrc、web路径、常用文件（比如bash、ping等），但这些方式都有一点限制：</p>
-<ul>
-<li>/root/.bashrc因为服务身份不一定是root，所以可能写入失败</li>
-<li>.bashrc需要登陆到机器才能触发</li>
-<li>web路径位置未知</li>
-<li>写常用文件(比如bash、ping等)可能影响目标系统的稳定性，并且需要等待目标操作才能触发</li>
-</ul>
-<p>我这里只想要快速验证”写文件漏洞”是否存在，确认存在后，再来尝试上述或者别的方法来做漏洞利用。</p>
-<p>为了验证”写文件漏洞”是否存在，我的思路是 能不能找到一个特殊文件，写内容到此文件会造成延时或者产生dnslog。</p>
-<p>我能想到的特殊文件包括：</p>
-<ul>
-<li>管道文件</li>
-<li>/dev/tcp/{host}/{ip}</li>
-<li>socket文件</li>
-<li>标准描述符  (/proc/self/fd/0、/proc/self/fd/1)</li>
-</ul>
-<p>下面就是验证这些文件，哪个符合需求</p>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
-<li><p>管道文件</p>
-<p>思路：找到系统上默认的管道文件，并且验证写入文件是否阻塞</p>
-<ol>
-<li><p>找出系统默认的管道文件</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">find &#x2F; -type p</span><br></pre></td></tr></table></figure>
-
-<p> 可以看到CentOS 7.9系统默认存在一些管道文件</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;run&#x2F;dmeventd-client</span><br><span class="line">&#x2F;run&#x2F;dmeventd-server</span><br><span class="line">&#x2F;run&#x2F;systemd&#x2F;ask-password-block&#x2F;136:4</span><br><span class="line">&#x2F;run&#x2F;systemd&#x2F;sessions&#x2F;1.ref</span><br><span class="line">&#x2F;run&#x2F;systemd&#x2F;initctl&#x2F;fifo</span><br></pre></td></tr></table></figure>
 </li>
-<li><p>验证上面的管道文件，有一个可以利用</p>
-<p> <code>echo 1 &gt; /run/systemd/ask-password-block/136:4</code>  会阻塞</p>
-<p> 这个文件在其他系统文件名略微有点不同，并且只有root用户可以读写</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">另一个CentOS7.9: &#x2F;run&#x2F;systemd&#x2F;ask-password-block&#x2F;136:0</span><br><span class="line">ubuntu：&#x2F;run&#x2F;systemd&#x2F;ask-password-block&#x2F;136:2</span><br></pre></td></tr></table></figure>
-
-</li>
-</ol>
-<p>小结：可以用 /run/systemd/ask-password-block/136:{id} 文件来探测是否存在文件写漏洞，前提是服务有root权限</p>
-</li>
+<li>db防火墙</li>
+<li>代码混淆与反混淆</li>
+<li>…</li>
 </ul>
-<ul>
-<li><p>/dev/tcp/{host}/{ip}</p>
-<p>在bash反弹shell中会用到这个。</p>
-<p>它不是文件，只是bash解释器会对/dev/tcp对特殊处理，代表了一个tcp socket。</p>
-<p>所以它不满足需求。</p>
-</li>
-<li><p>socket文件</p>
-<p>操作socket文件不是open、write、close这一套流程，所以肯定不行。</p>
-</li>
+<p>上面的部分产品除了用到词法分析，还会用到语法分析、语义分析。</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>主要还是围绕OpenRASP来写的这篇文章，没有细讲词法分析的实现、做项目时应该用工具还是完全手写词法分析、语法分析这类检测引擎的误报和漏报场景等问题。</p>
+<p>关于词法分析、语法分析的原理、算法和实现，推荐看 <a target="_blank" rel="noopener" href="https://time.geekbang.org/column/intro/219">编译原理之美</a> 这个课程，一级棒。</p>
+<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><ul>
+<li><a target="_blank" rel="noopener" href="https://cloud.tencent.com/developer/article/1755588">OpenRASP SQL注入绕过</a></li>
+<li><a target="_blank" rel="noopener" href="https://rasp.baidu.com/">OpenRASP官网</a></li>
 </ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><ul>
-<li>可以用 /run/systemd/ask-password-block/136:{id} 文件来探测是否存在文件写漏洞，前提是服务有root权限。</li>
-</ul>
-<p>最后，感谢和我讨论这个小问题的朋友。</p>
 
       
     </div>

