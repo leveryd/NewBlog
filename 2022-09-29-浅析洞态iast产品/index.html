@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 5.2.0">
+
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@5.15.4/css/all.min.css" integrity="sha256-mUZM63G8m73Mcidfrv5E+Y61y7a12O5mW4ezU3bxqW4=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"yoursite.com","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.8.2","exturl":false,"sidebar":{"position":"left","display":"post","padding":18,"offset":12},"copycode":false,"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"prism":false,"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js"></script>
+<meta name="description" content="背景之前的工作中处理过一些洞态iast的漏报误报案例,也逐渐了解这个项目。 本文记录我对洞态iast基本原理的理解,毕竟不记一下过段时间就忘了。 本文内容包括：  洞态做漏洞检测的原理 洞态中的污点是什么 源码分析java-agent的业务逻辑 举个例子：洞态怎么检测mybatis写的sql是否存在sql注入  怎么做漏洞检测? 如上，用户可以在server端配置四类规则：  污点源方法：是获取a">
+<meta property="og:type" content="article">
+<meta property="og:title" content="浅析洞态iast产品">
+<meta property="og:url" content="http://yoursite.com/2022-09-29-%E6%B5%85%E6%9E%90%E6%B4%9E%E6%80%81iast%E4%BA%A7%E5%93%81/index.html">
+<meta property="og:site_name" content="leveryd的个人博客">
+<meta property="og:description" content="背景之前的工作中处理过一些洞态iast的漏报误报案例,也逐渐了解这个项目。 本文记录我对洞态iast基本原理的理解,毕竟不记一下过段时间就忘了。 本文内容包括：  洞态做漏洞检测的原理 洞态中的污点是什么 源码分析java-agent的业务逻辑 举个例子：洞态怎么检测mybatis写的sql是否存在sql注入  怎么做漏洞检测? 如上，用户可以在server端配置四类规则：  污点源方法：是获取a">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://user-images.githubusercontent.com/1846319/193180966-8b2815cf-a613-414e-a5e9-58c8259e0687.png">
+<meta property="og:image" content="https://user-images.githubusercontent.com/1846319/193067749-f933545d-b36a-49a9-aec7-6bf35997cad5.png">
+<meta property="og:image" content="https://user-images.githubusercontent.com/1846319/193058681-5b1ecf68-73c5-4c4d-b7e1-6be5862dbb29.png">
+<meta property="og:image" content="https://user-images.githubusercontent.com/1846319/193060076-0249cbe1-90db-438a-bcd7-bae5f3a1ad54.png">
+<meta property="og:image" content="https://user-images.githubusercontent.com/1846319/193008318-d7890a20-4bf8-4c2f-a12a-68436d749ddc.png">
+<meta property="article:published_time" content="2022-09-29T15:04:23.322Z">
+<meta property="article:modified_time" content="2022-09-30T04:32:25.068Z">
+<meta property="article:author" content="leveryd">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://user-images.githubusercontent.com/1846319/193180966-8b2815cf-a613-414e-a5e9-58c8259e0687.png">
+
+
+<link rel="canonical" href="http://yoursite.com/2022-09-29-%E6%B5%85%E6%9E%90%E6%B4%9E%E6%80%81iast%E4%BA%A7%E5%93%81/">
+
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"http://yoursite.com/2022-09-29-%E6%B5%85%E6%9E%90%E6%B4%9E%E6%80%81iast%E4%BA%A7%E5%93%81/","path":"2022-09-29-浅析洞态iast产品/","title":"浅析洞态iast产品"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>浅析洞态iast产品 | leveryd的个人博客</title>
+  
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">leveryd的个人博客</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu">
+        <li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li>
+        <li class="menu-item menu-item-about"><a href="/about/" rel="section"><i class="fa fa-user fa-fw"></i>关于</a></li>
+        <li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+        
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#%E8%83%8C%E6%99%AF"><span class="nav-number">1.</span> <span class="nav-text">背景</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E6%80%8E%E4%B9%88%E5%81%9A%E6%BC%8F%E6%B4%9E%E6%A3%80%E6%B5%8B"><span class="nav-number">2.</span> <span class="nav-text">怎么做漏洞检测?</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E6%B1%A1%E7%82%B9%E6%98%AF%E4%BB%80%E4%B9%88%EF%BC%9F"><span class="nav-number">3.</span> <span class="nav-text">污点是什么？</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E6%B5%81%E7%A8%8B%E6%B5%85%E6%9E%90"><span class="nav-number">4.</span> <span class="nav-text">流程浅析</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E4%B8%BE%E4%B8%AA%E4%BE%8B%E5%AD%90%EF%BC%9A%E6%80%8E%E4%B9%88%E6%A3%80%E6%B5%8B%E6%8E%A5%E5%8F%A3%E6%98%AF%E5%90%A6%E5%AD%98%E5%9C%A8SQL%E6%B3%A8%E5%85%A5%E9%A3%8E%E9%99%A9%EF%BC%9F"><span class="nav-number">5.</span> <span class="nav-text">举个例子：怎么检测接口是否存在SQL注入风险？</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E6%80%BB%E7%BB%93"><span class="nav-number">6.</span> <span class="nav-text">总结</span></a></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author site-overview-item animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">leveryd</p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap site-overview-item animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">61</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-tags">
+        <span class="site-state-item-count">24</span>
+        <span class="site-state-item-name">标签</span>
+      </div>
+  </nav>
+</div>
+
+
+
+        </div>
+      </div>
+    </div>
+  </aside>
+  <div class="sidebar-dimmer"></div>
+
+
+    </header>
+
+    
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2022-09-29-%E6%B5%85%E6%9E%90%E6%B4%9E%E6%80%81iast%E4%BA%A7%E5%93%81/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          浅析洞态iast产品
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2022-09-29 23:04:23" itemprop="dateCreated datePublished" datetime="2022-09-29T23:04:23+08:00">2022-09-29</time>
+    </span>
+      <span class="post-meta-item">
+        <span class="post-meta-item-icon">
+          <i class="far fa-calendar-check"></i>
+        </span>
+        <span class="post-meta-item-text">更新于</span>
+        <time title="修改时间：2022-09-30 12:32:25" itemprop="dateModified" datetime="2022-09-30T12:32:25+08:00">2022-09-30</time>
+      </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+        <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>之前的工作中处理过一些<a target="_blank" rel="noopener" href="https://doc.dongtai.io/">洞态iast</a>的漏报误报案例,也逐渐了解这个项目。</p>
+<p>本文记录我对洞态iast基本原理的理解,毕竟不记一下过段时间就忘了。</p>
+<p>本文内容包括：</p>
+<ul>
+<li>洞态做漏洞检测的原理</li>
+<li>洞态中的污点是什么</li>
+<li>源码分析java-agent的业务逻辑</li>
+<li>举个例子：洞态怎么检测mybatis写的sql是否存在sql注入</li>
+</ul>
+<h1 id="怎么做漏洞检测"><a href="#怎么做漏洞检测" class="headerlink" title="怎么做漏洞检测?"></a>怎么做漏洞检测?</h1><p><img src="https://user-images.githubusercontent.com/1846319/193180966-8b2815cf-a613-414e-a5e9-58c8259e0687.png"></p>
+<p>如上，用户可以在server端配置四类规则：</p>
+<ul>
+<li>污点源方法：是获取api、rpc请求信息的接口或者类签名,比如<code>javax.servlet.ServletRequest.getParameter(java.lang.String)</code></li>
+<li>传播方法：是字符串拼接、编码等接口或类签名,比如<code>java.lang.String.&lt;init&gt;(java.lang.String)</code></li>
+<li>危险方法：是高危函数,比如<code>javax.naming.Context.lookup(java.lang.String)</code></li>
+</ul>
+<p>源码中有三个重要的数据结构,<code>TAINT_POOL</code>存放污点对象,<code>TAINT_HASH_CODES</code>存放污点对象的hashCode值,<code>TRACK_MAP</code>存放调用关系</p>
+<p>当代码执行到被hook的传播方法时,会根据用户配置的”污点来源”规则,拿到对象(一般是函数的某个参数)去<code>TAINT_POOL</code>和<code>TAINT_HASH_CODES</code>搜索匹配。如果能匹配上,就会根据用户配置的”污点去向”规则,生成污点对象并放到<code>TAINT_POOL</code>中,并将污点对象的hashCodes存放到<code>TAINT_HASH_CODES</code>中,最后将传播方法的调用关系存放到<code>TRACK_MAP</code>。</p>
+<p>当代码执行到被hook的危险方法时,和传播方法的逻辑比较类似,不过没有”污点去向”。</p>
+<p>这里的”污点”是什么呢？</p>
+<h1 id="污点是什么？"><a href="#污点是什么？" class="headerlink" title="污点是什么？"></a>污点是什么？</h1><p>最重要的概念是对象的hashcode/identifyHashCode,hashcode/identifyHashCode作为数据的唯一跟踪方法会被加入到污点池中,也会被用来判断是否在污点池中。</p>
+<p>下面我带你通过一个我遇到过的误报案例来理解这个概念。</p>
+<p>因为Java中相同字符串对象的hashcode/identifyHashCode是不变的,如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">String a &#x3D; &quot;123&quot;;</span><br><span class="line">String b &#x3D; &quot;123&quot;;</span><br><span class="line">System.out.println(System.identityHashCode(a));   &#x2F;&#x2F; 1289696681</span><br><span class="line">System.out.println(System.identityHashCode(b));   &#x2F;&#x2F; 1289696681</span><br></pre></td></tr></table></figure>
+
+<p>所以有时候即使危险函数的参数完全不可控,也会报警。如下代码中的iast17接口之前会误报(现已修复),因为iast会认为<code>f.getName()</code>返回的字符串对象<code>123</code>是污点。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">@ResponseBody</span><br><span class="line">@RequestMapping(&quot;&#x2F;iast17&quot;)</span><br><span class="line">public String iast17(@RequestParam(&quot;name&quot;) String name) &#123;</span><br><span class="line">    ArrayList&lt;String&gt; a &#x3D; new ArrayList&lt;&gt;();</span><br><span class="line">    a.add(&quot;123&quot;);</span><br><span class="line">    a.add(name);  &#x2F;&#x2F; a对象会被标记成污点</span><br><span class="line"></span><br><span class="line">    Iterator&lt;String&gt; b &#x3D; a.iterator();</span><br><span class="line">    System.out.println(b.next());</span><br><span class="line">    System.out.println(b.next()); &#x2F;&#x2F; &quot;123&quot;会被标记成污点</span><br><span class="line"></span><br><span class="line">    File f &#x3D; new File(&quot;123&quot;);   </span><br><span class="line">    return f.getName(); &#x2F;&#x2F; 返回值&quot;123&quot;被认为是可控的,会产生误报</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><img src="https://user-images.githubusercontent.com/1846319/193067749-f933545d-b36a-49a9-aec7-6bf35997cad5.png"></p>
+<p>iast为什么会认为”123”是污点呢？</p>
+<p>因为执行<code>a.add(name)</code>时,下面的传播规则会使得<code>a</code>对象变成污点<br><img src="https://user-images.githubusercontent.com/1846319/193058681-5b1ecf68-73c5-4c4d-b7e1-6be5862dbb29.png"></p>
+<p>在执行<code>b.next()</code>时,<code>iterator.next()</code>传播规则会让<code>123</code>字符串变成污点<br><img src="https://user-images.githubusercontent.com/1846319/193060076-0249cbe1-90db-438a-bcd7-bae5f3a1ad54.png"></p>
+<h1 id="流程浅析"><a href="#流程浅析" class="headerlink" title="流程浅析"></a>流程浅析</h1><p>collectMethodPool方法串联了”最重要”的业务流程。当java-agent启动时,会拉取server端规则,然后根据规则hook类,确保在被hook的方法执行前或者执行后能调用到collectMethodPool方法。在处理http请求时,collectMethodPool方法会判断当前是属于哪一类规则,并做对应的动作。</p>
+<p>你可以从java-agent启动时和请求过来时两个场景来看业务逻辑。</p>
+<p>java-agent启动时会找到所有jvm已经加载的类并重写字节码,如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;&#x2F; https:&#x2F;&#x2F;github.com&#x2F;HXSecurity&#x2F;DongTai-agent-java&#x2F;blob&#x2F;v1.7.7&#x2F;dongtai-core&#x2F;src&#x2F;main&#x2F;java&#x2F;io&#x2F;dongtai&#x2F;iast&#x2F;core&#x2F;bytecode&#x2F;IastClassFileTransformer.java#L250</span><br><span class="line"></span><br><span class="line">public void reTransform() &#123;</span><br><span class="line">    ...</span><br><span class="line">    Class&lt;?&gt;[] waitingReTransformClasses &#x3D; findForRetransform();    &#x2F;&#x2F; 找到所有待重写的类</span><br><span class="line">    ...</span><br><span class="line">    for (Class&lt;?&gt; clazz : waitingReTransformClasses) &#123;</span><br><span class="line">    ...</span><br><span class="line">          inst.retransformClasses(clazz);   &#x2F;&#x2F; 用asm重新生成字节码</span><br><span class="line">    ...</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>因此实现了对污点源方法、传播方法、危险方法的hook,并且使得执行方法前或者执行方法后,调用captureMethodState方法。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;&#x2F; 污点源方法: https:&#x2F;&#x2F;github.com&#x2F;HXSecurity&#x2F;DongTai-agent-java&#x2F;blob&#x2F;v1.7.7&#x2F;dongtai-core&#x2F;src&#x2F;main&#x2F;java&#x2F;io&#x2F;dongtai&#x2F;iast&#x2F;core&#x2F;bytecode&#x2F;enhance&#x2F;plugin&#x2F;core&#x2F;adapter&#x2F;SourceAdviceAdapter.java#L26</span><br><span class="line">public class SourceAdviceAdapter extends AbstractAdviceAdapter &#123;</span><br><span class="line">  ...</span><br><span class="line">  @Override</span><br><span class="line">  protected void after(int opcode) &#123;</span><br><span class="line">      ...</span><br><span class="line">      captureMethodState(opcode, HookType.SOURCE.getValue(), true);</span><br><span class="line">      ...</span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">&#x2F;&#x2F; 传播方法: https:&#x2F;&#x2F;github.com&#x2F;HXSecurity&#x2F;DongTai-agent-java&#x2F;blob&#x2F;v1.7.7&#x2F;dongtai-core&#x2F;src&#x2F;main&#x2F;java&#x2F;io&#x2F;dongtai&#x2F;iast&#x2F;core&#x2F;bytecode&#x2F;enhance&#x2F;plugin&#x2F;core&#x2F;adapter&#x2F;PropagateAdviceAdapter.java#L31</span><br><span class="line">public class PropagateAdviceAdapter extends AbstractAdviceAdapter &#123;</span><br><span class="line">  ...</span><br><span class="line">  @Override</span><br><span class="line">  protected void after(final int opcode) &#123;</span><br><span class="line">      ...</span><br><span class="line">      captureMethodState(opcode, HookType.PROPAGATOR.getValue(), true);</span><br><span class="line">      ...</span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">&#x2F;&#x2F; 危险方法: https:&#x2F;&#x2F;github.com&#x2F;HXSecurity&#x2F;DongTai-agent-java&#x2F;blob&#x2F;v1.7.7&#x2F;dongtai-core&#x2F;src&#x2F;main&#x2F;java&#x2F;io&#x2F;dongtai&#x2F;iast&#x2F;core&#x2F;bytecode&#x2F;enhance&#x2F;plugin&#x2F;core&#x2F;adapter&#x2F;SinkAdviceAdapter.java#L31</span><br><span class="line">public class SinkAdviceAdapter extends AbstractAdviceAdapter &#123;</span><br><span class="line">  ...</span><br><span class="line">  @Override</span><br><span class="line">  protected void before() &#123;</span><br><span class="line">      ...</span><br><span class="line">      captureMethodState(-1, HookType.SINK.getValue(), false);</span><br><span class="line">      ...</span><br><span class="line">  &#125;</span><br></pre></td></tr></table></figure>
+
+<p>captureMethodState 最终会调用collectMethodPool方法</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;&#x2F; https:&#x2F;&#x2F;github.com&#x2F;HXSecurity&#x2F;DongTai-agent-java&#x2F;blob&#x2F;v1.7.7&#x2F;dongtai-core&#x2F;src&#x2F;main&#x2F;java&#x2F;io&#x2F;dongtai&#x2F;iast&#x2F;core&#x2F;bytecode&#x2F;enhance&#x2F;plugin&#x2F;AbstractAdviceAdapter.java#L103</span><br><span class="line"></span><br><span class="line">protected void captureMethodState(</span><br><span class="line">        final int opcode,</span><br><span class="line">        final int hookValue,</span><br><span class="line">        final boolean captureRet</span><br><span class="line">) &#123;</span><br><span class="line">    ...</span><br><span class="line">    invokeInterface(ASM_TYPE_SPY_DISPATCHER, SPY$collectMethodPool);</span><br><span class="line">    pop();</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">&#x2F;&#x2F; https:&#x2F;&#x2F;github.com&#x2F;HXSecurity&#x2F;DongTai-agent-java&#x2F;blob&#x2F;v1.7.7&#x2F;dongtai-core&#x2F;src&#x2F;main&#x2F;java&#x2F;io&#x2F;dongtai&#x2F;iast&#x2F;core&#x2F;bytecode&#x2F;enhance&#x2F;asm&#x2F;AsmMethods.java#L131</span><br><span class="line"></span><br><span class="line">Method SPY$collectMethodPool &#x3D; InnerHelper.getAsmMethod(</span><br><span class="line">        SpyDispatcher.class,</span><br><span class="line">        &quot;collectMethodPool&quot;,</span><br><span class="line">        ...</span><br><span class="line">);</span><br></pre></td></tr></table></figure>
+
+<p>请求过来时,就会执行到collectMethodPool方法,方法中根据hookType处理。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;&#x2F; https:&#x2F;&#x2F;github.com&#x2F;HXSecurity&#x2F;DongTai-agent-java&#x2F;blob&#x2F;v1.7.7&#x2F;dongtai-core&#x2F;src&#x2F;main&#x2F;java&#x2F;io&#x2F;dongtai&#x2F;iast&#x2F;core&#x2F;handler&#x2F;hookpoint&#x2F;SpyDispatcherImpl.java#L462</span><br><span class="line"></span><br><span class="line">@Override</span><br><span class="line">public boolean collectMethodPool(Object instance, Object[] argumentArray, Object retValue, String framework,</span><br><span class="line">                                 String className, String matchClassName, String methodName, String methodSign, boolean isStatic,</span><br><span class="line">                                 int hookType) &#123;</span><br><span class="line">    &#x2F;&#x2F; hook点降级判断</span><br><span class="line">    ...</span><br><span class="line">    &#x2F;&#x2F; 尝试获取hook限速令牌,耗尽时降级</span><br><span class="line">    ...</span><br><span class="line"></span><br><span class="line">    ...</span><br><span class="line">    MethodEvent event &#x3D; new MethodEvent(0, -1, className, matchClassName, methodName,</span><br><span class="line">            methodSign, methodSign, instance, argumentArray, retValue, framework, isStatic, null);</span><br><span class="line">    if (HookType.HTTP.equals(hookType)) &#123;</span><br><span class="line">        HttpImpl.solveHttp(event);</span><br><span class="line">    &#125; else if (HookType.RPC.equals(hookType)) &#123;</span><br><span class="line">        solveRPC(framework, event);</span><br><span class="line">    &#125; else if (HookType.PROPAGATOR.equals(hookType) &amp;&amp; !EngineManager.TAINT_POOL.isEmpty()) &#123;   &#x2F;&#x2F; 处理传播方法</span><br><span class="line">        PropagatorImpl.solvePropagator(event, INVOKE_ID_SEQUENCER);</span><br><span class="line">    &#125; else if (HookType.SOURCE.equals(hookType)) &#123;  &#x2F;&#x2F; 处理污点源方法</span><br><span class="line">        SourceImpl.solveSource(event, INVOKE_ID_SEQUENCER);</span><br><span class="line">    &#125; else if (HookType.SINK.equals(hookType)) &#123;    &#x2F;&#x2F; 处理危险方法</span><br><span class="line">        SinkImpl.solveSink(event);</span><br><span class="line">    &#125;</span><br><span class="line">    ...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h1 id="举个例子：怎么检测接口是否存在SQL注入风险？"><a href="#举个例子：怎么检测接口是否存在SQL注入风险？" class="headerlink" title="举个例子：怎么检测接口是否存在SQL注入风险？"></a>举个例子：怎么检测接口是否存在SQL注入风险？</h1><p>后端服务用mybatis时,<code>$&#123;变量&#125;</code>的sql写法容易造成sql注入,而<code>#&#123;变量&#125;</code>底层会使用预编译通常不会产生sql注入问题,如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;&#x2F; 第一个sql：存在sql注入</span><br><span class="line">select * from user where name&#x3D;$&#123;name&#125;</span><br><span class="line"></span><br><span class="line">&#x2F;&#x2F; 第二个sql：不存在sql注入</span><br><span class="line">select * from user where name&#x3D;#&#123;name&#125;</span><br></pre></td></tr></table></figure>
+
+<p>当用户请求<code>/user?name=admin</code>时,iast是怎么检查出第一种接口存在SQL注入风险,而不会对第二种接口误报呢？</p>
+<p>实际上如果我们调试一下,就知道<code>#</code>和<code>$</code>的写法调用的sql接口是有区别的,如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;&#x2F; 使用$&#123;name&#125;时</span><br><span class="line">conn.prepareStatement(&quot;select * from user where name&#x3D;&quot;admin&quot;)</span><br><span class="line"></span><br><span class="line">&#x2F;&#x2F; 使用#&#123;name&#125;时</span><br><span class="line">pstmt&#x3D;conn.prepareStatement(&quot;select * from user where name&#x3D;?)</span><br><span class="line">pstmt.setString(1, &quot;admin&quot;)</span><br></pre></td></tr></table></figure>
+
+<p>洞态iast默认有一个危险方法规则是<code>java.sql.Connection.prepareStatement(java.lang.String)</code>,当第一个参数是污点时,就会告警,规则如下。<br><img src="https://user-images.githubusercontent.com/1846319/193008318-d7890a20-4bf8-4c2f-a12a-68436d749ddc.png"></p>
+<p>所以使用${name}时,<code>admin</code>字符串对象是污点,<code>&quot;select * from user where name=&quot;admin&quot;</code>字符串对象也会被标记成污点,于是命中危险方法规则,产生告警。</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>学习iast时阅读官方文档和代码调试很有用,java-agent调试可以看 <a target="_blank" rel="noopener" href="https://doc.dongtai.io/docs/development/dongtai-java-agent-doc/agent-debug">https://doc.dongtai.io/docs/development/dongtai-java-agent-doc/agent-debug</a></p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2022-09-07-%E5%85%B3%E4%BA%8E%22linux%20capability%22%E7%9A%84%E4%B8%A4%E4%B8%AA%E7%89%B9%E6%AE%8A%E6%A1%88%E4%BE%8B/" rel="prev" title="关于"linux capability"的两个特殊案例">
+                  <i class="fa fa-chevron-left"></i> 关于"linux capability"的两个特殊案例
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/2022-10-21-bug%20bounty-apple%20website%20xss%20filter%20bypass/" rel="next" title="bug bounty-apple website xss filter bypass">
+                  bug bounty-apple website xss filter bypass <i class="fa fa-chevron-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+
+<div class="copyright">
+  &copy; 
+  <span itemprop="copyrightYear">2022</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">leveryd</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous"></script>
+<script src="/js/comments.js"></script><script src="/js/utils.js"></script><script src="/js/motion.js"></script><script src="/js/schemes/muse.js"></script><script src="/js/next-boot.js"></script>
+
+  
+
+
+
+
+
+  
+
+
+
+
+
+</body>
+</html>

