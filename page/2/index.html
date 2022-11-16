@@ -125,7 +125,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">60</span>
+          <span class="site-state-item-count">62</span>
           <span class="site-state-item-name">日志</span>
         </a>
       </div>
@@ -159,6 +159,197 @@
 
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2022-06-13-%E5%87%86%E5%85%A5%E6%8E%A7%E5%88%B6/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2022-06-13-%E5%87%86%E5%85%A5%E6%8E%A7%E5%88%B6/" class="post-title-link" itemprop="url">浅识k8s准入控制</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+      
+
+      <time title="创建时间：2022-06-13 17:19:07 / 修改时间：22:58:47" itemprop="dateCreated datePublished" datetime="2022-06-13T17:19:07+08:00">2022-06-13</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>在 <a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/JLsNAKHPOUPsFqq506WbPg">k8s中各组件和kube apiserver通信时的认证和鉴权</a> 中提到”NodeRestriction准入插件”，实际上它是一个”准入控制器”。</p>
+<p>“准入控制器”是一个重要的概念，在istio、apisix、某些安全产品中都有用到。</p>
+<p>本文简要记录一下以下内容：</p>
+<ul>
+<li>“准入控制器”是什么</li>
+<li>怎么开启”准入控制器”</li>
+<li>从源码浅析”准入控制器”</li>
+</ul>
+<blockquote>
+<p>本文使用的k8s集群是用<a target="_blank" rel="noopener" href="https://github.com/kubesphere/kubekey/blob/master/README_zh-CN.md">kubekey</a>搭建，命令是./kk create cluster –with-kubernetes v1.21.5 –with-kubesphere v3.2.1</p>
+</blockquote>
+<h1 id="分析"><a href="#分析" class="headerlink" title="分析"></a>分析</h1><h2 id="“准入控制器”是什么？"><a href="#“准入控制器”是什么？" class="headerlink" title="“准入控制器”是什么？"></a>“准入控制器”是什么？</h2><p>它有点类似”插件”，为apiserver提供了很好的”可扩展性”。</p>
+<p>请求apiserver时，通过认证、鉴权后、持久化(“api对象”保存到etcd)前，会经过”准入控制器”，让它可以做”变更和验证”。</p>
+<p>“变更”可以修改”api对象”，比如istio用来实现pod注入。”验证”可以用来校验”api对象”，比如 校验当前集群是否有足够多的资源满足”api对象”、校验当前提交的”pod对象”是否合法。</p>
+<h2 id="怎么开启”准入控制器”？"><a href="#怎么开启”准入控制器”？" class="headerlink" title="怎么开启”准入控制器”？"></a>怎么开启”准入控制器”？</h2><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">root@ip-172-31-14-33:~&#x2F;kubernetes-1.21.5&#x2F;_output&#x2F;bin# .&#x2F;kube-apiserver --help |grep admission-plugins</span><br><span class="line">    ...</span><br><span class="line">    --enable-admission-plugins strings       admission plugins that should be enabled in addition to default enabled ones (NamespaceLifecycle, LimitRanger, ServiceAccount, TaintNodesByCondition, Priority, DefaultTolerationSeconds, DefaultStorageClass, StorageObjectInUseProtection, PersistentVolumeClaimResize, RuntimeClass, CertificateApproval, CertificateSigning, CertificateSubjectRestriction, DefaultIngressClass, MutatingAdmissionWebhook, ValidatingAdmissionWebhook, ResourceQuota). Comma-delimited list of admission plugins: AlwaysAdmit, AlwaysDeny, AlwaysPullImages, CertificateApproval, CertificateSigning, CertificateSubjectRestriction, DefaultIngressClass, DefaultStorageClass, DefaultTolerationSeconds, DenyServiceExternalIPs, EventRateLimit, ExtendedResourceToleration, ImagePolicyWebhook, LimitPodHardAntiAffinityTopology, LimitRanger, MutatingAdmissionWebhook, NamespaceAutoProvision, NamespaceExists, NamespaceLifecycle, NodeRestriction, OwnerReferencesPermissionEnforcement, PersistentVolumeClaimResize, PersistentVolumeLabel, PodNodeSelector, PodSecurityPolicy, PodTolerationRestriction, Priority, ResourceQuota, RuntimeClass, SecurityContextDeny, ServiceAccount, StorageObjectInUseProtection, TaintNodesByCondition, ValidatingAdmissionWebhook. The order of plugins in this flag does not matter.</span><br></pre></td></tr></table></figure>
+
+<p>根据命令行帮助可以知道，默认会开启17个”准入控制器”。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">&gt;&gt;&gt; a&#x3D;&quot;NamespaceLifecycle, LimitRanger, ServiceAccount, TaintNodesByCondition, Priority, DefaultTolerationSeconds, DefaultStorageClass, StorageObjectInUseProtection, Persis</span><br><span class="line">tentVolumeClaimResize, RuntimeClass, CertificateApproval, CertificateSigning, CertificateSubjectRestriction, DefaultIngressClass, MutatingAdmissionWebhook, ValidatingAdmissionWebhook, ResourceQuota&quot;</span><br><span class="line">&gt;&gt;&gt; len(a.split(&quot;,&quot;))</span><br><span class="line">17</span><br></pre></td></tr></table></figure>
+
+<p>也可以用–enable-admission-plugins开启额外的”准入控制器”。</p>
+<p>这些”准入控制器”介绍可以查看 <a target="_blank" rel="noopener" href="https://kubernetes.io/zh-cn/docs/reference/access-authn-authz/admission-controllers/">使用准入控制器</a> 文档。在我的实验环境中，可以看到额外开启了<code>NodeRestriction准入控制器</code>，它实现了apiserver对kubelet请求的权限控制。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">root@ip-172-31-14-33:~# ps aux|grep kube-apis</span><br><span class="line">root      9567  4.8  7.8 1381988 613048 ?      Ssl  03:49  17:48 kube-apiserver ... --enable-admission-plugins&#x3D;NodeRestriction ...</span><br></pre></td></tr></table></figure>
+
+<h2 id="从源码浅析”准入控制器”"><a href="#从源码浅析”准入控制器”" class="headerlink" title="从源码浅析”准入控制器”"></a>从源码浅析”准入控制器”</h2><p>我们可以通过”断点调试”结合源码分析，验证前面说的两个结论：</p>
+<ul>
+<li>请求先经过认证、鉴权，然后经过”准入控制器”</li>
+<li>默认开启17个”准入控制器”；加上NodeRestriction就是18个</li>
+</ul>
+<p>“认证、日志审计、鉴权”在apiserver中都是以filter的形式存在，而”准入控制器”有点像包装了一层servlet。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">func DefaultBuildHandlerChain(apiHandler http.Handler, c *Config) http.Handler &#123;</span><br><span class="line">	handler :&#x3D; filterlatency.TrackCompleted(apiHandler)</span><br><span class="line">	handler &#x3D; genericapifilters.WithAuthorization(handler, c.Authorization.Authorizer, c.Serializer) &#x2F;&#x2F; 鉴权</span><br><span class="line">	...</span><br><span class="line">	handler &#x3D; genericapifilters.WithAudit(handler, c.AuditBackend, c.AuditPolicyChecker, c.LongRunningFunc)  &#x2F;&#x2F; 日志审计</span><br><span class="line">	...</span><br><span class="line">  handler &#x3D; genericapifilters.WithAuthentication(handler, c.Authentication.Authenticator, failedHandler, c.Authentication.APIAudiences) &#x2F;&#x2F; 认证</span><br><span class="line">	...</span><br><span class="line">	return handler</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>finishRequest函数中会开goroutine调用”准入控制器”<br><img src="https://user-images.githubusercontent.com/1846319/172763360-893e4afd-b937-410f-acbf-f225c1ffd82d.png" alt="img"></p>
+<p>可以看到 admissionHandler切片长度是18，17个”默认开启的准入控制器”加上NodeRestriction<br><img src="https://user-images.githubusercontent.com/1846319/172758085-52f6bde8-6d68-43c8-9f11-32408207b966.png" alt="img"></p>
+<p>部分控制器代码在plugin/pkg/admission目录中，会实现Admit接口<br><img src="https://user-images.githubusercontent.com/1846319/173340117-3b177dd1-60d5-466c-b82e-f4c09a4962d3.png" alt="img"></p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><ul>
+<li>请求先经过认证、鉴权，然后经过”准入控制器”</li>
+<li>默认开启17个”准入控制器”；NodeRestriction不是默认开启的</li>
+</ul>
+<p>默认开启的”准入控制器”中有两个很特殊的，ValidatingAdmissionWebhook和MutatingAdmissionWebhook。这两个控制器让apiserver有了更多的可扩展性，实现了”动态准入控制”。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2022-05-01-%E4%B8%80%E6%AC%A1%E4%BB%B2%E8%A3%81%E7%BB%8F%E5%8E%86/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/2022-05-01-%E4%B8%80%E6%AC%A1%E4%BB%B2%E8%A3%81%E7%BB%8F%E5%8E%86/" class="post-title-link" itemprop="url">一次仲裁经历</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2022-05-01 11:43:41" itemprop="dateCreated datePublished" datetime="2022-05-01T11:43:41+08:00">2022-05-01</time>
+    </span>
+      <span class="post-meta-item">
+        <span class="post-meta-item-icon">
+          <i class="far fa-calendar-check"></i>
+        </span>
+        <span class="post-meta-item-text">更新于</span>
+        <time title="修改时间：2022-06-13 23:10:27" itemprop="dateModified" datetime="2022-06-13T23:10:27+08:00">2022-06-13</time>
+      </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <!-- * 谁
+  * 公司：hr
+  * 我、同事
+  * 仲裁院
+  * 律师：同学、仲裁员律师
+
+文章主旨：给遇到裁员的人一个经验、劳动合同中的坑。给胡千做宣传 -->
+
+<p>2022年4月8号，在海淀区劳动人事争议仲裁院，我这一趟”感受劳动法保护之旅”终于完结，在仲裁庭和上家公司达成和解。</p>
+<p>我为什么想要仲裁呢？一个原因是公司给的赔偿方案是N+1，而我是想要2N+年终奖，另一个原因是我想感受下”劳动法对咱劳动者的保护”，刚好我也不太着急找工作，所以有时间仲裁。</p>
+<p>在决定仲裁后，我被拉进了一个仲裁微信群，群里有接近20个人。群里有些同事可能有些经验，会在群里说”保存绩效截图证据”这种注意事项。不幸的是，没两天群就解散了。私信问了一个群里活跃的同事，她说因为绩效在被裁前还没出来，所以他们好几个人就不仲裁了、拿了N+1。于是我就一个人去仲裁。</p>
+<p>仲裁时间周期比较长，从12.27号到4.8号仲裁开庭，总共去了五次，分别是递交申请材料、调解、拿举证通知、递交和交换举证材料、仲裁开庭。</p>
+<p>仲裁过程比较简单，没有花一毛钱，我也没有请律师。仲裁厅是有律师可以咨询的，排队取号就行也不用花钱，不过服务态度一般。</p>
+<p>仲裁厅的人特别热情，我在写第一次申请材料时不知道怎么写清楚”诉求中的事实和理由”，就用手机搜索，被巡视的工作人员瞟到后，过来给我说，”别网上瞎搜了，来，我告诉你这个怎么填”，然后就呱唧给我说一通。我当时心里想着”仲裁厅可真不错啊”，感觉来对地方了。</p>
+<p>但是到了仲裁开庭时，就没有这么好的感受了。调解员把公司hr支出去后，单独和我谈话：如果我和公司达不成和解，后面就要去法院，这样结果得等到明年去了；即使上了法院，也不一定就能拿到年终奖；不要想着完全按劳动法来。</p>
+<p>我感觉年终奖可能确实难拿。上家公司关于年终奖的说明是写在录用函里而不是劳动合同里，并且写的是”年终奖是浮动的，公司有最终解释权”，同时hr说他们自己都没有年终奖、在职的部门同事也说没有年终奖。看了下我现在公司的劳动合同，把年终奖是写到合同里了，没有”浮动，绩效”这些字眼，挺好。</p>
+<p>再来说说N+1、2N中税的问题。N+1中的N叫做离职补偿金，有一个免税额度，因为上限是本市年度平均工资的三倍，比较高，所以可以认为N是不交税的。N+1中的1叫做代通知金，是要交税的。2N其中一个N是要交税的。</p>
+<p>前几天看到一个知乎热帖下的回答 <a target="_blank" rel="noopener" href="https://www.zhihu.com/question/530759555/answer/2464814635?utm_source=wechat_session&utm_medium=social&utm_oi=27700794228736&utm_content=group2_Answer&utm_campaign=shareopn">女子拒调岗「高管」变「客服」被开除，公司被判赔 59 万，如何从法律角度解读？</a> ，感觉相对于仲裁来说，诉讼真是花时间啊。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -1210,276 +1401,8 @@
 
 
 
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E7%BB%86%E5%93%81%E6%9F%90%E8%AF%AD%E4%B9%89waf%E7%9A%84xss%E9%98%B2%E6%8A%A4(3)/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E7%BB%86%E5%93%81%E6%9F%90%E8%AF%AD%E4%B9%89waf%E7%9A%84xss%E9%98%B2%E6%8A%A4(3)/" class="post-title-link" itemprop="url">细品某语义waf的xss防护(3)</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><ul>
-<li>经过前期调研，标签中下面的危险属性可以用来做xss攻击：<ul>
-<li>href属性</li>
-<li>src属性</li>
-<li>on事件属性</li>
-<li>srcdoc属性</li>
-<li>xlink:href</li>
-<li>action</li>
-<li>formaction</li>
-<li>data (object标签)</li>
-</ul>
-</li>
-</ul>
-<p>假设攻击场景如下</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">漏洞输出位置是 &lt;标签 危险属性&#x3D;&quot;用户输出可控位置&quot;&gt;，比如：</span><br><span class="line">&lt;a href&#x3D;&quot;用户输出可控位置&quot;&gt;</span><br><span class="line">&lt;script src&#x3D;&quot;用户输出可控位置&quot;&gt;</span><br><span class="line"></span><br><span class="line">攻击者不闭合属性值时利用xss攻击,如:</span><br><span class="line">&lt;a href&#x3D;&quot;javascript:alert(&#39;xss&#39;)&quot;&gt;</span><br></pre></td></tr></table></figure>
-
-<p>经过前期调研，在属性值中有下面这些利用方式：</p>
-<ul>
-<li>javascript:js代码</li>
-<li>js代码   （on事件属性）</li>
-<li>data:text/html</li>
-<li>script脚本地址 (script标签的src属性)</li>
-</ul>
-<p>在这个场景下，不考虑其他的利用手段，验证厂商语义waf的安全防护策略</p>
-<p>分析思路：</p>
-<ul>
-<li>针对在属性中每一种利用方式测试，根据拦截情况推测安全防护策略</li>
-</ul>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><h2 id="javascript-js代码"><a href="#javascript-js代码" class="headerlink" title="javascript:js代码"></a>javascript:js代码</h2><p>攻击场景是</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;a&#x2F;href&#x3D;&quot;用户输出可控点&quot;&gt;&lt;&#x2F;a&gt;</span><br></pre></td></tr></table></figure>
-
-<p>测试过程</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;javascript:console.xxx()   拦截</span><br><span class="line">a&#x3D;javascript:console.log(111);xx&#123;&#96;faji(   不拦截  说明判断了js语法是否正确</span><br><span class="line">a&#x3D;javascript:xxx.consol(11)  不拦截</span><br><span class="line">a&#x3D;javascript:xxx.console(11)  拦截   说明危险对象和危险函数一样，在同一个黑名单里。</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:xxx.consoleeee(11)    拦截</span><br><span class="line">a&#x3D;javascript:xxx.xxxconsoleeee(11) 不拦截  说明判断是否在黑名单中采用前缀判断</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:xxxxx()   不拦截</span><br><span class="line">a&#x3D;javascript:alertxxx(11) 拦截</span><br><span class="line">a&#x3D;javascript:alert()   拦截   说明逻辑是 是否存在函数调用 &amp;&amp; 函数名是否在黑名单中</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:a&#x3D;alert;a(1);  拦截</span><br><span class="line">a&#x3D;javascript:a&#x3D;alert;b(1);  拦截   似乎逻辑是 危险函数赋值 &amp;&amp; 调用函数</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:a&#x3D;console;b&#96;1&#96;;  拦截</span><br><span class="line">a&#x3D;javascript:a&#x3D;console;b(1);  拦截</span><br><span class="line">a&#x3D;javascript:a&#x3D;&#x2F;**&#x2F;console;b&#96;1&#96;;   拦截 可以确认拦截逻辑是  危险函数赋值 &amp;&amp; 调用函数</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:alert(&quot;1&quot;)  拦截</span><br><span class="line">a&#x3D;javascript:alert?.(&quot;1&quot;)  应该拦截，但是没有拦截。  说明这里做了js语法解析，且解析器没有支持最新的js语法</span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:console()  不拦截</span><br><span class="line">a&#x3D;javascript:console();xxx.xx()  拦截    </span><br><span class="line">a&#x3D;javascript:consolexxaa();xxx.xx 不拦截   说明只有存在 对象.函数()形式的函数调用 &amp;&amp; 对象名在黑名单中  </span><br><span class="line"></span><br><span class="line">a&#x3D;javascript:window&#x3D;xxx;xxx.xx()   不拦截</span><br><span class="line">a&#x3D;javascript:xxx&#x3D;window;xxx.xx()   拦截    可以确认拦截逻辑是 危险对象赋值 &amp;&amp; 调用函数</span><br></pre></td></tr></table></figure>
-
-<p>小结：</p>
-<ul>
-<li>解析js &amp;&amp; 是否存在”函数()”形式的函数调用 &amp;&amp; 获取调用函数名 &amp;&amp; 函数名在黑名单中（前缀匹配） 则拦截</li>
-<li>解析js &amp;&amp; 是否存在”对象.函数()”形式的函数调用 &amp;&amp; 获取函数名、对象名 &amp;&amp; 将危险对象名扩充到黑名单中 &amp;&amp; (函数名在黑名单中 || 对象名在对象黑名单中)   则拦截</li>
-<li>解析js &amp;&amp; (危险对象赋值 || 危险函数赋值) &amp;&amp; 调用函数    则拦截</li>
-</ul>
-<h2 id="js代码"><a href="#js代码" class="headerlink" title="js代码"></a>js代码</h2><p>攻击场景是</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;svg&#x2F;onload&#x3D;&quot;用户输出点&quot;&gt;</span><br></pre></td></tr></table></figure>
-
-<p>测试过程</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;alert()   拦截</span><br><span class="line">a&#x3D;xxxxx()   不拦截  说明逻辑是 是否存在函数调用 &amp;&amp; 函数名是否在黑名单中</span><br><span class="line">a&#x3D;x&#x3D;alert;x(1);   应该拦截，但是没有拦截。   说明这里没有&quot;危险函数赋值 &amp;&amp; 调用函数&quot;的检测逻辑</span><br><span class="line">a&#x3D;console.log(11)   应该拦截，但是也没有拦截   说明没有拦截&quot;危险对象&quot;</span><br><span class="line">xxxx.alert(11)   拦截    确认逻辑是 是否存在函数调用 &amp;&amp; 函数名是否在黑名单中</span><br></pre></td></tr></table></figure>
-
-<p>小结:</p>
-<ul>
-<li>解析js &amp;&amp; 存在”对象.函数()”形式或者”函数()”函数形式的函数调用 &amp;&amp; 函数名是否在黑名单中   则拦截</li>
-</ul>
-<h2 id="data-text-html"><a href="#data-text-html" class="headerlink" title="data:text/html"></a>data:text/html</h2><p>攻击场景是</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;iframe src&#x3D;&quot;用户输出可控点&quot;&gt;</span><br></pre></td></tr></table></figure>
-<p>测试过程</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">data:text&#x2F;html;base64;PGltZy9vbmxvYWQ9eHg  不拦截</span><br><span class="line"></span><br><span class="line">data:text&#x2F;html;base64,PHN2Zy9vbmxvYWQ9YWxlcnQoMSk+   应该拦截，但是没有拦截. 说明不拦截这种利用场景</span><br></pre></td></tr></table></figure>
-<p>小结：不拦截</p>
-<h2 id="script脚本地址-script标签"><a href="#script脚本地址-script标签" class="headerlink" title="script脚本地址 (script标签)"></a>script脚本地址 (script标签)</h2><p>攻击场景是</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&lt;script src&#x3D;&quot;用户输出点&quot;&gt;</span><br></pre></td></tr></table></figure>
-
-<p>测试过程</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">http:&#x2F;&#x2F;xxx.com&#x2F;a.js  应该拦截，但是没有拦截. 说明不拦截这种攻击场景</span><br></pre></td></tr></table></figure>
-<p>小结：不拦截</p>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>拦截策略，可能是：</p>
-<ul>
-<li>解析js &amp;&amp; 是否存在”函数()”形式的函数调用 &amp;&amp; 获取调用函数名 &amp;&amp; 函数名在黑名单中（前缀匹配） 则拦截</li>
-<li>解析js &amp;&amp; 是否存在”对象.函数()”形式的函数调用 &amp;&amp; 获取函数名、对象名 &amp;&amp; 将危险对象名扩充到黑名单中 &amp;&amp; (函数名在黑名单中 || 对象名在对象黑名单中)   则拦截</li>
-<li>解析js &amp;&amp; (危险对象赋值 || 危险函数赋值) &amp;&amp; 调用函数    则拦截</li>
-<li>解析js &amp;&amp; 存在”对象.函数()”形式或者”函数()”函数形式的函数调用 &amp;&amp; 函数名是否在黑名单中   则拦截</li>
-</ul>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E7%BB%86%E5%93%81%E6%9F%90%E8%AF%AD%E4%B9%89waf%E7%9A%84xss%E9%98%B2%E6%8A%A4(4)/">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="leveryd">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="leveryd的个人博客">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E7%BB%86%E5%93%81%E6%9F%90%E8%AF%AD%E4%B9%89waf%E7%9A%84xss%E9%98%B2%E6%8A%A4(4)/" class="post-title-link" itemprop="url">细品某语义waf的xss防护(4)</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">发表于</span>
-
-      <time title="创建时间：2021-12-26 15:33:56" itemprop="dateCreated datePublished" datetime="2021-12-26T15:33:56+08:00">2021-12-26</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>假设攻击场景如下</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">漏洞输出位置在JS环境中，如下面3种场景</span><br><span class="line"></span><br><span class="line">&lt;script&gt;</span><br><span class="line">  var a&#x3D;&quot;用户输出可控位置&quot;;   &#x2F;&#x2F; 1</span><br><span class="line"></span><br><span class="line">  func(&quot;用户输出可控位置&quot;);   &#x2F;&#x2F; 2</span><br><span class="line"></span><br><span class="line">  eval(&quot;用户输出可控位置&quot;);   &#x2F;&#x2F; 3</span><br><span class="line"></span><br><span class="line">&lt;&#x2F;script&gt;</span><br></pre></td></tr></table></figure>
-
-<p>在这个场景下，验证厂商的安全防护策略</p>
-<p>分析思路</p>
-<ul>
-<li>判断支持哪几种引号的闭合</li>
-<li>对每类攻击场景单独测试，根据拦截情况推测安全防护策略</li>
-</ul>
-<h1 id="分析过程"><a href="#分析过程" class="headerlink" title="分析过程"></a>分析过程</h1><h2 id="判断支持哪几种引号的闭合"><a href="#判断支持哪几种引号的闭合" class="headerlink" title="判断支持哪几种引号的闭合"></a>判断支持哪几种引号的闭合</h2><p>现代的Javascript支持三种方式表示字符串</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">var a&#x3D;&#39;xx&#39;</span><br><span class="line">var a&#x3D;&quot;xx&quot;</span><br><span class="line">var a&#x3D;&#96;xx&#96;</span><br></pre></td></tr></table></figure>
-<p>因此同一个攻击场景会因为字符串写法细分成三类。</p>
-<p>测试payload是否被拦截</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">&#96;-alert(1)-&#96;   没有拦截     说明不支持拦截 var a&#x3D;&#96;&#96;-alert(1)-&#96;&#96;;  这种攻击</span><br><span class="line">&quot;-alert(1)-&quot;   拦截</span><br><span class="line">&#39;-alert(1)-&#39;   拦截</span><br></pre></td></tr></table></figure>
-
-<p>小结：</p>
-<ul>
-<li><p>支持单引号、双引号，不支持反引号</p>
-</li>
-<li><p>不支持防护下面的攻击场景</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">var a&#x3D;&#96;用户输出可控位置&#96;;</span><br><span class="line">func(&#96;用户输出可控位置&#96;);</span><br><span class="line">eval(&#96;用户输出可控位置&#96;);</span><br></pre></td></tr></table></figure>
-
-</li>
-</ul>
-<h2 id="单独测试"><a href="#单独测试" class="headerlink" title="单独测试"></a>单独测试</h2><ul>
-<li><p>var a=”用户输出可控位置”;</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">&quot;;xxx.alert(1);&#x2F;&#x2F;   拦截</span><br><span class="line">&quot;;xxx.xxalert(1);&#x2F;&#x2F;  不拦截</span><br></pre></td></tr></table></figure>
-
-<p>小结：</p>
-<ul>
-<li>解析js &amp;&amp; 存在”对象.函数()”形式或者”函数()”函数形式的函数调用 &amp;&amp; 函数名在黑名单中 则拦截</li>
-</ul>
-</li>
-<li><p>eval(‘用户输出可控位置’);</p>
-<p>漏洞利用时，如果不闭合引号</p>
-  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">self[&quot;xxxx&quot;](1)    拦截</span><br><span class="line">selxfxx[&quot;alert&quot;](1)  不拦截</span><br><span class="line">selfxx[&quot;alert&quot;](1)  拦截</span><br><span class="line">self.xxx(1)    不拦截</span><br><span class="line"></span><br><span class="line">说明安全策略可能是：函数调用 &amp;&amp; 形式为&quot;对象[属性]()&quot; &amp;&amp; 对象名在黑名单中 (前缀匹配)</span><br></pre></td></tr></table></figure>
-
-<p>漏洞利用时，如果闭合引号，就和<code>func(&#39;用户输出可控位置&#39;)</code>攻击场景一样了</p>
-<p>小结：</p>
-<ul>
-<li>解析js &amp;&amp; 存在”对象.函数()”形式或者”函数()”函数形式的函数调用 &amp;&amp; 函数名是否在黑名单中   则拦截   (之前测试<code>&lt;svg/onload=&quot;用户输出点&quot;&gt;</code>场景得出结论，在这里也适用)</li>
-<li>解析js &amp;&amp; 函数调用 &amp;&amp; 形式为<code>对象[属性]()</code> &amp;&amp; 对象名在黑名单中 (前缀匹配)   则拦截</li>
-</ul>
-</li>
-</ul>
-<ul>
-<li><p>func(‘用户输出可控位置’);</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">a&#x3D;&#39;-alert(1)&#x2F;&#x2F;   拦截</span><br><span class="line">a&#x3D;&#39;-alert(1)-   拦截</span><br></pre></td></tr></table></figure>
-
-<p>小结： 解析js &amp;&amp; 存在”对象.函数()”形式或者”函数()”函数形式的函数调用 &amp;&amp; 函数名在黑名单中  则拦截</p>
-</li>
-</ul>
-<h2 id="不能解释的奇怪现象"><a href="#不能解释的奇怪现象" class="headerlink" title="不能解释的奇怪现象"></a>不能解释的奇怪现象</h2><ul>
-<li><p>测试过程中 <code>&quot;;alert(&#39;)</code> payload 被拦截</p>
-<p>按照我的经验，<code>&quot;;alert(&#39;)</code> payload无论对应到哪一类攻击场景都不会是正确的js语法，因此不应该被语义waf拦截。</p>
-<p>虽然 “;alert(‘)  payload在下面场景下可以弹框</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">&lt;script&gt;</span><br><span class="line">var a&#x3D;&quot;用户输出&#39;);   &#x2F;&#x2F; var a&#x3D;&quot;&quot;;alert(&#39;)&#39;);</span><br><span class="line">&lt;&#x2F;script&gt;</span><br></pre></td></tr></table></figure>
-
-<p>但是几乎不可能有开发写出上面的代码。</p>
-<p>所以，有两个问题：</p>
-<ol>
-<li>这个payload是否有对应的漏洞场景？</li>
-<li>如果有对应的漏洞场景，对应的漏洞代码会长什么样？</li>
-</ol>
-</li>
-</ul>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><ul>
-<li>可能的安全策略：<ul>
-<li>解析js &amp;&amp; 存在”对象.函数()”形式或者”函数()”函数形式的函数调用 &amp;&amp; 函数名在黑名单中  则拦截</li>
-<li>解析js &amp;&amp; 函数调用 &amp;&amp; 形式为<code>对象[属性]()</code> &amp;&amp; 对象名在黑名单中 (前缀匹配)   则拦截</li>
-</ul>
-</li>
-<li>有一些payload被拦截的原因目前无法解释</li>
-</ul>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
   <nav class="pagination">
-    <a class="extend prev" rel="prev" href="/"><i class="fa fa-angle-left" aria-label="上一页"></i></a><a class="page-number" href="/">1</a><span class="page-number current">2</span><a class="page-number" href="/page/3/">3</a><span class="space">&hellip;</span><a class="page-number" href="/page/6/">6</a><a class="extend next" rel="next" href="/page/3/"><i class="fa fa-angle-right" aria-label="下一页"></i></a>
+    <a class="extend prev" rel="prev" href="/"><i class="fa fa-angle-left" aria-label="上一页"></i></a><a class="page-number" href="/">1</a><span class="page-number current">2</span><a class="page-number" href="/page/3/">3</a><span class="space">&hellip;</span><a class="page-number" href="/page/7/">7</a><a class="extend next" rel="next" href="/page/3/"><i class="fa fa-angle-right" aria-label="下一页"></i></a>
   </nav>
 
 </div>

