@@ -1189,7 +1189,7 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E6%8F%90%E9%AB%98%E6%BC%8F%E6%B4%9E%E9%AA%8C%E8%AF%81%E6%95%88%E7%8E%87%E7%9A%84%E5%B7%A5%E5%85%B7/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E6%AD%A3%E5%88%99%E8%A1%A8%E8%BE%BE%E5%BC%8F%E5%8E%9F%E7%90%86%E4%B8%8EReDos%E6%94%BB%E5%87%BB/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -1202,7 +1202,7 @@
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E6%8F%90%E9%AB%98%E6%BC%8F%E6%B4%9E%E9%AA%8C%E8%AF%81%E6%95%88%E7%8E%87%E7%9A%84%E5%B7%A5%E5%85%B7/" class="post-title-link" itemprop="url">提高漏洞验证效率的工具</a>
+          <a href="/2021-12-26-%E6%AD%A3%E5%88%99%E8%A1%A8%E8%BE%BE%E5%BC%8F%E5%8E%9F%E7%90%86%E4%B8%8EReDos%E6%94%BB%E5%87%BB/" class="post-title-link" itemprop="url">正则表达式原理与ReDos攻击</a>
         </h2>
 
         <div class="post-meta-container">
@@ -1226,37 +1226,53 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>某个xss漏洞点如下：</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">&lt;script&gt;</span><br><span class="line">x&#x3D;document.createElement(&quot;script&quot;);</span><br><span class="line">x.setAttribute(&quot;src&quot;, &quot;用户可控的地址&quot;);</span><br><span class="line">document.body.appendChild(x);</span><br><span class="line">&lt;&#x2F;script&gt;</span><br></pre></td></tr></table></figure>
-
-<p>虽然xss漏洞肯定是存在的，但是我不知道利用起来是不是会有问题，比如碰到csp等。</p>
-<p>所以我在”用户可控地址” 填入 “<a target="_blank" rel="noopener" href="http://x.x.x.x/1.js&quot;">http://x.x.x.x/1.js&quot;</a> 来验证，于是出现了点问题。</p>
-<p>第一个问题：https站点引入http静态资源时，浏览器控制台出现”混合内容”警告。似乎会影响js解析</p>
-<p>第二个问题：响应头的content-type需要是text/javascript，否则不能当作js解析</p>
-<p>所以我需要一个web服务：</p>
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>在研究 <a target="_blank" rel="noopener" href="https://owasp.org/www-community/attacks/Regular_expression_Denial_of_Service_-_ReDoS">ReDos攻击</a> 时，涉及到两个问题</p>
+<ol>
+<li>实现正则表达式的算法，比如NFA和DFA是什么？</li>
+<li>我们用的编程语言如Python、PHP等的正则功能是怎么实现的？</li>
+</ol>
+<h1 id="研究过程"><a href="#研究过程" class="headerlink" title="研究过程"></a>研究过程</h1><h2 id="正则表达式算法"><a href="#正则表达式算法" class="headerlink" title="正则表达式算法"></a>正则表达式算法</h2><p>关于NFA和DFA的讲解和实现，推荐读者看  <a target="_blank" rel="noopener" href="https://time.geekbang.org/column/article/137286?utm_term=zeusULN89&utm_source=app&utm_medium=geektime&utm_campaign=314-presell&utm_content=diyijijiacan0601">16 | NFA和DFA：如何自己实现一个正则表达式工具？</a> 这篇文章，讲得深入浅出，并配有Java代码demo。</p>
+<p>我用Python实现了课程的内容，代码在 <a target="_blank" rel="noopener" href="https://github.com/leveryd/PlayWithCompiler/blob/master/algorithm/regex.py">regex</a>。</p>
+<p>这一部分我想说的是：</p>
+<p>在研究ReDos攻击时，我们只要知道”NFA算法中回溯可能会造成计算量暴增，从而导致ReDos”这个结论就可以。</p>
+<p>不过知道一些算法原理，我感觉可以在我们验证语言是采用哪种算法时心里更有底一些。想要自动化检测可能产生ReDos的正则时，对正则原理也需要知道。</p>
+<h2 id="编程语言的正则是怎么实现的？"><a href="#编程语言的正则是怎么实现的？" class="headerlink" title="编程语言的正则是怎么实现的？"></a>编程语言的正则是怎么实现的？</h2><p>我测试了下面几个语言的正则，我自己把他们划分成两类：</p>
 <ul>
-<li>支持https</li>
-<li>返回内容可以自定义</li>
-<li>响应头content-type可以自定义</li>
-<li>支持公网访问</li>
+<li>第一类<ul>
+<li>C  (pcre库)</li>
+<li>Lua</li>
+<li>Nginx (ngx.re模块)</li>
+<li>PHP</li>
 </ul>
-<p>自己去搭这样一个服务也不难，但是如果有现成的岂不是更好，省时省力。</p>
-<p>根据历史经验，我知道有两种平台似乎可以解决我的这个小需求：</p>
-<ul>
-<li>类似 pastebin 的平台，可以通过短链接访问</li>
-<li>xss平台</li>
+</li>
+<li>第二类<ul>
+<li>Python</li>
 </ul>
-<h1 id="测试这些平台是否好用"><a href="#测试这些平台是否好用" class="headerlink" title="测试这些平台是否好用"></a>测试这些平台是否好用</h1><p><a target="_blank" rel="noopener" href="http://ix.io/">http://ix.io</a> : 不支持https</p>
-<p><a target="_blank" rel="noopener" href="http://pastebin.com/">http://pastebin.com</a>: 不支持设置content-type</p>
-<p>搜索到的很多xss平台，都需要邀请码。甚至有的注册成功了，但是使用起来有问题。</p>
-<p>再比如 xssye.com 这个xss平台我很久以前用过。今天登陆提示账号密码登陆不上，申请密码找回提示邮箱和账号对不上，重新注册又提示”需要注册邀请码”。</p>
-<p>总之试了几个，感觉用着比较难受。这些xss平台看前段页面似乎都是一套代码，也不确定是否可能存在漏洞。</p>
-<h1 id="有没有稳定好用的服务"><a href="#有没有稳定好用的服务" class="headerlink" title="有没有稳定好用的服务"></a>有没有稳定好用的服务</h1><p>想起来云上的文件存储服务，刚好是满足我自己的需求的。</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">➜  ~ curl https:&#x2F;&#x2F;webbackup-3knjfg4bxz.bj.bcebos.com&#x2F;1.js</span><br><span class="line">alert(1);</span><br></pre></td></tr></table></figure>
+</li>
+</ul>
+<p>测试代码我放在了 <a target="_blank" rel="noopener" href="https://github.com/leveryd/regex_test">regex_test</a></p>
+<p>我划分这两类仅仅依据”是否依赖PCRE库”</p>
+<h3 id="第一类"><a href="#第一类" class="headerlink" title="第一类"></a>第一类</h3><p>先说结论：依赖PCRE实现的正则只要配置好最大回溯次数的，就没有ReDos问题。</p>
+<p>我把”基于PCRE库实现的正则功能”的算到了第一类中，<code>PCRE</code>的详细介绍可以查看man手册。</p>
+<p>PCRE库是有两套API接口的。执行<code>man pcrematching</code>命令可以在man帮助手册查看到算法相关的描述。</p>
+<p>一套是基于NFA算法，调用pcre_exec等函数来做正则匹配；另一套是基于DFA算法，调用pcre_dfa_exec等函数来做正则匹配。</p>
+<p>默认用的都是NFA算法，但是PCRE库提供配置选项，可以控制最大回溯次数，超过了回溯次数后就不匹配了。</p>
+<p>其他语言也同样有配置选项来控制最大回溯次数，比如</p>
+<pre><code>PHP的pcre扩展中, 提供了俩个设置项
 
-<p>另外云上的函数服务，还可以写代码对响应做更精细的控制。</p>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>云上的 文件存储、函数服务 等很适合快速在公网提供https服务，而且相对于个人自己搭建的服务要稳定省心得多，推荐使用。</p>
-<p>当然云上也有很坑的服务，就不说了。</p>
+  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">pcre.backtrack_limit &#x2F;&#x2F;最大回溯数</span><br><span class="line">pcre.recursion_limit &#x2F;&#x2F;最大嵌套数</span><br></pre></td></tr></table></figure>
+
+Nginx提供 `lua_regex_match_limit` 指令限制回溯次数</code></pre>
+<h3 id="第二类"><a href="#第二类" class="headerlink" title="第二类"></a>第二类</h3><p>先说结论：这一类语言如果没有”最大回溯次数的配置”选项，很容易出现ReDos问题。</p>
+<p>我把”自己实现正则算法”的归在了第二类。</p>
+<p>这里我只看了Python语言的re模块。</p>
+<p>CPython的re模块在c层面相关的文件有</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">Modules&#x2F;_sre.c</span><br><span class="line">Modules&#x2F;sre_lib.h</span><br></pre></td></tr></table></figure>
+<p>具体的代码逻辑也没有细看，根据测试结果来看re模块也应该是NFA算法，且源码中没有看到调用PCRE的api所以应该不是基于PCRE实现的。</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>通过写一个小的正则解析器demo可以理解DFA和NFA的原理和区别，NFA转换成DFA后状态机就不存在回溯了，所以DFA算法没有ReDos问题。</p>
+<p>基于PCRE实现的正则基本都有配置选项限制回溯次数，所以出现ReDos的概率会小很多。</p>
+<p>像CPython re模块这种自己实现NFA算法的，又没有控制回溯次数的，就很有可能出现ReDos问题。比如<a target="_blank" rel="noopener" href="https://bugs.python.org/issue39503">CVE-2020-8492</a>、<a target="_blank" rel="noopener" href="https://github.com/python/cpython/commit/0902a2d6b2d1d9dbde36aeaaccf1788ceaa97143">CVE-2018-1060/CVE-2018-1061</a></p>
+<p>为了自动化检测ReDos问题，我们可以基于如<a target="_blank" rel="noopener" href="https://github.com/superhuman/rxxr2">rxxr2</a>类似的工具开发。这些工具有没有一些漏报的情况，就需要另外研究了。</p>
 
       
     </div>
@@ -1388,7 +1404,7 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E6%AD%A3%E5%88%99%E8%A1%A8%E8%BE%BE%E5%BC%8F%E5%8E%9F%E7%90%86%E4%B8%8EReDos%E6%94%BB%E5%87%BB/">
+    <link itemprop="mainEntityOfPage" href="http://yoursite.com/2021-12-26-%E6%8F%90%E9%AB%98%E6%BC%8F%E6%B4%9E%E9%AA%8C%E8%AF%81%E6%95%88%E7%8E%87%E7%9A%84%E5%B7%A5%E5%85%B7/">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -1401,7 +1417,7 @@
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/2021-12-26-%E6%AD%A3%E5%88%99%E8%A1%A8%E8%BE%BE%E5%BC%8F%E5%8E%9F%E7%90%86%E4%B8%8EReDos%E6%94%BB%E5%87%BB/" class="post-title-link" itemprop="url">正则表达式原理与ReDos攻击</a>
+          <a href="/2021-12-26-%E6%8F%90%E9%AB%98%E6%BC%8F%E6%B4%9E%E9%AA%8C%E8%AF%81%E6%95%88%E7%8E%87%E7%9A%84%E5%B7%A5%E5%85%B7/" class="post-title-link" itemprop="url">提高漏洞验证效率的工具</a>
         </h2>
 
         <div class="post-meta-container">
@@ -1425,53 +1441,37 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>在研究 <a target="_blank" rel="noopener" href="https://owasp.org/www-community/attacks/Regular_expression_Denial_of_Service_-_ReDoS">ReDos攻击</a> 时，涉及到两个问题</p>
-<ol>
-<li>实现正则表达式的算法，比如NFA和DFA是什么？</li>
-<li>我们用的编程语言如Python、PHP等的正则功能是怎么实现的？</li>
-</ol>
-<h1 id="研究过程"><a href="#研究过程" class="headerlink" title="研究过程"></a>研究过程</h1><h2 id="正则表达式算法"><a href="#正则表达式算法" class="headerlink" title="正则表达式算法"></a>正则表达式算法</h2><p>关于NFA和DFA的讲解和实现，推荐读者看  <a target="_blank" rel="noopener" href="https://time.geekbang.org/column/article/137286?utm_term=zeusULN89&utm_source=app&utm_medium=geektime&utm_campaign=314-presell&utm_content=diyijijiacan0601">16 | NFA和DFA：如何自己实现一个正则表达式工具？</a> 这篇文章，讲得深入浅出，并配有Java代码demo。</p>
-<p>我用Python实现了课程的内容，代码在 <a target="_blank" rel="noopener" href="https://github.com/leveryd/PlayWithCompiler/blob/master/algorithm/regex.py">regex</a>。</p>
-<p>这一部分我想说的是：</p>
-<p>在研究ReDos攻击时，我们只要知道”NFA算法中回溯可能会造成计算量暴增，从而导致ReDos”这个结论就可以。</p>
-<p>不过知道一些算法原理，我感觉可以在我们验证语言是采用哪种算法时心里更有底一些。想要自动化检测可能产生ReDos的正则时，对正则原理也需要知道。</p>
-<h2 id="编程语言的正则是怎么实现的？"><a href="#编程语言的正则是怎么实现的？" class="headerlink" title="编程语言的正则是怎么实现的？"></a>编程语言的正则是怎么实现的？</h2><p>我测试了下面几个语言的正则，我自己把他们划分成两类：</p>
+          <h1 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h1><p>某个xss漏洞点如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">&lt;script&gt;</span><br><span class="line">x&#x3D;document.createElement(&quot;script&quot;);</span><br><span class="line">x.setAttribute(&quot;src&quot;, &quot;用户可控的地址&quot;);</span><br><span class="line">document.body.appendChild(x);</span><br><span class="line">&lt;&#x2F;script&gt;</span><br></pre></td></tr></table></figure>
+
+<p>虽然xss漏洞肯定是存在的，但是我不知道利用起来是不是会有问题，比如碰到csp等。</p>
+<p>所以我在”用户可控地址” 填入 “<a target="_blank" rel="noopener" href="http://x.x.x.x/1.js&quot;">http://x.x.x.x/1.js&quot;</a> 来验证，于是出现了点问题。</p>
+<p>第一个问题：https站点引入http静态资源时，浏览器控制台出现”混合内容”警告。似乎会影响js解析</p>
+<p>第二个问题：响应头的content-type需要是text/javascript，否则不能当作js解析</p>
+<p>所以我需要一个web服务：</p>
 <ul>
-<li>第一类<ul>
-<li>C  (pcre库)</li>
-<li>Lua</li>
-<li>Nginx (ngx.re模块)</li>
-<li>PHP</li>
+<li>支持https</li>
+<li>返回内容可以自定义</li>
+<li>响应头content-type可以自定义</li>
+<li>支持公网访问</li>
 </ul>
-</li>
-<li>第二类<ul>
-<li>Python</li>
+<p>自己去搭这样一个服务也不难，但是如果有现成的岂不是更好，省时省力。</p>
+<p>根据历史经验，我知道有两种平台似乎可以解决我的这个小需求：</p>
+<ul>
+<li>类似 pastebin 的平台，可以通过短链接访问</li>
+<li>xss平台</li>
 </ul>
-</li>
-</ul>
-<p>测试代码我放在了 <a target="_blank" rel="noopener" href="https://github.com/leveryd/regex_test">regex_test</a></p>
-<p>我划分这两类仅仅依据”是否依赖PCRE库”</p>
-<h3 id="第一类"><a href="#第一类" class="headerlink" title="第一类"></a>第一类</h3><p>先说结论：依赖PCRE实现的正则只要配置好最大回溯次数的，就没有ReDos问题。</p>
-<p>我把”基于PCRE库实现的正则功能”的算到了第一类中，<code>PCRE</code>的详细介绍可以查看man手册。</p>
-<p>PCRE库是有两套API接口的。执行<code>man pcrematching</code>命令可以在man帮助手册查看到算法相关的描述。</p>
-<p>一套是基于NFA算法，调用pcre_exec等函数来做正则匹配；另一套是基于DFA算法，调用pcre_dfa_exec等函数来做正则匹配。</p>
-<p>默认用的都是NFA算法，但是PCRE库提供配置选项，可以控制最大回溯次数，超过了回溯次数后就不匹配了。</p>
-<p>其他语言也同样有配置选项来控制最大回溯次数，比如</p>
-<pre><code>PHP的pcre扩展中, 提供了俩个设置项
+<h1 id="测试这些平台是否好用"><a href="#测试这些平台是否好用" class="headerlink" title="测试这些平台是否好用"></a>测试这些平台是否好用</h1><p><a target="_blank" rel="noopener" href="http://ix.io/">http://ix.io</a> : 不支持https</p>
+<p><a target="_blank" rel="noopener" href="http://pastebin.com/">http://pastebin.com</a>: 不支持设置content-type</p>
+<p>搜索到的很多xss平台，都需要邀请码。甚至有的注册成功了，但是使用起来有问题。</p>
+<p>再比如 xssye.com 这个xss平台我很久以前用过。今天登陆提示账号密码登陆不上，申请密码找回提示邮箱和账号对不上，重新注册又提示”需要注册邀请码”。</p>
+<p>总之试了几个，感觉用着比较难受。这些xss平台看前段页面似乎都是一套代码，也不确定是否可能存在漏洞。</p>
+<h1 id="有没有稳定好用的服务"><a href="#有没有稳定好用的服务" class="headerlink" title="有没有稳定好用的服务"></a>有没有稳定好用的服务</h1><p>想起来云上的文件存储服务，刚好是满足我自己的需求的。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">➜  ~ curl https:&#x2F;&#x2F;webbackup-3knjfg4bxz.bj.bcebos.com&#x2F;1.js</span><br><span class="line">alert(1);</span><br></pre></td></tr></table></figure>
 
-  <figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">pcre.backtrack_limit &#x2F;&#x2F;最大回溯数</span><br><span class="line">pcre.recursion_limit &#x2F;&#x2F;最大嵌套数</span><br></pre></td></tr></table></figure>
-
-Nginx提供 `lua_regex_match_limit` 指令限制回溯次数</code></pre>
-<h3 id="第二类"><a href="#第二类" class="headerlink" title="第二类"></a>第二类</h3><p>先说结论：这一类语言如果没有”最大回溯次数的配置”选项，很容易出现ReDos问题。</p>
-<p>我把”自己实现正则算法”的归在了第二类。</p>
-<p>这里我只看了Python语言的re模块。</p>
-<p>CPython的re模块在c层面相关的文件有</p>
-<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">Modules&#x2F;_sre.c</span><br><span class="line">Modules&#x2F;sre_lib.h</span><br></pre></td></tr></table></figure>
-<p>具体的代码逻辑也没有细看，根据测试结果来看re模块也应该是NFA算法，且源码中没有看到调用PCRE的api所以应该不是基于PCRE实现的。</p>
-<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>通过写一个小的正则解析器demo可以理解DFA和NFA的原理和区别，NFA转换成DFA后状态机就不存在回溯了，所以DFA算法没有ReDos问题。</p>
-<p>基于PCRE实现的正则基本都有配置选项限制回溯次数，所以出现ReDos的概率会小很多。</p>
-<p>像CPython re模块这种自己实现NFA算法的，又没有控制回溯次数的，就很有可能出现ReDos问题。比如<a target="_blank" rel="noopener" href="https://bugs.python.org/issue39503">CVE-2020-8492</a>、<a target="_blank" rel="noopener" href="https://github.com/python/cpython/commit/0902a2d6b2d1d9dbde36aeaaccf1788ceaa97143">CVE-2018-1060/CVE-2018-1061</a></p>
-<p>为了自动化检测ReDos问题，我们可以基于如<a target="_blank" rel="noopener" href="https://github.com/superhuman/rxxr2">rxxr2</a>类似的工具开发。这些工具有没有一些漏报的情况，就需要另外研究了。</p>
+<p>另外云上的函数服务，还可以写代码对响应做更精细的控制。</p>
+<h1 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h1><p>云上的 文件存储、函数服务 等很适合快速在公网提供https服务，而且相对于个人自己搭建的服务要稳定省心得多，推荐使用。</p>
+<p>当然云上也有很坑的服务，就不说了。</p>
 
       
     </div>
